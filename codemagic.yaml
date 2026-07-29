@@ -19,7 +19,9 @@ workflows:
       - name: Setup Flutter
         script: flutter pub get
       - name: Build Android APK
-        script: flutter build apk --release --verbose
+        script: |
+          cd android
+          ./gradlew assembleRelease --stacktrace 2>&1
     artifacts:
       - build/**/outputs/**/*.apk
       - build/**/outputs/**/*.aab
