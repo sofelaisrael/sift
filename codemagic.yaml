@@ -16,12 +16,12 @@ workflows:
         - pattern: 'master'
           include: true
     scripts:
-      - name: Setup Flutter
-        script: flutter pub get
-      - name: Build Android APK
+      - name: Setup
         script: |
-          cd android
-          ./gradlew assembleRelease --stacktrace 2>&1
+          flutter pub get
+          flutter --version
+      - name: Build APK (verbose)
+        script: flutter build apk --release --verbose
     artifacts:
       - build/**/outputs/**/*.apk
       - build/**/outputs/**/*.aab

@@ -14,7 +14,7 @@ dependencies:
   cupertino_icons: ^1.0.6
   
   # OCR - ML Kit
-  google_mlkit_text_recognition: ^0.14.0
+  google_mlkit_text_recognition: ^0.16.0
 
   # Calendar integration
   device_calendar: ^4.0.0
