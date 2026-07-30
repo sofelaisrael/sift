@@ -20,6 +20,12 @@ workflows:
         script: flutter pub get
       - name: Build APK
         script: flutter build apk --release
+      - name: Verify APK
+        script: |
+          echo "=== Looking for APK files ==="
+          find . -name "*.apk" -type f
+          echo "=== build/app/outputs contents ==="
+          ls -laR build/app/outputs/ 2>/dev/null || echo "Directory not found"
     artifacts:
       - build/**/outputs/**/*.apk
       - build/**/outputs/**/*.aab
