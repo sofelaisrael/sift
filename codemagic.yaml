@@ -19,18 +19,10 @@ workflows:
       - name: Setup
         script: flutter pub get
       - name: Build APK
-        script: |
-          flutter build apk --release --verbose > /tmp/flutter_build.log 2>&1
-          echo "EXIT CODE: $?"
-          echo "=== GRADLE ERRORS ==="
-          grep -iE "error|failure|exception|what went wrong|BUILD FAILED|could not" /tmp/flutter_build.log | head -30
-          echo "=== LAST 50 LINES ==="
-          tail -50 /tmp/flutter_build.log
+        script: flutter build apk --release
     artifacts:
       - build/**/outputs/**/*.apk
       - build/**/outputs/**/*.aab
-      - android/app/build/outputs/**/*.apk
-      - android/app/build/outputs/**/*.aab
     publishing:
       email:
         recipients:
