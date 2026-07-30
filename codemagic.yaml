@@ -19,9 +19,7 @@ workflows:
       - name: Setup
         script: flutter pub get
       - name: Build APK
-        script: flutter build apk --release --verbose
-      - name: Find APK
-        script: find build -name "*.apk" 2>/dev/null; find android -name "*.apk" 2>/dev/null; ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "No APK output directory found"
+        script: flutter build apk --release --verbose > /tmp/flutter_build.log 2>&1; echo "EXIT CODE: $?" ; echo "=== GRADLE ERRORS ===" ; grep -iE "error|failure|exception|what went wrong|BUILD FAILED|could not" /tmp/flutter_build.log | head -30 ; echo "=== LAST 50 LINES ===" ; tail -50 /tmp/flutter_build.log
     artifacts:
       - build/**/outputs/**/*.apk
       - build/**/outputs/**/*.aab
