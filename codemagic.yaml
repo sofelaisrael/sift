@@ -27,8 +27,9 @@ workflows:
           echo "=== build/app/outputs contents ==="
           ls -laR build/app/outputs/ 2>/dev/null || echo "Directory not found"
     artifacts:
-      - build/**/outputs/**/*.apk
-      - build/**/outputs/**/*.aab
+      - build/**/*.apk
+      - build/**/*.aab
+      - android/app/build/**/*.apk
     publishing:
       email:
         recipients:
