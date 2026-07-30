@@ -19,17 +19,21 @@ workflows:
       - name: Setup
         script: flutter pub get
       - name: Build APK
-        script: flutter build apk --release
-      - name: Verify APK
+        script: flutter build apk --release --verbose 2>&1 | tee /tmp/full_build.log
+      - name: Dump errors
         script: |
-          echo "=== Looking for APK files ==="
-          find . -name "*.apk" -type f
-          echo "=== build/app/outputs contents ==="
-          ls -laR build/app/outputs/ 2>/dev/null || echo "Directory not found"
+          echo "=== WHAT WENT WRONG ==="
+          grep -B2 -A10 "What went wrong" /tmp/full_build.log || echo "Not found"
+          echo "=== FAILURE ==="
+          grep -B2 -A10 "FAILURE" /tmp/full_build.log || echo "Not found"
+          echo "=== EXIT CODE ==="
+          grep -i "exiting with code" /tmp/full_build.log || echo "Not found"
+          echo "=== LAST 30 LINES ==="
+          tail -30 /tmp/full_build.log
     artifacts:
+      - /tmp/full_build.log
       - build/**/*.apk
       - build/**/*.aab
-      - android/app/build/**/*.apk
     publishing:
       email:
         recipients:
