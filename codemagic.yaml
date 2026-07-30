@@ -19,7 +19,10 @@ workflows:
       - name: Setup
         script: flutter pub get
       - name: Build APK
-        script: flutter build apk --release --verbose
+        script: |
+          flutter build apk --release --verbose > /tmp/build.log 2>&1 || true
+          echo "=== LAST 150 LINES OF BUILD LOG ==="
+          tail -150 /tmp/build.log
     artifacts:
       - build/**/outputs/**/*.apk
       - build/**/outputs/**/*.aab
