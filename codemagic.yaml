@@ -19,10 +19,9 @@ workflows:
       - name: Setup
         script: flutter pub get
       - name: Build APK
-        script: |
-          flutter build apk --release --verbose > /tmp/build.log 2>&1 || true
-          echo "=== LAST 150 LINES OF BUILD LOG ==="
-          tail -150 /tmp/build.log
+        script: flutter build apk --release --verbose
+      - name: Find APK
+        script: find build -name "*.apk" 2>/dev/null; find android -name "*.apk" 2>/dev/null; ls -la build/app/outputs/flutter-apk/ 2>/dev/null || echo "No APK output directory found"
     artifacts:
       - build/**/outputs/**/*.apk
       - build/**/outputs/**/*.aab
