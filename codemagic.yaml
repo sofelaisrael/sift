@@ -18,9 +18,9 @@ workflows:
         script: |
           cat > lib/config.dart << ENDCONFIG
           class AppConfig {
-            static const String openRouterApiKey = '${OPENROUTER_API_KEY}';
-            static const String openRouterModel = '${OPENROUTER_MODEL}';
-            static const String appName = '${APP_NAME}';
+            static const String openRouterApiKey = '$OPENROUTER_API_KEY';
+            static const String openRouterModel = 'openai/gpt-4o-mini';
+            static const String appName = 'ScreenSort';
           }
           ENDCONFIG
           cat lib/config.dart
