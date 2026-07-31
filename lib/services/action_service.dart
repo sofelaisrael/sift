@@ -1,4 +1,4 @@
-import 'package:device_calendar/device_calendar.dart';
+import 'package:add_2_calendar/add_2_calendar.dart' as cal;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
@@ -8,7 +8,6 @@ import '../services/lam_service.dart';
 
 class ActionService {
   static const _uuid = Uuid();
-  final DeviceCalendarPlugin _calendar = DeviceCalendarPlugin();
   final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
   bool _notificationsInitialized = false;
 
@@ -27,7 +26,6 @@ class ActionService {
     _notificationsInitialized = true;
   }
 
-  /// Execute the action suggested by LAM
   Future<ActionResult> executeAction(LAMAction action, String screenshotId) async {
     try {
       switch (action.type) {
@@ -48,55 +46,32 @@ class ActionService {
   }
 
   Future<ActionResult> _addCalendarEvent(Map<String, dynamic> data, String screenshotId) async {
-    // Check permissions
-    final hasPermission = await _calendar.requestPermissions();
-    if (hasPermission.isSuccess != true || hasPermission.data != true) {
-      return ActionResult(success: false, message: 'Calendar permission denied');
-    }
-
-    // Get calendars
-    final calendars = await _calendar.retrieveCalendars();
-    if (calendars.data == null || calendars.data!.isEmpty) {
-      return ActionResult(success: false, message: 'No calendars found');
-    }
-
-    final calendarId = calendars.data!.first.id;
-
-    // Create event
     final startDate = _parseDateTime(data['date'], data['time']);
-    final event = Event(
-      calendarId,
+    final event = cal.CalendarEvent(
       title: data['title'] ?? 'Screenshot Event',
       description: 'Created from screenshot',
-      start: TZDateTime.from(startDate, tz.local),
-      end: TZDateTime.from(startDate.add(const Duration(hours: 1)), tz.local),
+      startDate: startDate,
+      endDate: startDate.add(const Duration(hours: 1)),
     );
 
-    final result = await _calendar.createOrUpdateEvent(event);
-    
-    if (result?.isSuccess == true) {
-      // Save action to history
-      await _saveAction('calendar', data, screenshotId);
-      return ActionResult(
-        success: true,
-        message: 'Added to calendar: ${data['title']}',
-      );
-    } else {
-      return ActionResult(success: false, message: 'Failed to create event');
-    }
+    cal.Add2Calendar.addEvent2Cal(event);
+    await _saveAction('calendar', data, screenshotId);
+    return ActionResult(
+      success: true,
+      message: 'Added to calendar: ${data['title']}',
+    );
   }
 
   Future<ActionResult> _createReminder(Map<String, dynamic> data, String screenshotId) async {
     await _ensureNotificationsInitialized();
     final title = data['title'] ?? 'Reminder';
     final date = _parseDateTime(data['date'], null);
-    
-    // Schedule reminder
+
     await _notifications.zonedSchedule(
       id: _uuid.v4().hashCode,
       title: title,
       body: 'Reminder from screenshot',
-      scheduledDate: TZDateTime.from(date, tz.local),
+      scheduledDate: tz.TZDateTime.from(date, tz.local),
       notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
           'reminders',
@@ -119,8 +94,7 @@ class ActionService {
   Future<ActionResult> _createShoppingList(Map<String, dynamic> data, String screenshotId) async {
     final items = List<String>.from(data['items'] ?? []);
     final listName = data['list_name'] ?? 'Shopping List';
-    
-    // Save to local storage
+
     final box = Hive.box('actions');
     await box.put(_uuid.v4(), {
       'type': 'shopping_list',
@@ -138,8 +112,7 @@ class ActionService {
 
   Future<ActionResult> _createTask(Map<String, dynamic> data, String screenshotId) async {
     final title = data['title'] ?? 'Task';
-    
-    // Save to local storage
+
     final box = Hive.box('actions');
     await box.put(_uuid.v4(), {
       'type': 'task',
@@ -159,7 +132,7 @@ class ActionService {
     final now = DateTime.now();
     final dateStr = date ?? now.toIso8601String().split('T')[0];
     final timeStr = time ?? '12:00';
-    
+
     return DateTime.parse('${dateStr}T$timeStr:00');
   }
 
