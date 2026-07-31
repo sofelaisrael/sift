@@ -19,7 +19,7 @@ class ActionService {
   Future<void> _ensureNotificationsInitialized() async {
     if (_notificationsInitialized) return;
     await _notifications.initialize(
-      const InitializationSettings(
+      initializationSettings: const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
         iOS: DarwinInitializationSettings(),
       ),
@@ -93,11 +93,11 @@ class ActionService {
     
     // Schedule reminder
     await _notifications.zonedSchedule(
-      _uuid.v4().hashCode,
-      title,
-      'Reminder from screenshot',
-      TZDateTime.from(date, tz.local),
-      const NotificationDetails(
+      id: _uuid.v4().hashCode,
+      title: title,
+      body: 'Reminder from screenshot',
+      scheduledDate: TZDateTime.from(date, tz.local),
+      notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
           'reminders',
           'Reminders',
@@ -107,8 +107,6 @@ class ActionService {
         iOS: DarwinNotificationDetails(),
       ),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
     );
 
     await _saveAction('reminder', data, screenshotId);
