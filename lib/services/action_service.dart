@@ -47,7 +47,7 @@ class ActionService {
 
   Future<ActionResult> _addCalendarEvent(Map<String, dynamic> data, String screenshotId) async {
     final startDate = _parseDateTime(data['date'], data['time']);
-    final event = cal.CalendarEvent(
+    final event = cal.Event(
       title: data['title'] ?? 'Screenshot Event',
       description: 'Created from screenshot',
       startDate: startDate,
