@@ -17,17 +17,17 @@ workflows:
           include: true
     scripts:
       - name: Setup
-        script: flutter pub get
+        script: |
+          export JAVA_HOME=/Applications/Android\ Studio.app/Contents/jbr/Contents/Home
+          flutter pub get
       - name: Build APK
-        script: flutter build apk --release --verbose 2>&1 | tee /tmp/full_build.log
+        script: |
+          export JAVA_HOME=/Applications/Android\ Studio.app/Contents/jbr/Contents/Home
+          flutter build apk --release --verbose 2>&1 | tee /tmp/full_build.log
       - name: Dump errors
         script: |
           echo "=== WHAT WENT WRONG ==="
           grep -B2 -A10 "What went wrong" /tmp/full_build.log || echo "Not found"
-          echo "=== FAILURE ==="
-          grep -B2 -A10 "FAILURE" /tmp/full_build.log || echo "Not found"
-          echo "=== EXIT CODE ==="
-          grep -i "exiting with code" /tmp/full_build.log || echo "Not found"
           echo "=== LAST 30 LINES ==="
           tail -30 /tmp/full_build.log
     artifacts:
