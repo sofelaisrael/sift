@@ -5,6 +5,9 @@ workflows:
     environment:
       flutter: stable
       java: 21
+      OPENROUTER_API_KEY: Encrypted(...)  # Set in Codemagic UI
+      OPENROUTER_MODEL: openai/gpt-4o-mini
+      APP_NAME: ScreenSort
     triggering:
       events:
         - push
@@ -16,6 +19,13 @@ workflows:
     scripts:
       - name: Setup
         script: |
+          cat > lib/config.dart << EOF
+          class AppConfig {
+            static const String openRouterApiKey = '$OPENROUTER_API_KEY';
+            static const String openRouterModel = '$OPENROUTER_MODEL';
+            static const String appName = '$APP_NAME';
+          }
+          EOF
           flutter pub get
       - name: Kill old Gradle daemons
         script: |
