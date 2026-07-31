@@ -5,9 +5,6 @@ workflows:
     environment:
       flutter: stable
       java: 21
-      OPENROUTER_API_KEY: Encrypted(...)  # Set in Codemagic UI
-      OPENROUTER_MODEL: openai/gpt-4o-mini
-      APP_NAME: ScreenSort
     triggering:
       events:
         - push
