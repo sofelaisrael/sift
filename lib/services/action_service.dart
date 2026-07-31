@@ -18,7 +18,7 @@ class ActionService {
   Future<void> _ensureNotificationsInitialized() async {
     if (_notificationsInitialized) return;
     await _notifications.initialize(
-      initializationSettings: const InitializationSettings(
+      const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
         iOS: DarwinInitializationSettings(),
       ),
