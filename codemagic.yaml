@@ -4,9 +4,7 @@ workflows:
     max_build_duration: 60
     environment:
       flutter: stable
-      java: latest
-      xcode: latest
-      cocoapods: default
+      java: 21
     triggering:
       events:
         - push
@@ -18,16 +16,12 @@ workflows:
     scripts:
       - name: Setup
         script: |
-          export JAVA_HOME=/Applications/Android\ Studio.app/Contents/jbr/Contents/Home
           flutter pub get
-          echo "org.gradle.java.home=/Applications/Android Studio.app/Contents/jbr/Contents/Home" >> android/gradle.properties
       - name: Kill old Gradle daemons
         script: |
-          export JAVA_HOME=/Applications/Android\ Studio.app/Contents/jbr/Contents/Home
           cd android && ./gradlew --stop 2>/dev/null || true
       - name: Build APK
         script: |
-          export JAVA_HOME=/Applications/Android\ Studio.app/Contents/jbr/Contents/Home
           flutter build apk --release --verbose 2>&1 | tee /tmp/full_build.log
       - name: Dump errors
         script: |
