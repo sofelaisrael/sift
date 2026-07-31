@@ -49,3 +49,8 @@ lib/config.dart
 
 # Logs
 *.log
+
+# Build artifacts
+build_output.txt
+full-build.txt
+/android/build/

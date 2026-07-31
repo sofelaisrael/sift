@@ -14,30 +14,23 @@ workflows:
         - pattern: 'master'
           include: true
     scripts:
-      - name: Setup
+      - name: Generate config
         script: |
-          cat > lib/config.dart << EOF
+          cat > lib/config.dart << ENDCONFIG
           class AppConfig {
-            static const String openRouterApiKey = '$OPENROUTER_API_KEY';
-            static const String openRouterModel = '$OPENROUTER_MODEL';
-            static const String appName = '$APP_NAME';
+            static const String openRouterApiKey = '${OPENROUTER_API_KEY}';
+            static const String openRouterModel = '${OPENROUTER_MODEL}';
+            static const String appName = '${APP_NAME}';
           }
-          EOF
-          flutter pub get
-      - name: Kill old Gradle daemons
-        script: |
-          cd android && ./gradlew --stop 2>/dev/null || true
+          ENDCONFIG
+          cat lib/config.dart
+      - name: Install dependencies
+        script: flutter pub get
+      - name: Stop old Gradle daemons
+        script: cd android && ./gradlew --stop 2>/dev/null || true
       - name: Build APK
-        script: |
-          flutter build apk --release --verbose 2>&1 | tee /tmp/full_build.log
-      - name: Dump errors
-        script: |
-          echo "=== WHAT WENT WRONG ==="
-          grep -B2 -A10 "What went wrong" /tmp/full_build.log || echo "Not found"
-          echo "=== LAST 30 LINES ==="
-          tail -30 /tmp/full_build.log
+        script: flutter build apk --release
     artifacts:
-      - /tmp/full_build.log
       - build/**/*.apk
       - build/**/*.aab
     publishing:
