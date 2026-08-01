@@ -18,18 +18,20 @@ workflows:
         script: |
           cat > lib/config.dart << ENDCONFIG
           class AppConfig {
-            static const String openRouterApiKey = '$OPENROUTER_API_KEY';
-            static const String openRouterModel = 'openai/gpt-4o-mini';
+            static const String openRouterApiKey = '\$OPENROUTER_API_KEY';
+            static const String openRouterModel = 'google/gemma-4-31b-it:free';
             static const String appName = 'ScreenSort';
           }
           ENDCONFIG
           cat lib/config.dart
       - name: Install dependencies
         script: flutter pub get
+      - name: Clean Gradle cache
+        script: cd android && ./gradlew clean 2>/dev/null || true
       - name: Stop old Gradle daemons
         script: cd android && ./gradlew --stop 2>/dev/null || true
       - name: Build APK
-        script: flutter build apk --release
+        script: flutter build apk --release --no-tree-shake-icons
     artifacts:
       - build/**/*.apk
       - build/**/*.aab

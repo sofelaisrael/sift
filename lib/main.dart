@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'screens/home_screen.dart';
-import 'services/ocr_service.dart';
 import 'services/lam_service.dart';
 import 'services/action_service.dart';
 import 'providers/screenshot_provider.dart';
@@ -26,7 +25,6 @@ class ScreenSortApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => ScreenshotProvider()..loadScreenshots(),
         ),
-        Provider(create: (_) => OCRService()),
         Provider(create: (_) => LAMService()),
         Provider(create: (_) => ActionService()),
       ],

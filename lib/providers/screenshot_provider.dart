@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
 import '../models/screenshot.dart';
-import '../services/ocr_service.dart';
 import '../services/lam_service.dart';
 import '../services/action_service.dart';
 
@@ -49,34 +48,21 @@ class ScreenshotProvider extends ChangeNotifier {
     }
   }
 
-  /// Process a screenshot through the full LAM pipeline
+  /// Process a screenshot — sends image directly to multimodal AI (no OCR needed)
   Future<void> processScreenshot(String imagePath) async {
     try {
-      _processingStatus = 'Extracting text...';
+      _processingStatus = 'AI analyzing screenshot...';
+      _error = null;
       notifyListeners();
 
-      // Step 1: OCR
-      final ocrService = OCRService();
-      final ocrText = await ocrService.extractText(imagePath);
-      ocrService.dispose();
-
-      if (ocrText.isEmpty) {
-        _error = 'No text found in screenshot';
-        notifyListeners();
-        return;
-      }
-
-      _processingStatus = 'AI analyzing...';
-      notifyListeners();
-
-      // Step 2: LAM Analysis
+      // Step 1: Send image directly to multimodal AI
       final lamService = LAMService();
-      final lamResponse = await lamService.processScreenshot(ocrText);
+      final lamResponse = await lamService.analyzeImage(imagePath);
 
       _processingStatus = 'Executing action...';
       notifyListeners();
 
-      // Step 3: Execute Action
+      // Step 2: Execute Action
       final actionService = ActionService();
       ActionResult? actionResult;
       
@@ -87,13 +73,13 @@ class ScreenshotProvider extends ChangeNotifier {
         );
       }
 
-      // Step 4: Save to database
+      // Step 3: Save to database
       final screenshot = Screenshot(
         id: _uuid.v4(),
         fileName: imagePath.split('/').last,
         filePath: imagePath,
         timestamp: DateTime.now(),
-        ocrText: ocrText,
+        ocrText: lamResponse.summary,
         lamType: lamResponse.type,
         confidence: lamResponse.confidence,
         summary: lamResponse.summary,
@@ -104,11 +90,12 @@ class ScreenshotProvider extends ChangeNotifier {
 
       await _saveScreenshot(screenshot);
 
-      _processingStatus = actionResult?.message ?? 'Processed!';
+      _processingStatus = actionResult?.message ?? 
+          '${lamResponse.typeEmoji} ${lamResponse.summary}';
       notifyListeners();
     } catch (e) {
       _error = 'Processing failed: ${e.toString()}';
-      _isLoading = false;
+      _processingStatus = '';
       notifyListeners();
     }
   }
