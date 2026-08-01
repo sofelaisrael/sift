@@ -18,7 +18,7 @@ workflows:
         script: |
           cat > lib/config.dart << ENDCONFIG
           class AppConfig {
-            static const String openRouterApiKey = '\$OPENROUTER_API_KEY';
+            static const String openRouterApiKey = '$OPENROUTER_API_KEY';
             static const String openRouterModel = 'google/gemma-4-31b-it:free';
             static const String appName = 'ScreenSort';
           }
