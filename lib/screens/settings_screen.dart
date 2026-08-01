@@ -20,48 +20,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   final List<Map<String, dynamic>> _providers = [
     {
-      'name': 'OVHcloud',
-      'desc': 'Free, no key needed (2 RPM)',
-      'color': AppTheme.success,
-      'icon': Icons.cloud_rounded,
-      'needsKey': false,
-      'supportsImage': false,
-    },
-    {
-      'name': 'Google Gemini',
-      'desc': 'Best free multimodal (15 RPM)',
-      'color': AppTheme.info,
-      'icon': Icons.auto_awesome_rounded,
-      'needsKey': true,
-      'supportsImage': true,
-      'keyUrl': 'https://aistudio.google.com/app/apikey',
-    },
-    {
       'name': 'Groq',
-      'desc': 'Ultra-fast inference (30 RPM)',
+      'desc': 'FREE • 30 RPM • Ultra-fast • No credit card',
       'color': AppTheme.primary,
       'icon': Icons.bolt_rounded,
       'needsKey': true,
       'supportsImage': false,
       'keyUrl': 'https://console.groq.com/keys',
+      'recommended': true,
+    },
+    {
+      'name': 'Google Gemini',
+      'desc': 'FREE • 15 RPM • Best multimodal • No credit card',
+      'color': AppTheme.info,
+      'icon': Icons.auto_awesome_rounded,
+      'needsKey': true,
+      'supportsImage': true,
+      'keyUrl': 'https://aistudio.google.com/app/apikey',
+      'recommended': true,
+    },
+    {
+      'name': 'OVHcloud',
+      'desc': 'FREE • 2 RPM • No signup needed (slow)',
+      'color': AppTheme.success,
+      'icon': Icons.cloud_rounded,
+      'needsKey': false,
+      'supportsImage': false,
+      'recommended': false,
     },
     {
       'name': 'Cerebras',
-      'desc': 'Fast + multimodal (15 RPM)',
+      'desc': 'FREE • 15 RPM • Fast + multimodal',
       'color': AppTheme.accent,
       'icon': Icons.memory_rounded,
       'needsKey': true,
       'supportsImage': true,
       'keyUrl': 'https://cloud.cerebras.ai/',
+      'recommended': false,
     },
     {
       'name': 'OpenRouter',
-      'desc': 'Many free models (20 RPM)',
+      'desc': 'FREE models • 20 RPM • Many options',
       'color': AppTheme.warning,
       'icon': Icons.route_rounded,
       'needsKey': true,
       'supportsImage': true,
       'keyUrl': 'https://openrouter.ai/keys',
+      'recommended': false,
     },
   ];
 
@@ -296,6 +301,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               color: isSelected ? color : null,
                             ),
                           ),
+                          if (provider['recommended'] == true) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppTheme.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                '★ BEST',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.primary,
+                                ),
+                              ),
+                            ),
+                          ],
                           if (!needsKey) ...[
                             const SizedBox(width: 6),
                             Container(
