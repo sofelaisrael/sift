@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
 /// Multi-provider free LLM service with fallback chain
 class LAMService {
@@ -52,28 +53,83 @@ class LAMService {
   ];
 
   /// Analyze screenshot by sending the image directly to a multimodal model
+  /// Falls back to OCR + text for text-only providers like Groq
   Future<LAMResponse> analyzeImage(String imagePath, {String? apiKey, String? provider}) async {
     final imageBytes = await File(imagePath).readAsBytes();
     final base64Image = base64Encode(imageBytes);
 
-    // Try providers in order
-    for (final p in _providers) {
-      if (provider != null && p.name != provider) continue;
-      if (p.requiresKey && (apiKey == null || apiKey.isEmpty)) continue;
-      if (!p.supportsImage) continue;
+    // Try the selected provider first
+    if (provider != null) {
+      final p = _providers.firstWhere(
+        (p) => p.name == provider,
+        orElse: () => _providers.first,
+      );
 
-      debugPrint('Trying provider: ${p.name}');
+      if (p.requiresKey && (apiKey == null || apiKey.isEmpty)) {
+        debugPrint('${p.name} needs API key');
+      } else if (p.supportsImage) {
+        // Multimodal - send image directly
+        debugPrint('Trying ${p.name} with image...');
+        try {
+          final response = await _callProvider(p, base64Image: base64Image, apiKey: apiKey);
+          if (response != null) return response;
+        } catch (e) {
+          debugPrint('${p.name} failed: $e');
+        }
+      } else {
+        // Text-only provider (like Groq) - need OCR first
+        debugPrint('${p.name} is text-only, doing OCR first...');
+        try {
+          final ocrText = await _extractTextFromImage(imagePath);
+          if (ocrText.isNotEmpty) {
+            final response = await _callProvider(p, text: ocrText, apiKey: apiKey);
+            if (response != null) return response;
+          }
+        } catch (e) {
+          debugPrint('OCR + ${p.name} failed: $e');
+        }
+      }
+    }
+
+    // Fallback: try all providers
+    for (final p in _providers) {
+      if (p.requiresKey && (apiKey == null || apiKey.isEmpty)) continue;
+      
       try {
-        final response = await _callProvider(p, base64Image: base64Image, apiKey: apiKey);
-        if (response != null) return response;
+        if (p.supportsImage) {
+          debugPrint('Fallback: trying ${p.name} with image...');
+          final response = await _callProvider(p, base64Image: base64Image, apiKey: apiKey);
+          if (response != null) return response;
+        } else {
+          debugPrint('Fallback: trying ${p.name} with OCR...');
+          final ocrText = await _extractTextFromImage(imagePath);
+          if (ocrText.isNotEmpty) {
+            final response = await _callProvider(p, text: ocrText, apiKey: apiKey);
+            if (response != null) return response;
+          }
+        }
       } catch (e) {
-        debugPrint('${p.name} failed: $e');
+        debugPrint('${p.name} fallback failed: $e');
         continue;
       }
     }
 
-    // Fallback to text-only with OCR summary
     return _fallbackResponse('No available provider');
+  }
+
+  /// Simple OCR using ML Kit
+  Future<String> _extractTextFromImage(String imagePath) async {
+    try {
+      final inputImage = InputImage.fromFilePath(imagePath);
+      final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+      final result = await recognizer.processImage(inputImage);
+      await recognizer.close();
+      
+      return result.text;
+    } catch (e) {
+      debugPrint('OCR failed: $e');
+      return '';
+    }
   }
 
   /// Analyze via OCR text (fallback when image fails)
