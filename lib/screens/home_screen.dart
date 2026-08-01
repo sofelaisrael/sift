@@ -6,7 +6,10 @@ import '../providers/screenshot_provider.dart';
 import '../models/screenshot.dart';
 import '../theme/app_theme.dart';
 import '../widgets/widgets.dart';
+import '../widgets/bottom_sheet.dart';
 import 'detail_screen.dart';
+import 'settings_screen.dart';
+import 'actions_history_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -19,18 +22,13 @@ class HomeScreen extends StatelessWidget {
           builder: (context, provider, _) {
             return CustomScrollView(
               slivers: [
-                // Header
                 SliverToBoxAdapter(
                   child: _buildHeader(context),
                 ),
-
-                // Stats
                 if (provider.screenshots.isNotEmpty)
                   SliverToBoxAdapter(
                     child: _buildStats(context, provider),
                   ),
-
-                // Processing status
                 if (provider.processingStatus.isNotEmpty)
                   SliverToBoxAdapter(
                     child: ProcessingBanner(
@@ -38,21 +36,16 @@ class HomeScreen extends StatelessWidget {
                       onDismiss: provider.clearStatus,
                     ),
                   ),
-
-                // Error
                 if (provider.error != null)
                   SliverToBoxAdapter(
                     child: _buildErrorBanner(context, provider),
                   ),
-
-                // Content
                 if (provider.screenshots.isEmpty)
                   const SliverFillRemaining(
                     hasScrollBody: false,
                     child: EmptyStateHolder(),
                   )
                 else ...[
-                  // Section header
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
@@ -65,8 +58,6 @@ class HomeScreen extends StatelessWidget {
                       ),
                     ),
                   ),
-
-                  // List
                   SliverList(
                     delegate: SliverChildBuilderDelegate(
                       (context, index) {
@@ -86,8 +77,6 @@ class HomeScreen extends StatelessWidget {
                     ),
                   ),
                 ],
-
-                // Bottom padding
                 const SliverToBoxAdapter(
                   child: SizedBox(height: 120),
                 ),
@@ -112,65 +101,67 @@ class HomeScreen extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [AppTheme.primary, AppTheme.primaryDark],
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppTheme.primary.withValues(alpha: 0.3),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.auto_awesome_rounded,
-                  color: Colors.white,
-                  size: 22,
-                ),
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [AppTheme.primary, AppTheme.primaryDark],
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'ScreenSort',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.5,
-                          ),
-                    ),
-                    Text(
-                      'AI-powered screenshot actions',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: isDark ? Colors.white38 : Colors.black38,
-                            fontWeight: FontWeight.w500,
-                          ),
-                    ),
-                  ],
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: AppTheme.primary.withValues(alpha: 0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
                 ),
-              ),
-              IconButton(
-                onPressed: () => _showAbout(context),
-                icon: Icon(
-                  Icons.info_outline_rounded,
-                  color: isDark ? Colors.white54 : Colors.black45,
+              ],
+            ),
+            child: const Icon(
+              Icons.auto_awesome_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'ScreenSort',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                      ),
                 ),
-              ),
-            ],
+                Text(
+                  'AI-powered screenshot actions',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: isDark ? Colors.white38 : Colors.black38,
+                        fontWeight: FontWeight.w500,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: () => _openActionsHistory(context),
+            icon: Icon(
+              Icons.history_rounded,
+              color: isDark ? Colors.white54 : Colors.black45,
+            ),
+          ),
+          IconButton(
+            onPressed: () => _openSettings(context),
+            icon: Icon(
+              Icons.settings_rounded,
+              color: isDark ? Colors.white54 : Colors.black45,
+            ),
           ),
         ],
       ),
@@ -252,114 +243,38 @@ class HomeScreen extends StatelessWidget {
   }
 
   Future<void> _pickScreenshot(BuildContext context) async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.camera_alt_rounded, color: AppTheme.primary),
-                ),
-                title: const Text('Take Photo', style: TextStyle(fontWeight: FontWeight.w600)),
-                onTap: () => Navigator.pop(context, ImageSource.camera),
-              ),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppTheme.accent.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.photo_library_rounded, color: AppTheme.accent),
-                ),
-                title: const Text('Choose from Gallery', style: TextStyle(fontWeight: FontWeight.w600)),
-                onTap: () => Navigator.pop(context, ImageSource.gallery),
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
-      ),
+    PremiumBottomSheet.show(
+      context,
+      onCamera: () async {
+        final picker = ImagePicker();
+        final pickedFile = await picker.pickImage(source: ImageSource.camera);
+        if (pickedFile != null && context.mounted) {
+          final provider = context.read<ScreenshotProvider>();
+          await provider.processScreenshot(pickedFile.path);
+        }
+      },
+      onGallery: () async {
+        final picker = ImagePicker();
+        final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+        if (pickedFile != null && context.mounted) {
+          final provider = context.read<ScreenshotProvider>();
+          await provider.processScreenshot(pickedFile.path);
+        }
+      },
     );
-
-    if (source == null || !context.mounted) return;
-
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: source);
-
-    if (pickedFile != null && context.mounted) {
-      final provider = context.read<ScreenshotProvider>();
-      await provider.processScreenshot(pickedFile.path);
-    }
   }
 
-  void _showAbout(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [AppTheme.primary, AppTheme.primaryDark],
-                ),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 20),
-            ),
-            const SizedBox(width: 12),
-            const Text('ScreenSort'),
-          ],
-        ),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Screenshot → AI understands → Takes action',
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-            SizedBox(height: 16),
-            Text('ScreenSort uses a Large Action Model (LAM) to:'),
-            SizedBox(height: 8),
-            Text('• Understand what you\'re looking at'),
-            Text('• Extract key information'),
-            Text('• Take action (calendar, reminders, shopping lists)'),
-            SizedBox(height: 16),
-            Text(
-              'All processing happens on-device. Your screenshots never leave your phone.',
-              style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey),
-            ),
-          ],
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Got it'),
-          ),
-        ],
-      ),
+  void _openSettings(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    );
+  }
+
+  void _openActionsHistory(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ActionsHistoryScreen()),
     );
   }
 }
@@ -371,63 +286,25 @@ class EmptyStateHolder extends StatelessWidget {
   Widget build(BuildContext context) {
     return EmptyState(
       onScan: () async {
-        final source = await showModalBottomSheet<ImageSource>(
-          context: context,
-          builder: (context) => SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ListTile(
-                    leading: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.camera_alt_rounded, color: AppTheme.primary),
-                    ),
-                    title: const Text('Take Photo', style: TextStyle(fontWeight: FontWeight.w600)),
-                    onTap: () => Navigator.pop(context, ImageSource.camera),
-                  ),
-                  ListTile(
-                    leading: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: AppTheme.accent.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.photo_library_rounded, color: AppTheme.accent),
-                    ),
-                    title: const Text('Choose from Gallery', style: TextStyle(fontWeight: FontWeight.w600)),
-                    onTap: () => Navigator.pop(context, ImageSource.gallery),
-                  ),
-                  const SizedBox(height: 8),
-                ],
-              ),
-            ),
-          ),
+        PremiumBottomSheet.show(
+          context,
+          onCamera: () async {
+            final picker = ImagePicker();
+            final pickedFile = await picker.pickImage(source: ImageSource.camera);
+            if (pickedFile != null && context.mounted) {
+              final provider = context.read<ScreenshotProvider>();
+              await provider.processScreenshot(pickedFile.path);
+            }
+          },
+          onGallery: () async {
+            final picker = ImagePicker();
+            final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+            if (pickedFile != null && context.mounted) {
+              final provider = context.read<ScreenshotProvider>();
+              await provider.processScreenshot(pickedFile.path);
+            }
+          },
         );
-
-        if (source == null || !context.mounted) return;
-
-        final picker = ImagePicker();
-        final pickedFile = await picker.pickImage(source: source);
-
-        if (pickedFile != null && context.mounted) {
-          final provider = context.read<ScreenshotProvider>();
-          await provider.processScreenshot(pickedFile.path);
-        }
       },
     );
   }
@@ -467,7 +344,6 @@ class ScreenshotCard extends StatelessWidget {
             ),
             child: Row(
               children: [
-                // Thumbnail
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Image.file(
@@ -493,8 +369,6 @@ class ScreenshotCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 14),
-
-                // Info
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -526,8 +400,6 @@ class ScreenshotCard extends StatelessWidget {
                     ],
                   ),
                 ),
-
-                // Chevron
                 Icon(
                   Icons.chevron_right_rounded,
                   color: isDark ? Colors.white24 : Colors.black26,
