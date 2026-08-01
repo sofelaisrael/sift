@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../providers/screenshot_provider.dart';
 import '../models/screenshot.dart';
+import '../theme/app_theme.dart';
+import '../widgets/widgets.dart';
 import 'detail_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -12,327 +14,239 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('ScreenSort'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: () => _showAbout(context),
-          ),
-        ],
-      ),
-      body: Consumer<ScreenshotProvider>(
-        builder: (context, provider, _) {
-          if (provider.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (provider.screenshots.isEmpty) {
-            return _buildEmptyState(context);
-          }
-
-          return _buildScreenshotList(context, provider);
-        },
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _pickScreenshot(context),
-        icon: const Icon(Icons.camera_alt),
-        label: const Text('Scan Screenshot'),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.screenshot_monitor,
-              size: 80,
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'No screenshots yet',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Take a screenshot and let AI understand it\nand take action for you',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: Colors.grey[600],
-              ),
-            ),
-            const SizedBox(height: 32),
-            ElevatedButton.icon(
-              onPressed: () => _pickScreenshot(context),
-              icon: const Icon(Icons.camera_alt),
-              label: const Text('Scan Your First Screenshot'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildScreenshotList(BuildContext context, ScreenshotProvider provider) {
-    return CustomScrollView(
-      slivers: [
-        // Stats bar
-        SliverToBoxAdapter(
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                _buildStatChip(
-                  context,
-                  '${provider.screenshots.length}',
-                  'Total',
-                  Colors.blue,
+      body: SafeArea(
+        child: Consumer<ScreenshotProvider>(
+          builder: (context, provider, _) {
+            return CustomScrollView(
+              slivers: [
+                // Header
+                SliverToBoxAdapter(
+                  child: _buildHeader(context),
                 ),
-                const SizedBox(width: 8),
-                _buildStatChip(
-                  context,
-                  '${provider.screenshots.where((s) => s.actionCompleted).length}',
-                  'Actions',
-                  Colors.green,
-                ),
-                const SizedBox(width: 8),
-                _buildStatChip(
-                  context,
-                  '${provider.screenshots.where((s) => s.lamType == 'flight').length}',
-                  '✈️ Flights',
-                  Colors.purple,
-                ),
-                const SizedBox(width: 8),
-                _buildStatChip(
-                  context,
-                  '${provider.screenshots.where((s) => s.lamType == 'recipe').length}',
-                  '🍳 Recipes',
-                  Colors.orange,
-                ),
-              ],
-            ),
-          ),
-        ),
 
-        // Processing status
-        if (provider.processingStatus.isNotEmpty)
-          SliverToBoxAdapter(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                // Stats
+                if (provider.screenshots.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: _buildStats(context, provider),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      provider.processingStatus,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+
+                // Processing status
+                if (provider.processingStatus.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: ProcessingBanner(
+                      message: provider.processingStatus,
+                      onDismiss: provider.clearStatus,
+                    ),
+                  ),
+
+                // Error
+                if (provider.error != null)
+                  SliverToBoxAdapter(
+                    child: _buildErrorBanner(context, provider),
+                  ),
+
+                // Content
+                if (provider.screenshots.isEmpty)
+                  const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: EmptyStateHolder(),
+                  )
+                else ...[
+                  // Section header
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+                      child: Text(
+                        'Recent',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.2,
+                            ),
                       ),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 20),
-                    onPressed: provider.clearStatus,
+
+                  // List
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final screenshot = provider.screenshots[index];
+                        return ScreenshotCard(
+                          screenshot: screenshot,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => DetailScreen(screenshot: screenshot),
+                            ),
+                          ),
+                          onDelete: () => provider.deleteScreenshot(screenshot.id),
+                        );
+                      },
+                      childCount: provider.screenshots.length,
+                    ),
                   ),
                 ],
-              ),
-            ),
-          ),
 
-        // Screenshots list
-        SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final screenshot = provider.screenshots[index];
-              return _buildScreenshotCard(context, screenshot, provider);
-            },
-            childCount: provider.screenshots.length,
-          ),
+                // Bottom padding
+                const SliverToBoxAdapter(
+                  child: SizedBox(height: 120),
+                ),
+              ],
+            );
+          },
         ),
-
-        // Bottom padding
-        const SliverToBoxAdapter(
-          child: SizedBox(height: 100),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatChip(BuildContext context, String value, String label, Color color) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Column(
-          children: [
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
-            ),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                color: color,
-              ),
-            ),
-          ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _pickScreenshot(context),
+        icon: const Icon(Icons.camera_alt_rounded, size: 20),
+        label: const Text(
+          'Scan',
+          style: TextStyle(fontWeight: FontWeight.w600),
         ),
       ),
     );
   }
 
-  Widget _buildScreenshotCard(BuildContext context, Screenshot screenshot, ScreenshotProvider provider) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      child: InkWell(
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DetailScreen(screenshot: screenshot),
-          ),
-        ),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
+  Widget _buildHeader(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              // Thumbnail
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.file(
-                  File(screenshot.filePath),
-                  width: 60,
-                  height: 60,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      width: 60,
-                      height: 60,
-                      color: Colors.grey[200],
-                      child: const Icon(Icons.image),
-                    );
-                  },
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [AppTheme.primary, AppTheme.primaryDark],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.primary.withValues(alpha: 0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: Colors.white,
+                  size: 22,
                 ),
               ),
-              const SizedBox(width: 16),
-
-              // Info
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Text(
-                          screenshot.typeEmoji,
-                          style: const TextStyle(fontSize: 20),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            screenshot.summary ?? 'Processing...',
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                    Text(
+                      'ScreenSort',
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
                           ),
-                        ),
-                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        if (screenshot.confidence != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: screenshot.confidence! >= 0.7
-                                  ? Colors.green.withValues(alpha: 0.2)
-                                  : Colors.orange.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              '${(screenshot.confidence! * 100).toInt()}% sure',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: screenshot.confidence! >= 0.7
-                                    ? Colors.green[700]
-                                    : Colors.orange[700],
-                              ),
-                            ),
+                    Text(
+                      'AI-powered screenshot actions',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: isDark ? Colors.white38 : Colors.black38,
+                            fontWeight: FontWeight.w500,
                           ),
-                        const SizedBox(width: 8),
-                        if (screenshot.actionCompleted)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.green.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              '✓ Done',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.green[700],
-                              ),
-                            ),
-                          ),
-                      ],
                     ),
-                    if (screenshot.actionResult != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        screenshot.actionResult!,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey[600],
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
                   ],
                 ),
               ),
-
-              // Delete
               IconButton(
-                icon: const Icon(Icons.delete_outline, size: 20),
-                onPressed: () => provider.deleteScreenshot(screenshot.id),
-                color: Colors.grey,
+                onPressed: () => _showAbout(context),
+                icon: Icon(
+                  Icons.info_outline_rounded,
+                  color: isDark ? Colors.white54 : Colors.black45,
+                ),
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStats(BuildContext context, ScreenshotProvider provider) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Row(
+        children: [
+          StatCard(
+            value: '${provider.screenshots.length}',
+            label: 'Total',
+            color: AppTheme.primary,
+            icon: Icons.screenshot_rounded,
+          ),
+          const SizedBox(width: 8),
+          StatCard(
+            value: '${provider.screenshots.where((s) => s.actionCompleted).length}',
+            label: 'Actions',
+            color: AppTheme.success,
+            icon: Icons.check_circle_rounded,
+          ),
+          const SizedBox(width: 8),
+          StatCard(
+            value: '${provider.screenshots.where((s) => s.lamType == 'flight').length}',
+            label: 'Flights',
+            color: AppTheme.info,
+            icon: Icons.flight_rounded,
+          ),
+          const SizedBox(width: 8),
+          StatCard(
+            value: '${provider.screenshots.where((s) => s.lamType == 'recipe').length}',
+            label: 'Recipes',
+            color: AppTheme.error,
+            icon: Icons.restaurant_rounded,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorBanner(BuildContext context, ScreenshotProvider provider) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.error.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: AppTheme.error.withValues(alpha: 0.2),
         ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline_rounded, size: 20, color: AppTheme.error),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              provider.error!,
+              style: const TextStyle(
+                color: AppTheme.error,
+                fontWeight: FontWeight.w500,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close_rounded, size: 18),
+            onPressed: provider.clearError,
+            color: AppTheme.error,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
       ),
     );
   }
@@ -341,19 +255,47 @@ class HomeScreen extends StatelessWidget {
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
       builder: (context) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text('Take Photo'),
-              onTap: () => Navigator.pop(context, ImageSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text('Choose from Gallery'),
-              onTap: () => Navigator.pop(context, ImageSource.gallery),
-            ),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.camera_alt_rounded, color: AppTheme.primary),
+                ),
+                title: const Text('Take Photo', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.accent.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.photo_library_rounded, color: AppTheme.accent),
+                ),
+                title: const Text('Choose from Gallery', style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       ),
     );
@@ -373,14 +315,30 @@ class HomeScreen extends StatelessWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('About ScreenSort'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [AppTheme.primary, AppTheme.primaryDark],
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            const Text('ScreenSort'),
+          ],
+        ),
         content: const Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Screenshot → AI understands → Takes action',
-              style: TextStyle(fontWeight: FontWeight.bold),
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
             ),
             SizedBox(height: 16),
             Text('ScreenSort uses a Large Action Model (LAM) to:'),
@@ -396,11 +354,189 @@ class HomeScreen extends StatelessWidget {
           ],
         ),
         actions: [
-          TextButton(
+          FilledButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Got it'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class EmptyStateHolder extends StatelessWidget {
+  const EmptyStateHolder({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return EmptyState(
+      onScan: () async {
+        final source = await showModalBottomSheet<ImageSource>(
+          context: context,
+          builder: (context) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.camera_alt_rounded, color: AppTheme.primary),
+                    ),
+                    title: const Text('Take Photo', style: TextStyle(fontWeight: FontWeight.w600)),
+                    onTap: () => Navigator.pop(context, ImageSource.camera),
+                  ),
+                  ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.accent.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.photo_library_rounded, color: AppTheme.accent),
+                    ),
+                    title: const Text('Choose from Gallery', style: TextStyle(fontWeight: FontWeight.w600)),
+                    onTap: () => Navigator.pop(context, ImageSource.gallery),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          ),
+        );
+
+        if (source == null || !context.mounted) return;
+
+        final picker = ImagePicker();
+        final pickedFile = await picker.pickImage(source: source);
+
+        if (pickedFile != null && context.mounted) {
+          final provider = context.read<ScreenshotProvider>();
+          await provider.processScreenshot(pickedFile.path);
+        }
+      },
+    );
+  }
+}
+
+class ScreenshotCard extends StatelessWidget {
+  final Screenshot screenshot;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  const ScreenshotCard({
+    super.key,
+    required this.screenshot,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Material(
+        color: isDark ? AppTheme.cardDark : AppTheme.cardLight,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade100,
+              ),
+            ),
+            child: Row(
+              children: [
+                // Thumbnail
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.file(
+                    File(screenshot.filePath),
+                    width: 56,
+                    height: 56,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: AppTheme.typeColorLight(screenshot.lamType),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          Icons.image_rounded,
+                          color: AppTheme.typeColor(screenshot.lamType),
+                          size: 24,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(width: 14),
+
+                // Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        screenshot.summary ?? 'Processing...',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              height: 1.3,
+                            ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          TypeBadge(type: screenshot.lamType, compact: true),
+                          const SizedBox(width: 6),
+                          if (screenshot.confidence != null)
+                            ConfidenceBadge(confidence: screenshot.confidence!),
+                          const SizedBox(width: 6),
+                          if (screenshot.actionCompleted)
+                            ActionBadge(
+                              actionType: screenshot.actionType,
+                              completed: true,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Chevron
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: isDark ? Colors.white24 : Colors.black26,
+                  size: 22,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

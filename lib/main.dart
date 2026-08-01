@@ -5,6 +5,7 @@ import 'screens/home_screen.dart';
 import 'services/lam_service.dart';
 import 'services/action_service.dart';
 import 'providers/screenshot_provider.dart';
+import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,13 +32,9 @@ class ScreenSortApp extends StatelessWidget {
       child: MaterialApp(
         title: 'ScreenSort',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF6366F1),
-            brightness: Brightness.light,
-          ),
-          useMaterial3: true,
-        ),
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: ThemeMode.system,
         home: const HomeScreen(),
       ),
     );
