@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/screenshot.dart';
 import '../services/lam_service.dart';
@@ -48,16 +49,25 @@ class ScreenshotProvider extends ChangeNotifier {
     }
   }
 
-  /// Process a screenshot — sends image directly to multimodal AI (no OCR needed)
+  /// Process a screenshot — sends image directly to multimodal AI
   Future<void> processScreenshot(String imagePath) async {
     try {
       _processingStatus = 'AI analyzing screenshot...';
       _error = null;
       notifyListeners();
 
-      // Step 1: Send image directly to multimodal AI
+      // Load settings
+      final prefs = await SharedPreferences.getInstance();
+      final providerName = prefs.getString('provider') ?? 'OVHcloud';
+      final apiKey = prefs.getString('key_$providerName') ?? '';
+
+      // Step 1: Send image directly to AI
       final lamService = LAMService();
-      final lamResponse = await lamService.analyzeImage(imagePath);
+      final lamResponse = await lamService.analyzeImage(
+        imagePath,
+        apiKey: apiKey.isNotEmpty ? apiKey : null,
+        provider: providerName,
+      );
 
       _processingStatus = 'Executing action...';
       notifyListeners();

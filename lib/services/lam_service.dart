@@ -2,115 +2,219 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import '../config.dart';
 
+/// Multi-provider free LLM service with fallback chain
 class LAMService {
-  static const _baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
+  // Provider configs (OpenAI-compatible endpoints)
+  static const List<ProviderConfig> _providers = [
+    // Free multimodal providers (support image input)
+    ProviderConfig(
+      name: 'Google Gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      model: 'gemini-2.5-flash',
+      requiresKey: true,
+      supportsImage: true,
+      format: ProviderFormat.gemini,
+    ),
+    ProviderConfig(
+      name: 'Cerebras',
+      baseUrl: 'https://api.cerebras.ai/v1',
+      model: 'gemma-4-31b',
+      requiresKey: true,
+      supportsImage: true,
+      format: ProviderFormat.openai,
+    ),
+    ProviderConfig(
+      name: 'OpenRouter',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      model: 'google/gemma-4-31b-it:free',
+      requiresKey: true,
+      supportsImage: true,
+      format: ProviderFormat.openai,
+    ),
+    // Free text-only providers (fallback)
+    ProviderConfig(
+      name: 'Groq',
+      baseUrl: 'https://api.groq.com/openai/v1',
+      model: 'llama-3.3-70b-versatile',
+      requiresKey: true,
+      supportsImage: false,
+      format: ProviderFormat.openai,
+    ),
+    ProviderConfig(
+      name: 'OVHcloud',
+      baseUrl: 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',
+      model: 'Meta-Llama-3_3-70B-Instruct',
+      requiresKey: false,
+      supportsImage: false,
+      format: ProviderFormat.openai,
+    ),
+  ];
 
-  /// Analyze screenshot by sending the image directly to a multimodal model.
-  /// Falls back to OCR text if image analysis fails.
-  Future<LAMResponse> analyzeImage(String imagePath) async {
-    try {
-      final imageBytes = await File(imagePath).readAsBytes();
-      final base64Image = base64Encode(imageBytes);
+  /// Analyze screenshot by sending the image directly to a multimodal model
+  Future<LAMResponse> analyzeImage(String imagePath, {String? apiKey, String? provider}) async {
+    final imageBytes = await File(imagePath).readAsBytes();
+    final base64Image = base64Encode(imageBytes);
 
-      final response = await http.post(
-        Uri.parse(_baseUrl),
-        headers: {
-          'Authorization': 'Bearer ${AppConfig.openRouterApiKey}',
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://screensort.app',
-          'X-Title': AppConfig.appName,
-        },
-        body: jsonEncode({
-          'model': AppConfig.openRouterModel,
-          'messages': [
-            {
-              'role': 'system',
-              'content': _buildSystemPrompt(),
-            },
-            {
-              'role': 'user',
-              'content': [
-                {
-                  'type': 'text',
-                  'text': 'Analyze this screenshot. Extract all visible text and context. Return ONLY valid JSON, no explanation, no markdown.',
-                },
-                {
-                  'type': 'image_url',
-                  'image_url': {'url': 'data:image/png;base64,$base64Image'},
-                },
-              ],
-            },
-          ],
-          'temperature': 0.1,
-          'max_tokens': 1024,
-        }),
-      );
+    // Try providers in order
+    for (final p in _providers) {
+      if (provider != null && p.name != provider) continue;
+      if (p.requiresKey && (apiKey == null || apiKey.isEmpty)) continue;
+      if (!p.supportsImage) continue;
 
-      debugPrint('OpenRouter status: ${response.statusCode}');
-
-      if (response.statusCode != 200) {
-        debugPrint('OpenRouter error: ${response.body}');
-        return _fallbackResponse('API error ${response.statusCode}');
+      debugPrint('Trying provider: ${p.name}');
+      try {
+        final response = await _callProvider(p, base64Image: base64Image, apiKey: apiKey);
+        if (response != null) return response;
+      } catch (e) {
+        debugPrint('${p.name} failed: $e');
+        continue;
       }
+    }
 
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final content = body['choices']?[0]?['message']?['content'] as String?;
-      if (content == null) return _fallbackResponse('No content in response');
+    // Fallback to text-only with OCR summary
+    return _fallbackResponse('No available provider');
+  }
 
-      debugPrint('Raw AI response: $content');
-      return _parseResponse(content);
-    } catch (e) {
-      debugPrint('LAM analyzeImage error: $e');
-      return _fallbackResponse(e.toString());
+  /// Analyze via OCR text (fallback when image fails)
+  Future<LAMResponse> processScreenshot(String ocrText, {String? apiKey, String? provider}) async {
+    for (final p in _providers) {
+      if (provider != null && p.name != provider) continue;
+      if (p.requiresKey && (apiKey == null || apiKey.isEmpty)) continue;
+
+      debugPrint('Trying provider: ${p.name}');
+      try {
+        final response = await _callProvider(p, text: ocrText, apiKey: apiKey);
+        if (response != null) return response;
+      } catch (e) {
+        debugPrint('${p.name} failed: $e');
+        continue;
+      }
+    }
+
+    return _fallbackResponse('No available provider');
+  }
+
+  Future<LAMResponse?> _callProvider(
+    ProviderConfig provider, {
+    String? base64Image,
+    String? text,
+    String? apiKey,
+  }) async {
+    if (provider.format == ProviderFormat.gemini) {
+      return _callGemini(provider, base64Image: base64Image, text: text, apiKey: apiKey!);
+    } else {
+      return _callOpenAI(provider, base64Image: base64Image, text: text, apiKey: apiKey);
     }
   }
 
-  /// Fallback: analyze via OCR text if multimodal fails
-  Future<LAMResponse> processScreenshot(String ocrText) async {
-    try {
-      final response = await http.post(
-        Uri.parse(_baseUrl),
-        headers: {
-          'Authorization': 'Bearer ${AppConfig.openRouterApiKey}',
-          'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://screensort.app',
-          'X-Title': AppConfig.appName,
-        },
-        body: jsonEncode({
-          'model': AppConfig.openRouterModel,
-          'messages': [
-            {
-              'role': 'system',
-              'content': _buildSystemPrompt(),
-            },
-            {'role': 'user', 'content': 'Screenshot text:\n$ocrText'},
-          ],
-          'temperature': 0.1,
-          'max_tokens': 1024,
-        }),
-      );
+  Future<LAMResponse?> _callGemini(
+    ProviderConfig provider, {
+    String? base64Image,
+    String? text,
+    required String apiKey,
+  }) async {
+    final parts = <Map<String, dynamic>>[];
 
-      if (response.statusCode != 200) {
-        debugPrint('OpenRouter error: ${response.statusCode} ${response.body}');
-        return _fallbackResponse('API error ${response.statusCode}');
-      }
-
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final content = body['choices']?[0]?['message']?['content'] as String?;
-      if (content == null) return _fallbackResponse('No content in response');
-
-      debugPrint('Raw AI response: $content');
-      return _parseResponse(content);
-    } catch (e) {
-      debugPrint('LAM processScreenshot error: $e');
-      return _fallbackResponse(e.toString());
+    if (text != null) {
+      parts.add({'text': 'Screenshot text:\n$text'});
     }
+
+    if (base64Image != null) {
+      parts.add({
+        'inlineData': {
+          'mimeType': 'image/png',
+          'data': base64Image,
+        },
+      });
+    }
+
+    parts.add({'text': '\n\nAnalyze this. Return ONLY valid JSON, no explanation.'});
+
+    final response = await http.post(
+      Uri.parse('${provider.baseUrl}/models/${provider.model}:generateContent?key=$apiKey'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'contents': [{'parts': parts}],
+        'systemInstruction': {'parts': [{'text': _buildSystemPrompt()}]},
+        'generationConfig': {
+          'temperature': 0.1,
+          'maxOutputTokens': 1024,
+        },
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      debugPrint('Gemini error: ${response.body}');
+      return null;
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final content = body['candidates']?[0]?['content']?['parts']?[0]?['text'] as String?;
+    if (content == null) return null;
+
+    return _parseResponse(content);
+  }
+
+  Future<LAMResponse?> _callOpenAI(
+    ProviderConfig provider, {
+    String? base64Image,
+    String? text,
+    String? apiKey,
+  }) async {
+    final messages = <Map<String, dynamic>>[
+      {'role': 'system', 'content': _buildSystemPrompt()},
+    ];
+
+    if (base64Image != null) {
+      messages.add({
+        'role': 'user',
+        'content': [
+          {'type': 'text', 'text': 'Analyze this screenshot. Extract all visible text and context. Return ONLY valid JSON.'},
+          {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,$base64Image'}},
+        ],
+      });
+    } else if (text != null) {
+      messages.add({'role': 'user', 'content': 'Screenshot text:\n$text'});
+    }
+
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+
+    if (apiKey != null && apiKey.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $apiKey';
+    }
+
+    if (provider.name == 'OpenRouter') {
+      headers['HTTP-Referer'] = 'https://screensort.app';
+      headers['X-Title'] = 'ScreenSort';
+    }
+
+    final response = await http.post(
+      Uri.parse('${provider.baseUrl}/chat/completions'),
+      headers: headers,
+      body: jsonEncode({
+        'model': provider.model,
+        'messages': messages,
+        'temperature': 0.1,
+        'max_tokens': 1024,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      debugPrint('${provider.name} error ${response.statusCode}: ${response.body}');
+      return null;
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final content = body['choices']?[0]?['message']?['content'] as String?;
+    if (content == null) return null;
+
+    return _parseResponse(content);
   }
 
   LAMResponse _parseResponse(String content) {
-    // Strip markdown code fences if present
     var cleaned = content.trim();
     if (cleaned.startsWith('```')) {
       cleaned = cleaned.replaceFirst(RegExp(r'^```\w*\n?'), '');
@@ -121,7 +225,7 @@ class LAMService {
       final json = jsonDecode(cleaned) as Map<String, dynamic>;
       return LAMResponse.fromJson(json);
     } catch (e) {
-      debugPrint('JSON parse failed: $e\nContent: $cleaned');
+      debugPrint('JSON parse failed: $e');
       return _fallbackResponse('JSON parse error');
     }
   }
@@ -159,26 +263,6 @@ RESPONSE FORMAT (JSON only):
   }
 }
 
-EXAMPLES:
-
-Flight booking confirmation →
-{"type":"flight","confidence":0.95,"summary":"Flight AA123 JFK to LAX on Mar 15 departing 3:45 PM","extracted_data":{"airline":"American Airlines","flight_number":"AA123","origin":"JFK","destination":"LAX","date":"2026-03-15","time":"15:45","passenger":"John Doe"},"suggested_action":{"type":"add_calendar","data":{"title":"Flight AA123 JFK→LAX","date":"2026-03-15","time":"15:45","reminder_days_before":1}}}
-
-Recipe screenshot →
-{"type":"recipe","confidence":0.9,"summary":"Chicken Stir Fry - 25 min, serves 4","extracted_data":{"name":"Chicken Stir Fry","cook_time":"25 min","servings":4,"ingredients":["chicken breast","soy sauce","garlic","ginger","bell peppers","rice"]},"suggested_action":{"type":"create_shopping_list","data":{"list_name":"Stir Fry Ingredients","items":["chicken breast","soy sauce","garlic","ginger","bell peppers"]}}}
-
-Deadline or exam →
-{"type":"deadline","confidence":0.85,"summary":"Final exam - Calculus II on Dec 20 at 9 AM","extracted_data":{"event":"Final exam - Calculus II","date":"2026-12-20","time":"09:00","location":"Room 301"},"suggested_action":{"type":"create_reminder","data":{"title":"Calculus II Final Exam","date":"2026-12-20","time":"09:00","remind_days_before":[7,3,1,0]}}}
-
-Amazon product →
-{"type":"product","confidence":0.88,"summary":"Sony WH-1000XM5 headphones - \$278","extracted_data":{"product":"Sony WH-1000XM5","price":"\$278","store":"Amazon","rating":"4.7/5"},"suggested_action":{"type":"none","data":{}}}
-
-Grocery list →
-{"type":"shopping","confidence":0.92,"summary":"Grocery list: milk, eggs, bread, butter, apples","extracted_data":{"items":["milk","eggs","bread","butter","apples"]},"suggested_action":{"type":"create_shopping_list","data":{"list_name":"Groceries","items":["milk","eggs","bread","butter","apples"]}}}
-
-Meeting invite →
-{"type":"meeting","confidence":0.87,"summary":"Team standup - Tomorrow 10:00 AM via Zoom","extracted_data":{"event":"Team standup","date":"2026-01-15","time":"10:00","location":"Zoom"},"suggested_action":{"type":"add_calendar","data":{"title":"Team standup","date":"2026-01-15","time":"10:00","location":"Zoom","reminder_days_before":0}}}
-
 If you cannot determine the content well, still return JSON with low confidence and best guess. Never return non-JSON text.''';
   }
 
@@ -192,6 +276,29 @@ If you cannot determine the content well, still return JSON with low confidence 
       suggestedAction: LAMAction(type: 'none', data: {}),
     );
   }
+
+  /// Get list of available providers
+  List<ProviderConfig> get availableProviders => _providers;
+}
+
+enum ProviderFormat { openai, gemini }
+
+class ProviderConfig {
+  final String name;
+  final String baseUrl;
+  final String model;
+  final bool requiresKey;
+  final bool supportsImage;
+  final ProviderFormat format;
+
+  const ProviderConfig({
+    required this.name,
+    required this.baseUrl,
+    required this.model,
+    required this.requiresKey,
+    required this.supportsImage,
+    required this.format,
+  });
 }
 
 class LAMResponse {
