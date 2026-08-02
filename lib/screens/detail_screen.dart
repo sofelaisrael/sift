@@ -99,6 +99,48 @@ class DetailScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
 
+                  // What SIFT sees — deeper scene/context understanding
+                  if (screenshot.description != null &&
+                      screenshot.description!.isNotEmpty) ...[
+                    _buildSectionHeader(context, 'What SIFT sees', Icons.visibility_rounded),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            AppTheme.primary.withValues(alpha: 0.06),
+                            AppTheme.accent.withValues(alpha: 0.04),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: AppTheme.primary.withValues(alpha: 0.15),
+                        ),
+                      ),
+                      child: Text(
+                        screenshot.description!,
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.6,
+                          color: isDark ? Colors.white70 : Colors.black87,
+                        ),
+                      ),
+                    ),
+                    if (screenshot.recognitions.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _buildTagChips(screenshot.recognitions, AppTheme.info, Icons.star_rounded),
+                    ],
+                    if (screenshot.objects.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      _buildTagChips(screenshot.objects, AppTheme.primary, Icons.category_rounded),
+                    ],
+                    const SizedBox(height: 24),
+                  ],
+
                   // Action card
                   if (screenshot.actionType != null && screenshot.actionType != 'none') ...[
                     _buildActionCard(context, isDark),
@@ -235,6 +277,40 @@ class DetailScreen extends StatelessWidget {
               ),
         ),
       ],
+    );
+  }
+
+  Widget _buildTagChips(List<String> tags, Color color, IconData icon) {
+    if (tags.isEmpty) return const SizedBox.shrink();
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: tags.map((tag) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 12, color: color),
+              const SizedBox(width: 4),
+              Text(
+                tag,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 

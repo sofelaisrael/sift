@@ -1,4 +1,4 @@
-# ScreenSort + LAM
+# Sift + LAM
 
 **Screenshot → AI understands → Takes action**
 
@@ -8,7 +8,7 @@ Screenshots are digital junk. You take them, you forget them. They sit in your g
 
 ## The Solution
 
-ScreenSort uses a **Large Action Model (LAM)** to:
+Sift uses a **Large Action Model (LAM)** to:
 1. **Understand** what you're looking at
 2. **Extract** key information
 3. **Take action** (calendar, reminders, shopping lists)
@@ -69,9 +69,7 @@ Screenshot → ML Kit (OCR) → Gemini (LAM) → Actions
    flutter pub get
    ```
 
-3. **Configure API Key**
-   - Get Gemini API key from Google AI Studio
-   - Replace `YOUR_GEMINI_API_KEY` in `lib/services/lam_service.dart`
+3. **Configure API keys** — keys are not committed. Add a free provider key in the app's **Settings → AI Provider** screen (or set `GROQ_API_KEY` / `GEMINI_API_KEY` in your Codemagic environment for CI builds).
 
 4. **Run**
    ```bash

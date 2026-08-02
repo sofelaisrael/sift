@@ -13,12 +13,13 @@ void main() async {
   await Hive.initFlutter();
   await Hive.openBox('screenshots');
   await Hive.openBox('actions');
+  await Hive.openBox('chat');
   
-  runApp(const ScreenSortApp());
+  runApp(const SiftApp());
 }
 
-class ScreenSortApp extends StatelessWidget {
-  const ScreenSortApp({super.key});
+class SiftApp extends StatelessWidget {
+  const SiftApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +32,7 @@ class ScreenSortApp extends StatelessWidget {
         Provider(create: (_) => ActionService()),
       ],
       child: MaterialApp(
-        title: 'ScreenSort',
+        title: 'Sift',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,

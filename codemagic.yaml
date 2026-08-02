@@ -1,6 +1,6 @@
 workflows:
-  screensort-android:
-    name: ScreenSort Android Build
+  sift-android:
+    name: Sift Android Build
     max_build_duration: 60
     environment:
       flutter: stable
@@ -18,9 +18,11 @@ workflows:
         script: |
           cat > lib/config.dart << ENDCONFIG
           class AppConfig {
-            static const String openRouterApiKey = '$OPENROUTER_API_KEY';
-            static const String openRouterModel = 'openrouter/free';
-            static const String appName = 'ScreenSort';
+            static const String groqApiKey = '$GROQ_API_KEY';
+            static const String geminiApiKey = '$GEMINI_API_KEY';
+            static const String cerebrasApiKey = '$CEREBRAS_API_KEY';
+            static const String defaultProvider = 'Google Gemini';
+            static const String appName = 'Sift';
           }
           ENDCONFIG
           cat lib/config.dart

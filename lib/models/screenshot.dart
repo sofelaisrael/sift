@@ -37,6 +37,15 @@ class Screenshot extends HiveObject {
   @HiveField(10)
   String? actionResult;
 
+  @HiveField(11)
+  String? description;
+
+  @HiveField(12)
+  List<String> objects;
+
+  @HiveField(13)
+  List<String> recognitions;
+
   Screenshot({
     required this.id,
     required this.fileName,
@@ -49,6 +58,9 @@ class Screenshot extends HiveObject {
     this.actionType,
     this.actionCompleted = false,
     this.actionResult,
+    this.description,
+    this.objects = const [],
+    this.recognitions = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -63,6 +75,9 @@ class Screenshot extends HiveObject {
     'actionType': actionType,
     'actionCompleted': actionCompleted,
     'actionResult': actionResult,
+    'description': description,
+    'objects': objects,
+    'recognitions': recognitions,
   };
 
   factory Screenshot.fromJson(Map<String, dynamic> json) => Screenshot(
@@ -77,7 +92,17 @@ class Screenshot extends HiveObject {
     actionType: json['actionType'],
     actionCompleted: json['actionCompleted'] ?? false,
     actionResult: json['actionResult'],
+    description: json['description'],
+    objects: _stringList(json['objects']),
+    recognitions: _stringList(json['recognitions']),
   );
+
+  static List<String> _stringList(dynamic value) {
+    if (value is List) {
+      return value.whereType<String>().toList();
+    }
+    return const [];
+  }
 
   String get typeEmoji {
     switch (lamType) {

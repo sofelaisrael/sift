@@ -15,6 +15,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _darkMode = false;
   bool _hapticFeedback = true;
   bool _autoAction = false;
+  bool _autoDetect = true;
 
   final Map<String, TextEditingController> _keyControllers = {};
 
@@ -91,6 +92,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _darkMode = prefs.getBool('darkMode') ?? false;
       _hapticFeedback = prefs.getBool('hapticFeedback') ?? true;
       _autoAction = prefs.getBool('autoAction') ?? false;
+      _autoDetect = prefs.getBool('autoDetect') ?? true;
     });
 
     // Load saved API keys
@@ -108,6 +110,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.setBool('darkMode', _darkMode);
     await prefs.setBool('hapticFeedback', _hapticFeedback);
     await prefs.setBool('autoAction', _autoAction);
+    await prefs.setBool('autoDetect', _autoDetect);
 
     // Save API keys
     for (final p in _providers) {
@@ -207,6 +210,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _saveSettings();
             },
           ),
+          _buildSwitchTile(
+            context,
+            icon: Icons.photo_camera_back_rounded,
+            title: 'Auto-Detect Screenshots',
+            subtitle: 'Watch for new screenshots and analyze them automatically',
+            value: _autoDetect,
+            color: AppTheme.info,
+            onChanged: (v) {
+              setState(() => _autoDetect = v);
+              _saveSettings();
+            },
+          ),
 
           const SizedBox(height: 32),
 
@@ -216,7 +231,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildInfoTile(
             context,
             icon: Icons.auto_awesome_rounded,
-            title: 'ScreenSort',
+            title: 'Sift',
             subtitle: 'Version 1.0.0',
             color: AppTheme.primary,
           ),

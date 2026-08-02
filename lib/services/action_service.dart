@@ -1,4 +1,5 @@
 import 'package:add_2_calendar/add_2_calendar.dart' as cal;
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
@@ -42,6 +43,30 @@ class ActionService {
       }
     } catch (e) {
       return ActionResult(success: false, message: 'Action failed: $e');
+    }
+  }
+
+  /// Show an immediate local notification (used by the screenshot watcher)
+  Future<void> notify(String title, String body) async {
+    try {
+      await _ensureNotificationsInitialized();
+      await _notifications.show(
+        id: _uuid.v4().hashCode,
+        title: title,
+        body: body,
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'sift',
+            'Sift',
+            channelDescription: 'Screenshot analysis alerts',
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+          iOS: DarwinNotificationDetails(),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Notification failed: $e');
     }
   }
 

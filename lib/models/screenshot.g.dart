@@ -28,13 +28,16 @@ class ScreenshotAdapter extends TypeAdapter<Screenshot> {
       actionType: fields[8] as String?,
       actionCompleted: fields[9] as bool,
       actionResult: fields[10] as String?,
+      description: fields[11] as String?,
+      objects: (fields[12] as List).cast<String>(),
+      recognitions: (fields[13] as List).cast<String>(),
     );
   }
 
   @override
   void write(BinaryWriter writer, Screenshot obj) {
     writer
-      ..writeByte(11)
+      ..writeByte(14)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -56,7 +59,13 @@ class ScreenshotAdapter extends TypeAdapter<Screenshot> {
       ..writeByte(9)
       ..write(obj.actionCompleted)
       ..writeByte(10)
-      ..write(obj.actionResult);
+      ..write(obj.actionResult)
+      ..writeByte(11)
+      ..write(obj.description)
+      ..writeByte(12)
+      ..write(obj.objects)
+      ..writeByte(13)
+      ..write(obj.recognitions);
   }
 
   @override

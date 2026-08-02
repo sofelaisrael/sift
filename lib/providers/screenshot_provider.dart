@@ -58,7 +58,7 @@ class ScreenshotProvider extends ChangeNotifier {
 
       // Load settings
       final prefs = await SharedPreferences.getInstance();
-      final providerName = prefs.getString('provider') ?? 'OVHcloud';
+      final providerName = prefs.getString('provider') ?? 'Google Gemini';
       final apiKey = prefs.getString('key_$providerName') ?? '';
 
       // Step 1: Send image directly to AI
@@ -89,10 +89,17 @@ class ScreenshotProvider extends ChangeNotifier {
         fileName: imagePath.split('/').last,
         filePath: imagePath,
         timestamp: DateTime.now(),
-        ocrText: lamResponse.summary,
+        ocrText: lamResponse.extractedText.isNotEmpty
+            ? lamResponse.extractedText
+            : lamResponse.summary,
         lamType: lamResponse.type,
         confidence: lamResponse.confidence,
         summary: lamResponse.summary,
+        description: lamResponse.description.isNotEmpty
+            ? lamResponse.description
+            : null,
+        objects: lamResponse.objects,
+        recognitions: lamResponse.recognitions,
         actionType: lamResponse.suggestedAction.type,
         actionCompleted: actionResult?.success ?? false,
         actionResult: actionResult?.message,
@@ -115,6 +122,41 @@ class ScreenshotProvider extends ChangeNotifier {
     await box.put(screenshot.id, screenshot.toJson());
     _screenshots.insert(0, screenshot);
     notifyListeners();
+  }
+
+  /// Local keyword search across summaries, descriptions, text, and tags.
+  /// Returns most relevant screenshots first.
+  List<Screenshot> search(String query, {int limit = 5}) {
+    final terms = query
+        .toLowerCase()
+        .split(RegExp(r'[^\w\u4e00-\u9fff]+'))
+        .where((t) => t.isNotEmpty)
+        .toList();
+    if (terms.isEmpty) return [];
+
+    final scored = <({Screenshot screenshot, int score})>[];
+    for (final s in _screenshots) {
+      final haystack = [
+        s.summary,
+        s.description,
+        s.ocrText,
+        s.lamType,
+        ...s.recognitions,
+        ...s.objects,
+      ]
+          .whereType<String>()
+          .join(' ')
+          .toLowerCase();
+
+      var score = 0;
+      for (final term in terms) {
+        if (haystack.contains(term)) score++;
+      }
+      if (score > 0) scored.add((screenshot: s, score: score));
+    }
+
+    scored.sort((a, b) => b.score.compareTo(a.score));
+    return scored.take(limit).map((e) => e.screenshot).toList();
   }
 
   Future<void> deleteScreenshot(String id) async {

@@ -3,19 +3,19 @@
 <plist version="1.0">
 <dict>
 	<key>NSCameraUsageDescription</key>
-	<string>ScreenSort needs camera access to take screenshots for AI analysis</string>
+	<string>Sift needs camera access to take screenshots for AI analysis</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>ScreenSort needs photo library access to analyze your screenshots</string>
+	<string>Sift needs photo library access to analyze your screenshots</string>
 	<key>NSRemindersUsageDescription</key>
-	<string>ScreenSort needs calendar access to create events from your screenshots</string>
+	<string>Sift needs calendar access to create events from your screenshots</string>
 	<key>NSCalendarsUsageDescription</key>
-	<string>ScreenSort needs calendar access to create events from your screenshots</string>
+	<string>Sift needs calendar access to create events from your screenshots</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Screensort Lam</string>
+	<string>Sift</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -23,7 +23,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>screensort_lam</string>
+	<string>sift</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

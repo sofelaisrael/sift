@@ -54,3 +54,6 @@ lib/config.dart
 build_output.txt
 full-build.txt
 /android/build/
+
+# Kotlin IDE metadata
+/android/.kotlin/

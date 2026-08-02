@@ -52,7 +52,7 @@ class PremiumAboutDialog extends StatelessWidget {
 
             // Title
             Text(
-              'ScreenSort',
+              'Sift',
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.5,

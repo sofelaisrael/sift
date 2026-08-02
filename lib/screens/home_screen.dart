@@ -2,17 +2,53 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/screenshot_provider.dart';
 import '../models/screenshot.dart';
 import '../theme/app_theme.dart';
 import '../widgets/widgets.dart';
 import '../widgets/bottom_sheet.dart';
+import '../services/action_service.dart';
+import '../services/screenshot_watcher.dart';
 import 'detail_screen.dart';
 import 'settings_screen.dart';
 import 'actions_history_screen.dart';
+import 'chat_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  ScreenshotWatcher? _watcher;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeStartWatcher();
+    });
+  }
+
+  @override
+  void dispose() {
+    _watcher?.stop();
+    super.dispose();
+  }
+
+  Future<void> _maybeStartWatcher() async {
+    if (_watcher != null) return;
+    final prefs = await SharedPreferences.getInstance();
+    final enabled = prefs.getBool('autoDetect') ?? true;
+    if (!enabled || !mounted) return;
+    final provider = context.read<ScreenshotProvider>();
+    final actionService = context.read<ActionService>();
+    _watcher = ScreenshotWatcher(provider: provider, actionService: actionService);
+    await _watcher!.start();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -133,7 +169,7 @@ class HomeScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'ScreenSort',
+                  'Sift',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.w800,
                         letterSpacing: -0.5,
@@ -147,6 +183,13 @@ class HomeScreen extends StatelessWidget {
                       ),
                 ),
               ],
+            ),
+          ),
+          IconButton(
+            onPressed: () => _openChat(context),
+            icon: Icon(
+              Icons.chat_bubble_rounded,
+              color: isDark ? Colors.white54 : Colors.black45,
             ),
           ),
           IconButton(
@@ -275,6 +318,13 @@ class HomeScreen extends StatelessWidget {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const ActionsHistoryScreen()),
+    );
+  }
+
+  void _openChat(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ChatScreen()),
     );
   }
 }

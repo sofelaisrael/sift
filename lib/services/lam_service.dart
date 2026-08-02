@@ -12,7 +12,7 @@ class LAMService {
     ProviderConfig(
       name: 'Google Gemini',
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.5-flash',
       requiresKey: true,
       supportsImage: true,
       format: ProviderFormat.gemini,
@@ -226,7 +226,7 @@ class LAMService {
       messages.add({
         'role': 'user',
         'content': [
-          {'type': 'text', 'text': 'Analyze this screenshot. Extract all visible text and context. Return ONLY valid JSON.'},
+          {'type': 'text', 'text': 'Describe what you see in this screenshot — the scene, objects, and context — and extract all visible text. Return ONLY valid JSON.'},
           {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,$base64Image'}},
         ],
       });
@@ -244,7 +244,7 @@ class LAMService {
 
     if (provider.name == 'OpenRouter') {
       headers['HTTP-Referer'] = 'https://screensort.app';
-      headers['X-Title'] = 'ScreenSort';
+      headers['X-Title'] = 'Sift';
     }
 
     final response = await http.post(
@@ -287,29 +287,33 @@ class LAMService {
   }
 
   String _buildSystemPrompt() {
-    return '''You are a Large Action Model (LAM) that analyzes screenshots and extracts actionable information.
+    return '''You are SIFT, a screenshot intelligence engine. You deeply understand screenshots — the scene, the context, and the objects — not just the text.
 
-RULES:
-1. Look at the image carefully — read all text, buttons, dates, times, prices, lists
-2. Identify what the screenshot shows
-3. Extract ALL key information you can see
-4. Determine the best action to suggest
-5. Return ONLY valid JSON — no explanation, no markdown, no code fences
+MISSION (in order):
+1. DESCRIBE WHAT YOU SEE — open-ended visual understanding, whatever the image is: a photo, a screenshot, a poster, a receipt, a diagram. Describe the subjects, people, animals, objects, setting, composition, colors, and mood.
+2. RECOGNIZE — identify anything recognizable: people, animals, places, landmarks, products, brands, artwork, movies/TV shows, or — if it's a screen — the app or website.
+3. READ — if there is visible text, extract ALL of it verbatim where possible, including buttons, labels, dates, times, prices, lists, and URLs.
+4. SUMMARIZE — write a short, natural-language summary of what the image shows and why it matters.
+5. DETERMINE ACTION — if the content implies a useful action (calendar, reminder, shopping list, task), suggest it; otherwise use "none".
 
 CONFIDENCE SCORING:
-- 0.9-1.0: You clearly see flight details, calendar events, recipes with ingredients, product listings with prices
-- 0.7-0.89: You see recognizable content (emails, messages, deadlines, meetings) but some details are unclear
-- 0.5-0.69: You see text but aren't sure of the context
-- 0.3-0.49: Very little readable text, mostly guessing
-- 0.0-0.29: Cannot meaningfully analyze the content
+- 0.9-1.0: You clearly recognize the content (a flight booking, a recipe, a product page, a portrait, a known landmark) with high confidence
+- 0.7-0.89: You see recognizable content but some details are unclear
+- 0.5-0.69: You see content but aren't sure of the context
+- 0.3-0.49: Very little recognizable content, mostly guessing
+- 0.0-0.29: Cannot meaningfully analyze the image
 
-RESPONSE FORMAT (JSON only):
+RESPONSE FORMAT (JSON only — no explanation, no markdown, no code fences):
 {
   "type": "flight|recipe|deadline|product|meeting|shopping|document|other",
   "confidence": 0.0-1.0,
-  "summary": "Brief description of what you see",
+  "summary": "One or two sentences: what this image is, in plain natural language",
+  "description": "2-4 sentences describing the image in detail: subjects, objects, setting, composition, mood",
+  "objects": ["visible objects or visual elements, e.g. 'dog', 'skyline', 'grocery cart', 'airplane seat map', 'movie poster'"],
+  "recognitions": ["anything you recognize, e.g. 'Golden Retriever', 'Eiffel Tower', 'Starbucks', 'TikTok', 'Google Flights'"],
+  "extracted_text": "All visible text from the image, kept verbatim where possible (empty string if none)",
   "extracted_data": {
-    "all relevant fields you can extract"
+    "all relevant structured fields you can extract"
   },
   "suggested_action": {
     "type": "add_calendar|create_reminder|create_shopping_list|create_task|none",
@@ -319,7 +323,7 @@ RESPONSE FORMAT (JSON only):
   }
 }
 
-If you cannot determine the content well, still return JSON with low confidence and best guess. Never return non-JSON text.''';
+If you cannot determine the content well, still return valid JSON with low confidence and your best guess. Never return non-JSON text.''';
   }
 
   LAMResponse _fallbackResponse(String reason) {
@@ -328,6 +332,7 @@ If you cannot determine the content well, still return JSON with low confidence 
       type: 'other',
       confidence: 0.0,
       summary: 'Could not analyze screenshot: $reason',
+      description: 'Analysis failed. $reason',
       extractedData: {},
       suggestedAction: LAMAction(type: 'none', data: {}),
     );
@@ -335,6 +340,153 @@ If you cannot determine the content well, still return JSON with low confidence 
 
   /// Get list of available providers
   List<ProviderConfig> get availableProviders => _providers;
+
+  /// Chat with the AI about the user's screenshots.
+  /// [context] is pre-built text describing relevant screenshots.
+  /// Tries the selected provider, then falls back through the chain.
+  Future<String> chat(
+    String message, {
+    required String context,
+    String? apiKey,
+    String? provider,
+  }) async {
+    final providers = provider != null
+        ? [
+            _providers.firstWhere(
+              (p) => p.name == provider,
+              orElse: () => _providers.first,
+            ),
+          ]
+        : _providers;
+
+    for (final p in providers) {
+      if (p.requiresKey && (apiKey == null || apiKey.isEmpty)) continue;
+      try {
+        debugPrint('Chat: trying ${p.name}...');
+        final reply = await _chatCall(p, message: message, context: context, apiKey: apiKey);
+        if (reply != null && reply.isNotEmpty) return reply;
+      } catch (e) {
+        debugPrint('${p.name} chat failed: $e');
+      }
+    }
+
+    return 'Sorry, I could not reach any AI provider right now. Check your API key in Settings.';
+  }
+
+  Future<String?> _chatCall(
+    ProviderConfig provider, {
+    required String message,
+    required String context,
+    String? apiKey,
+  }) async {
+    if (provider.format == ProviderFormat.gemini) {
+      return _chatGemini(provider, message: message, context: context, apiKey: apiKey!);
+    }
+    return _chatOpenAI(provider, message: message, context: context, apiKey: apiKey);
+  }
+
+  Future<String?> _chatGemini(
+    ProviderConfig provider, {
+    required String message,
+    required String context,
+    required String apiKey,
+  }) async {
+    final response = await http.post(
+      Uri.parse('${provider.baseUrl}/models/${provider.model}:generateContent?key=$apiKey'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'contents': [
+          {
+            'role': 'user',
+            'parts': [
+              {'text': _buildChatSystemPrompt()},
+            ],
+          },
+          {
+            'role': 'user',
+            'parts': [
+              {'text': 'CONTEXT (your screenshots):\n$context'},
+            ],
+          },
+          {
+            'role': 'user',
+            'parts': [
+              {'text': message},
+            ],
+          },
+        ],
+        'generationConfig': {
+          'temperature': 0.3,
+          'maxOutputTokens': 1024,
+        },
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      debugPrint('Gemini chat error: ${response.body}');
+      return null;
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final content = body['candidates']?[0]?['content']?['parts']?[0]?['text'] as String?;
+    return content?.trim();
+  }
+
+  Future<String?> _chatOpenAI(
+    ProviderConfig provider, {
+    required String message,
+    required String context,
+    String? apiKey,
+  }) async {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+
+    if (apiKey != null && apiKey.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $apiKey';
+    }
+
+    if (provider.name == 'OpenRouter') {
+      headers['HTTP-Referer'] = 'https://screensort.app';
+      headers['X-Title'] = 'Sift';
+    }
+
+    final response = await http.post(
+      Uri.parse('${provider.baseUrl}/chat/completions'),
+      headers: headers,
+      body: jsonEncode({
+        'model': provider.model,
+        'messages': [
+          {'role': 'system', 'content': _buildChatSystemPrompt()},
+          {'role': 'user', 'content': 'CONTEXT (your screenshots):\n$context'},
+          {'role': 'user', 'content': message},
+        ],
+        'temperature': 0.3,
+        'max_tokens': 1024,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      debugPrint('${provider.name} chat error ${response.statusCode}: ${response.body}');
+      return null;
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final content = body['choices']?[0]?['message']?['content'] as String?;
+    return content?.trim();
+  }
+
+  String _buildChatSystemPrompt() {
+    return '''You are SIFT, an assistant that helps the user remember and find things from their saved screenshots.
+
+You will be given CONTEXT — a list of the user's screenshots, most relevant first. Each entry includes a summary, a description, visible text, recognitions, and the date it was taken.
+
+RULES:
+1. Answer ONLY based on the provided context. Do not invent screenshots or details that are not there.
+2. If the context does not answer the question, say so honestly and suggest what to look for.
+3. Be concise and conversational. When relevant, tie the answer to a specific screenshot (e.g., "the TikTok you saved last week about...").
+4. Do not mention that you are reading from a context list. Just answer naturally.''';
+  }
 }
 
 enum ProviderFormat { openai, gemini }
@@ -361,6 +513,10 @@ class LAMResponse {
   final String type;
   final double confidence;
   final String summary;
+  final String description;
+  final List<String> objects;
+  final List<String> recognitions;
+  final String extractedText;
   final Map<String, dynamic> extractedData;
   final LAMAction suggestedAction;
 
@@ -368,7 +524,11 @@ class LAMResponse {
     required this.type,
     required this.confidence,
     required this.summary,
-    required this.extractedData,
+    this.description = '',
+    this.objects = const [],
+    this.recognitions = const [],
+    this.extractedText = '',
+    this.extractedData = const {},
     required this.suggestedAction,
   });
 
@@ -377,9 +537,23 @@ class LAMResponse {
       type: json['type'] ?? 'other',
       confidence: (json['confidence'] ?? 0).toDouble().clamp(0.0, 1.0),
       summary: json['summary'] ?? '',
+      description: (json['description'] as String? ?? json['summary'] ?? ''),
+      objects: _toStringList(json['objects']),
+      recognitions: _toStringList(json['recognitions']),
+      extractedText: json['extracted_text'] as String? ?? '',
       extractedData: json['extracted_data'] ?? {},
       suggestedAction: LAMAction.fromJson(json['suggested_action'] ?? {}),
     );
+  }
+
+  static List<String> _toStringList(dynamic value) {
+    if (value is List) {
+      return value.whereType<String>().toList();
+    }
+    if (value is String && value.isNotEmpty) {
+      return [value];
+    }
+    return const [];
   }
 
   String get typeEmoji {
