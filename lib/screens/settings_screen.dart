@@ -11,7 +11,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  String _selectedProvider = 'OVHcloud';
+  String _selectedProvider = 'Google Gemini';
   bool _darkMode = false;
   bool _hapticFeedback = true;
   bool _autoAction = false;
@@ -20,16 +20,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final Map<String, TextEditingController> _keyControllers = {};
 
   final List<Map<String, dynamic>> _providers = [
-    {
-      'name': 'Groq',
-      'desc': 'FREE • 30 RPM • Ultra-fast • No credit card',
-      'color': AppTheme.primary,
-      'icon': Icons.bolt_rounded,
-      'needsKey': true,
-      'supportsImage': false,
-      'keyUrl': 'https://console.groq.com/keys',
-      'recommended': true,
-    },
     {
       'name': 'Google Gemini',
       'desc': 'FREE • 15 RPM • Best multimodal • No credit card',
@@ -41,12 +31,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'recommended': true,
     },
     {
-      'name': 'OVHcloud',
-      'desc': 'FREE • 2 RPM • No signup needed (slow)',
-      'color': AppTheme.success,
-      'icon': Icons.cloud_rounded,
-      'needsKey': false,
-      'supportsImage': false,
+      'name': 'OpenRouter',
+      'desc': 'FREE models • 20 RPM • Multimodal options',
+      'color': AppTheme.warning,
+      'icon': Icons.route_rounded,
+      'needsKey': true,
+      'supportsImage': true,
+      'keyUrl': 'https://openrouter.ai/keys',
       'recommended': false,
     },
     {
@@ -60,13 +51,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'recommended': false,
     },
     {
-      'name': 'OpenRouter',
-      'desc': 'FREE models • 20 RPM • Many options',
-      'color': AppTheme.warning,
-      'icon': Icons.route_rounded,
+      'name': 'OVHcloud',
+      'desc': 'FREE • 2 RPM • No signup needed (slow)',
+      'color': AppTheme.success,
+      'icon': Icons.cloud_rounded,
+      'needsKey': false,
+      'supportsImage': false,
+      'recommended': false,
+    },
+    {
+      'name': 'Groq',
+      'desc': 'FREE • 30 RPM • Text only (no image understanding)',
+      'color': AppTheme.primary,
+      'icon': Icons.bolt_rounded,
       'needsKey': true,
-      'supportsImage': true,
-      'keyUrl': 'https://openrouter.ai/keys',
+      'supportsImage': false,
+      'keyUrl': 'https://console.groq.com/keys',
       'recommended': false,
     },
   ];
@@ -88,7 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _selectedProvider = prefs.getString('provider') ?? 'OVHcloud';
+      _selectedProvider = prefs.getString('provider') ?? 'Google Gemini';
       _darkMode = prefs.getBool('darkMode') ?? false;
       _hapticFeedback = prefs.getBool('hapticFeedback') ?? true;
       _autoAction = prefs.getBool('autoAction') ?? false;
