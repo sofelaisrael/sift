@@ -24,6 +24,21 @@ workflows:
             static const String openRouterApiKey = '$OPENROUTER_API_KEY';
             static const String defaultProvider = 'Google Gemini';
             static const String appName = 'Sift';
+
+            static String? apiKeyFor(String provider) {
+              switch (provider) {
+                case 'Google Gemini':
+                  return geminiApiKey.isEmpty ? null : geminiApiKey;
+                case 'Groq':
+                  return groqApiKey.isEmpty ? null : groqApiKey;
+                case 'Cerebras':
+                  return cerebrasApiKey.isEmpty ? null : cerebrasApiKey;
+                case 'OpenRouter':
+                  return openRouterApiKey.isEmpty ? null : openRouterApiKey;
+                default:
+                  return null;
+              }
+            }
           }
           ENDCONFIG
           cat lib/config.dart
