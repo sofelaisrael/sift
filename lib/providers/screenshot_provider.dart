@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../models/screenshot.dart';
 import '../services/lam_service.dart';
 import '../services/action_service.dart';
+import '../config.dart';
 
 class ScreenshotProvider extends ChangeNotifier {
   static const _uuid = Uuid();
@@ -58,14 +59,15 @@ class ScreenshotProvider extends ChangeNotifier {
 
       // Load settings
       final prefs = await SharedPreferences.getInstance();
-      final providerName = prefs.getString('provider') ?? 'Google Gemini';
-      final apiKey = prefs.getString('key_$providerName') ?? '';
+      final providerName = prefs.getString('provider') ?? AppConfig.defaultProvider;
+      final savedKey = prefs.getString('key_$providerName') ?? '';
+      final apiKey = savedKey.isNotEmpty ? savedKey : AppConfig.apiKeyFor(providerName);
 
       // Step 1: Send image directly to AI
       final lamService = LAMService();
       final lamResponse = await lamService.analyzeImage(
         imagePath,
-        apiKey: apiKey.isNotEmpty ? apiKey : null,
+        apiKey: apiKey,
         provider: providerName,
       );
 

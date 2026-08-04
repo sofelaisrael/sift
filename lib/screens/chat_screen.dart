@@ -8,6 +8,7 @@ import '../models/screenshot.dart';
 import '../providers/screenshot_provider.dart';
 import '../services/lam_service.dart';
 import '../theme/app_theme.dart';
+import '../config.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -77,14 +78,15 @@ class _ChatScreenState extends State<ChatScreen> {
       final provider = context.read<ScreenshotProvider>();
       final lam = context.read<LAMService>();
       final prefs = await SharedPreferences.getInstance();
-      final providerName = prefs.getString('provider') ?? 'Google Gemini';
-      final apiKey = prefs.getString('key_$providerName') ?? '';
+      final providerName = prefs.getString('provider') ?? AppConfig.defaultProvider;
+      final savedKey = prefs.getString('key_$providerName') ?? '';
+      final apiKey = savedKey.isNotEmpty ? savedKey : AppConfig.apiKeyFor(providerName);
 
       final results = provider.search(text);
       final reply = await lam.chat(
         text,
         context: _buildContextText(results),
-        apiKey: apiKey.isNotEmpty ? apiKey : null,
+        apiKey: apiKey,
         provider: providerName,
       );
 
