@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../providers/theme_controller.dart';
 import '../theme/app_theme.dart';
-import '../services/lam_service.dart';
+import '../widgets/sift_mark.dart';
+import '../widgets/about_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -12,7 +15,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   String _selectedProvider = 'Google Gemini';
-  bool _darkMode = false;
   bool _hapticFeedback = true;
   bool _autoAction = false;
   bool _autoDetect = true;
@@ -22,50 +24,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final List<Map<String, dynamic>> _providers = [
     {
       'name': 'Google Gemini',
-      'desc': 'FREE • 15 RPM • Best multimodal • No credit card',
-      'color': AppTheme.info,
-      'icon': Icons.auto_awesome_rounded,
+      'desc': 'Free tier · 15 RPM · Best multimodal',
+      'icon': Icons.language_rounded,
       'needsKey': true,
-      'supportsImage': true,
       'keyUrl': 'https://aistudio.google.com/app/apikey',
       'recommended': true,
     },
     {
       'name': 'OpenRouter',
-      'desc': 'FREE models • 20 RPM • Multimodal options',
-      'color': AppTheme.warning,
+      'desc': 'Free models · 20 RPM · Multimodal options',
       'icon': Icons.route_rounded,
       'needsKey': true,
-      'supportsImage': true,
       'keyUrl': 'https://openrouter.ai/keys',
       'recommended': false,
     },
     {
       'name': 'Cerebras',
-      'desc': 'FREE • 15 RPM • Fast + multimodal',
-      'color': AppTheme.accent,
+      'desc': 'Free tier · 15 RPM · Fast + multimodal',
       'icon': Icons.memory_rounded,
       'needsKey': true,
-      'supportsImage': true,
       'keyUrl': 'https://cloud.cerebras.ai/',
       'recommended': false,
     },
     {
       'name': 'OVHcloud',
-      'desc': 'FREE • 2 RPM • No signup needed (slow)',
-      'color': AppTheme.success,
-      'icon': Icons.cloud_rounded,
+      'desc': 'Free tier · 2 RPM · No signup needed',
+      'icon': Icons.cloud_outlined,
       'needsKey': false,
-      'supportsImage': false,
+      'keyUrl': null,
       'recommended': false,
     },
     {
       'name': 'Groq',
-      'desc': 'FREE • 30 RPM • Text only (no image understanding)',
-      'color': AppTheme.primary,
+      'desc': 'Free tier · 30 RPM · Text only',
       'icon': Icons.bolt_rounded,
       'needsKey': true,
-      'supportsImage': false,
       'keyUrl': 'https://console.groq.com/keys',
       'recommended': false,
     },
@@ -87,17 +80,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     setState(() {
       _selectedProvider = prefs.getString('provider') ?? 'Google Gemini';
-      _darkMode = prefs.getBool('darkMode') ?? false;
       _hapticFeedback = prefs.getBool('hapticFeedback') ?? true;
       _autoAction = prefs.getBool('autoAction') ?? false;
       _autoDetect = prefs.getBool('autoDetect') ?? true;
     });
 
-    // Load saved API keys
     for (final p in _providers) {
-      if (p['needsKey']) {
+      if (p['needsKey'] == true) {
         final key = prefs.getString('key_${p['name']}') ?? '';
         _keyControllers[p['name']] = TextEditingController(text: key);
       }
@@ -107,15 +99,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('provider', _selectedProvider);
-    await prefs.setBool('darkMode', _darkMode);
     await prefs.setBool('hapticFeedback', _hapticFeedback);
     await prefs.setBool('autoAction', _autoAction);
     await prefs.setBool('autoDetect', _autoDetect);
 
-    // Save API keys
     for (final p in _providers) {
-      if (p['needsKey'] && _keyControllers.containsKey(p['name'])) {
-        await prefs.setString('key_${p['name']}', _keyControllers[p['name']]!.text);
+      if (p['needsKey'] == true && _keyControllers.containsKey(p['name'])) {
+        await prefs.setString(
+          'key_${p['name']}',
+          _keyControllers[p['name']]!.text,
+        );
       }
     }
   }
@@ -123,145 +116,184 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.w700)),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              await _saveSettings();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Settings saved')),
-                );
-              }
-            },
-            child: const Text('Save'),
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            'More',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.5,
+                ),
           ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // AI Provider section
-          _buildSectionHeader(context, 'AI Provider', Icons.smart_toy_rounded),
-          const SizedBox(height: 4),
-          Text(
-            'Choose which free AI service to use',
-            style: TextStyle(
-              fontSize: 12,
-              color: isDark ? Colors.white38 : Colors.black38,
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Provider cards
-          ..._providers.map((p) => _buildProviderCard(context, p, isDark)),
-
-          // API key input for selected provider
-          if (_providers.firstWhere((p) => p['name'] == _selectedProvider)['needsKey'])
-            _buildApiKeyInput(context, isDark),
-
-          const SizedBox(height: 32),
-
-          // Appearance section
-          _buildSectionHeader(context, 'Appearance', Icons.palette_rounded),
-          const SizedBox(height: 12),
-          _buildSwitchTile(
-            context,
-            icon: Icons.dark_mode_rounded,
-            title: 'Dark Mode',
-            subtitle: 'Follow system theme',
-            value: _darkMode,
-            color: AppTheme.primary,
-            onChanged: (v) {
-              setState(() => _darkMode = v);
-              _saveSettings();
-            },
-          ),
-
-          const SizedBox(height: 32),
-
-          // Behavior section
-          _buildSectionHeader(context, 'Behavior', Icons.tune_rounded),
-          const SizedBox(height: 12),
-          _buildSwitchTile(
-            context,
-            icon: Icons.vibration_rounded,
-            title: 'Haptic Feedback',
-            subtitle: 'Vibrate on actions',
-            value: _hapticFeedback,
-            color: AppTheme.accent,
-            onChanged: (v) {
-              setState(() => _hapticFeedback = v);
-              _saveSettings();
-            },
-          ),
-          _buildSwitchTile(
-            context,
-            icon: Icons.bolt_rounded,
-            title: 'Auto-Execute Actions',
-            subtitle: 'Execute actions without confirmation',
-            value: _autoAction,
-            color: AppTheme.warning,
-            onChanged: (v) {
-              setState(() => _autoAction = v);
-              _saveSettings();
-            },
-          ),
-          _buildSwitchTile(
-            context,
-            icon: Icons.photo_camera_back_rounded,
-            title: 'Auto-Detect Screenshots',
-            subtitle: 'Watch for new screenshots and analyze them automatically',
+        ),
+        _sectionTitle(context, 'Get Sift ready'),
+        _checklistTile(
+          context,
+          done: true,
+          title: 'Choose provider',
+          caption: 'Pick the AI you trust',
+        ),
+        ..._providers.map((p) => _buildProviderCard(context, p, isDark)),
+        if (_providers.firstWhere((p) => p['name'] == _selectedProvider)['needsKey'])
+          _buildApiKeyInput(context, isDark),
+        _checklistTile(
+          context,
+          done: _autoDetect,
+          title: 'Enable auto-detect',
+          caption: 'Watch for new screenshots',
+          trailing: Switch(
             value: _autoDetect,
-            color: AppTheme.info,
             onChanged: (v) {
               setState(() => _autoDetect = v);
               _saveSettings();
             },
           ),
+        ),
+        const SizedBox(height: 32),
+        _sectionTitle(context, 'Appearance'),
+        _buildAppearanceSection(context),
+        const SizedBox(height: 32),
+        _sectionTitle(context, 'Behavior'),
+        _switchTile(
+          context,
+          icon: Icons.vibration_rounded,
+          title: 'Haptic Feedback',
+          subtitle: 'Vibrate on actions',
+          value: _hapticFeedback,
+          onChanged: (v) {
+            setState(() => _hapticFeedback = v);
+            _saveSettings();
+          },
+        ),
+        _switchTile(
+          context,
+          icon: Icons.bolt_rounded,
+          title: 'Auto-Execute Actions',
+          subtitle: 'Run actions without confirmation',
+          value: _autoAction,
+          onChanged: (v) {
+            setState(() => _autoAction = v);
+            _saveSettings();
+          },
+        ),
+        const SizedBox(height: 32),
+        _sectionTitle(context, 'Privacy'),
+        _infoRow(
+          context,
+          icon: Icons.lock_outline_rounded,
+          title: 'Private by design',
+          subtitle: 'Your memory never leaves your device',
+        ),
+        _infoRow(
+          context,
+          icon: Icons.storage_rounded,
+          title: 'Stored locally',
+          subtitle: 'Everything lives on this phone',
+        ),
+        _infoRow(
+          context,
+          icon: Icons.verified_user_outlined,
+          title: 'You stay in control',
+          subtitle: 'Delete anything, anytime',
+        ),
+        const SizedBox(height: 32),
+        _sectionTitle(context, 'About'),
+        _aboutTile(context, isDark, ink),
+      ],
+    );
+  }
 
-          const SizedBox(height: 32),
+  Widget _sectionTitle(BuildContext context, String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3,
+            ),
+      ),
+    );
+  }
 
-          // Info section
-          _buildSectionHeader(context, 'About', Icons.info_outline_rounded),
-          const SizedBox(height: 12),
-          _buildInfoTile(
-            context,
-            icon: Icons.auto_awesome_rounded,
-            title: 'Sift',
-            subtitle: 'Version 1.0.0',
-            color: AppTheme.primary,
+  Widget _checklistTile(
+    BuildContext context, {
+    required bool done,
+    required String title,
+    required String caption,
+    Widget? trailing,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
+    final ash = isDark ? AppTheme.ashDark : AppTheme.ashLight;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
+        border: Border.all(
+          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              color: done ? AppTheme.emberMain : Colors.transparent,
+              shape: BoxShape.circle,
+              border: done
+                  ? null
+                  : Border.all(
+                      color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+                    ),
+            ),
+            child: done
+                ? const Icon(Icons.check_rounded, size: 14, color: AppTheme.emberInk)
+                : null,
           ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: ink,
+                      ),
+                ),
+                Text(
+                  caption,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: ash,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          if (trailing != null) trailing,
         ],
       ),
     );
   }
 
-  Widget _buildSectionHeader(BuildContext context, String title, IconData icon) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: AppTheme.primary),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.2,
-              ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildProviderCard(BuildContext context, Map<String, dynamic> provider, bool isDark) {
+  Widget _buildProviderCard(
+    BuildContext context,
+    Map<String, dynamic> provider,
+    bool isDark,
+  ) {
     final isSelected = _selectedProvider == provider['name'];
-    final color = provider['color'] as Color;
-    final needsKey = provider['needsKey'] as bool;
-    final keyController = _keyControllers[provider['name']];
-    final hasKey = keyController != null && keyController.text.isNotEmpty;
+    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -272,34 +304,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
             setState(() => _selectedProvider = provider['name']);
             _saveSettings();
           },
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(AppTheme.rMd),
           child: Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: isSelected
-                  ? color.withValues(alpha: 0.08)
-                  : isDark
-                      ? Colors.white.withValues(alpha: 0.04)
-                      : Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(14),
+              color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+              borderRadius: BorderRadius.circular(AppTheme.rMd),
               border: Border.all(
-                color: isSelected
-                    ? color.withValues(alpha: 0.3)
-                    : isDark
-                        ? Colors.white.withValues(alpha: 0.06)
-                        : Colors.grey.shade100,
+                color: isSelected ? AppTheme.emberMain : (isDark ? AppTheme.hairDark : AppTheme.hairLight),
                 width: isSelected ? 1.5 : 1,
               ),
             ),
             child: Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(provider['icon'], color: color, size: 20),
+                Icon(
+                  provider['icon'],
+                  size: 20,
+                  color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -308,104 +329,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Row(
                         children: [
-                          Text(
-                            provider['name'],
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                              color: isSelected ? color : null,
+                          Flexible(
+                            child: Text(
+                              provider['name'],
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                                color: ink,
+                              ),
                             ),
                           ),
                           if (provider['recommended'] == true) ...[
                             const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primary.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                '★ BEST',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.primary,
-                                ),
-                              ),
-                            ),
-                          ],
-                          if (!needsKey) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppTheme.success.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                'FREE',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.success,
-                                ),
-                              ),
-                            ),
-                          ],
-                          if (needsKey && !hasKey) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppTheme.warning.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                'NEEDS KEY',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.warning,
-                                ),
-                              ),
-                            ),
-                          ],
-                          if (provider['supportsImage']) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppTheme.info.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: const Text(
-                                'VISION',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.info,
-                                ),
-                              ),
-                            ),
+                            _neutralTag(context, 'Recommended'),
                           ],
                         ],
                       ),
                       const SizedBox(height: 2),
                       Text(
                         provider['desc'],
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark ? Colors.white38 : Colors.black38,
-                        ),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                            ),
                       ),
                     ],
                   ),
                 ),
                 if (isSelected)
-                  Icon(Icons.check_circle_rounded, color: color, size: 20),
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    color: AppTheme.emberMain,
+                    size: 20,
+                  ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _neutralTag(BuildContext context, String label) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.tagFillDark : AppTheme.tagFillLight,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: isDark ? AppTheme.tagTextDark : AppTheme.tagTextLight,
         ),
       ),
     );
@@ -416,65 +393,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final provider = _providers.firstWhere((p) => p['name'] == _selectedProvider);
 
     return Container(
-      margin: const EdgeInsets.only(top: 12),
+      margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(14),
+        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
         border: Border.all(
-          color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade100,
+          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
         ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.key_rounded, size: 16, color: AppTheme.warning),
-              const SizedBox(width: 8),
-              Text(
-                'API Key for $_selectedProvider',
-                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
           TextField(
             controller: controller,
             obscureText: true,
+            style: Theme.of(context).textTheme.bodyMedium,
             decoration: InputDecoration(
-              hintText: 'Paste your API key...',
-              hintStyle: TextStyle(
-                color: isDark ? Colors.white24 : Colors.black26,
-                fontSize: 13,
-              ),
+              hintText: 'Paste your API key…',
+              hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+                  ),
               filled: true,
-              fillColor: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.white,
+              fillColor: isDark ? AppTheme.raisedDark : AppTheme.raisedLight,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide.none,
+                borderRadius: BorderRadius.circular(AppTheme.rSm),
+                borderSide: BorderSide(
+                  color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+                ),
               ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTheme.rSm),
+                borderSide: BorderSide(
+                  color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTheme.rSm),
+                borderSide: const BorderSide(color: AppTheme.emberMain, width: 1.5),
+              ),
+              isDense: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              suffixIcon: IconButton(
-                icon: const Icon(Icons.visibility_off_rounded, size: 18),
-                onPressed: () {},
-              ),
             ),
             onChanged: (_) => _saveSettings(),
           ),
           if (provider['keyUrl'] != null) ...[
             const SizedBox(height: 8),
-            GestureDetector(
-              onTap: () {
-                // Would launch URL in production
-              },
-              child: Text(
-                'Get free key → ${provider['keyUrl']}',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: AppTheme.primary,
-                  fontWeight: FontWeight.w500,
-                ),
+            Text(
+              'Get a free key → ${provider['keyUrl']}',
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: AppTheme.emberMain,
               ),
             ),
           ],
@@ -483,46 +453,90 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildSwitchTile(
+  Widget _buildAppearanceSection(BuildContext context) {
+    final themeController = context.watch<ThemeController>();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+      decoration: const BoxDecoration(
+        color: Colors.transparent,
+      ),
+      child: SegmentedButton<ThemeMode>(
+        segments: const [
+          ButtonSegment(
+            value: ThemeMode.light,
+            label: Text('Light'),
+            icon: Icon(Icons.light_mode_outlined, size: 18),
+          ),
+          ButtonSegment(
+            value: ThemeMode.dark,
+            label: Text('Dark'),
+            icon: Icon(Icons.dark_mode_outlined, size: 18),
+          ),
+          ButtonSegment(
+            value: ThemeMode.system,
+            label: Text('System'),
+            icon: Icon(Icons.brightness_auto_outlined, size: 18),
+          ),
+        ],
+        selected: {themeController.themeMode},
+        onSelectionChanged: (selection) {
+          themeController.setMode(selection.first);
+        },
+        showSelectedIcon: false,
+        style: const ButtonStyle(
+          visualDensity: VisualDensity(horizontal: 0, vertical: 0),
+          padding: WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 10)),
+        ),
+      ),
+    );
+  }
+
+  Widget _switchTile(
     BuildContext context, {
     required IconData icon,
     required String title,
     required String subtitle,
     required bool value,
-    required Color color,
     required ValueChanged<bool> onChanged,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(14),
+        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
         border: Border.all(
-          color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade100,
+          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
         ),
       ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: color, size: 18),
+          Icon(
+            icon,
+            size: 20,
+            color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: ink,
+                      ),
+                ),
                 Text(
                   subtitle,
-                  style: TextStyle(fontSize: 12, color: isDark ? Colors.white38 : Colors.black38),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                      ),
                 ),
               ],
             ),
@@ -530,56 +544,111 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeThumbColor: AppTheme.primary,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildInfoTile(
+  Widget _infoRow(
     BuildContext context, {
     required IconData icon,
     required String title,
     required String subtitle,
-    required Color color,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(14),
+        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
         border: Border.all(
-          color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade100,
+          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
         ),
       ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: color, size: 18),
+          Icon(
+            icon,
+            size: 20,
+            color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: ink,
+                      ),
+                ),
                 Text(
                   subtitle,
-                  style: TextStyle(fontSize: 12, color: isDark ? Colors.white38 : Colors.black38),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                      ),
                 ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _aboutTile(BuildContext context, bool isDark, Color ink) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => PremiumAboutDialog.show(context),
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+            borderRadius: BorderRadius.circular(AppTheme.rMd),
+            border: Border.all(
+              color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+            ),
+          ),
+          child: Row(
+            children: [
+              const SiftMark(size: 28),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sift',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: ink,
+                          ),
+                    ),
+                    Text(
+                      'Version 1.0.0',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

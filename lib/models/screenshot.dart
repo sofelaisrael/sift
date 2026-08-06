@@ -103,16 +103,4 @@ class Screenshot extends HiveObject {
     }
     return const [];
   }
-
-  String get typeEmoji {
-    switch (lamType) {
-      case 'flight': return '✈️';
-      case 'recipe': return '🍳';
-      case 'deadline': return '⏰';
-      case 'product': return '🛒';
-      case 'meeting': return '📅';
-      case 'document': return '📄';
-      default: return '📌';
-    }
-  }
 }

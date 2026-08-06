@@ -37,15 +37,15 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
+    final successColor = isDark ? AppTheme.successDark : AppTheme.successLight;
     final completedCount = _checked.where((c) => c).length;
     final progress = widget.items.isEmpty ? 0.0 : completedCount / widget.items.length;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          widget.listName,
-          style: const TextStyle(fontWeight: FontWeight.w700),
-        ),
+        title: Text(widget.listName, style: const TextStyle(fontWeight: FontWeight.w700)),
         actions: [
           IconButton(
             icon: const Icon(Icons.delete_outline_rounded),
@@ -60,64 +60,42 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
             margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  AppTheme.success.withValues(alpha: 0.08),
-                  AppTheme.accent.withValues(alpha: 0.05),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: AppTheme.success.withValues(alpha: 0.15),
-              ),
+              color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+              borderRadius: BorderRadius.circular(AppTheme.rMd),
+              border: Border.all(color: scheme.outlineVariant),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      CircularProgressIndicator(
-                        value: progress,
-                        strokeWidth: 4,
-                        backgroundColor: AppTheme.success.withValues(alpha: 0.15),
-                        valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.success),
-                      ),
-                      Center(
-                        child: Text(
-                          '$completedCount',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                            color: AppTheme.success,
+                Row(
+                  children: [
+                    Text(
+                      '$completedCount of ${widget.items.length} items',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: ink,
                           ),
-                        ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${((progress) * 100).round()}%',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: successColor,
+                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '$completedCount of ${widget.items.length} items',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                        ),
-                      ),
-                      Text(
-                        progress >= 1.0 ? 'All done!' : '${((1 - progress) * 100).toInt()}% remaining',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isDark ? Colors.white38 : Colors.black38,
-                        ),
-                      ),
-                    ],
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 4,
+                    backgroundColor: scheme.surfaceContainer,
+                    valueColor: AlwaysStoppedAnimation<Color>(successColor),
                   ),
                 ),
               ],
@@ -136,65 +114,81 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
           ),
 
           // Add item
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: isDark ? AppTheme.cardDark : Colors.white,
-              border: Border(
-                top: BorderSide(
-                  color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade100,
-                ),
-              ),
-            ),
-            child: SafeArea(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _addItemController,
-                      decoration: InputDecoration(
-                        hintText: 'Add item...',
-                        hintStyle: TextStyle(
-                          color: isDark ? Colors.white24 : Colors.black26,
-                        ),
-                        filled: true,
-                        fillColor: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.grey.shade50,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                      ),
-                      onSubmitted: (_) => _addItem(),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  IconButton.filled(
-                    onPressed: _addItem,
-                    icon: const Icon(Icons.add_rounded),
-                    style: IconButton.styleFrom(
-                      backgroundColor: AppTheme.primary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          _buildAddBar(context, isDark, scheme),
         ],
       ),
     );
   }
 
+  Widget _buildAddBar(
+    BuildContext context,
+    bool isDark,
+    ColorScheme scheme,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        border: Border(
+          top: BorderSide(color: isDark ? AppTheme.hairDark : AppTheme.hairLight),
+        ),
+      ),
+      child: SafeArea(
+        child: Row(
+          children: [
+            Expanded(
+              child: Container(
+                height: 52,
+                decoration: BoxDecoration(
+                  color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+                  borderRadius: BorderRadius.circular(AppTheme.rMd),
+                  border: Border.all(color: scheme.outlineVariant),
+                ),
+                child: TextField(
+                  controller: _addItemController,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  onSubmitted: (_) => _addItem(),
+                  decoration: InputDecoration(
+                    hintText: 'Add item…',
+                    hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+                        ),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Material(
+              color: AppTheme.emberMain,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _addItem,
+                child: const SizedBox(
+                  width: AppTheme.sendBtn,
+                  height: AppTheme.sendBtn,
+                  child: Icon(Icons.add_rounded, color: AppTheme.emberInk, size: 22),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildItemTile(BuildContext context, int index, bool isDark) {
+    final isDarkMode = isDark;
+    final scheme = Theme.of(context).colorScheme;
     final item = widget.items[index];
     final checked = _checked[index];
+    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
 
     return Dismissible(
       key: Key('$item-$index'),
@@ -205,16 +199,21 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         padding: const EdgeInsets.only(right: 20),
         margin: const EdgeInsets.only(bottom: 4),
         decoration: BoxDecoration(
-          color: AppTheme.error.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
+          color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+          borderRadius: BorderRadius.circular(AppTheme.rMd),
+          border: Border.all(color: scheme.outlineVariant),
         ),
-        child: const Icon(Icons.delete_rounded, color: AppTheme.error),
+        child: Icon(
+          Icons.delete_rounded,
+          color: isDark ? AppTheme.errorDark : AppTheme.errorLight,
+        ),
       ),
       child: Container(
         margin: const EdgeInsets.only(bottom: 4),
         decoration: BoxDecoration(
-          color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.grey.shade50,
-          borderRadius: BorderRadius.circular(12),
+          color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+          borderRadius: BorderRadius.circular(AppTheme.rMd),
+          border: Border.all(color: scheme.outlineVariant),
         ),
         child: CheckboxListTile(
           value: checked,
@@ -226,19 +225,17 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
           },
           title: Text(
             item,
-            style: TextStyle(
-              fontWeight: FontWeight.w500,
-              decoration: checked ? TextDecoration.lineThrough : null,
-              color: checked
-                  ? isDark
-                      ? Colors.white24
-                      : Colors.black26
-                  : null,
-            ),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w500,
+                  decoration: checked ? TextDecoration.lineThrough : null,
+                  color: checked
+                      ? (isDarkMode ? AppTheme.ashDark : AppTheme.ashLight)
+                      : ink,
+                ),
           ),
-          activeColor: AppTheme.success,
+          activeColor: AppTheme.emberMain,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(AppTheme.rMd),
           ),
           contentPadding: const EdgeInsets.symmetric(horizontal: 12),
         ),
@@ -270,7 +267,9 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.r2xl),
+        ),
         title: const Text('Delete List?'),
         content: Text('"${widget.listName}" will be permanently deleted.'),
         actions: [
@@ -285,7 +284,6 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
               Navigator.pop(context);
               Navigator.pop(context);
             },
-            style: FilledButton.styleFrom(backgroundColor: AppTheme.error),
             child: const Text('Delete'),
           ),
         ],

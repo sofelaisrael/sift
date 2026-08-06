@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/screenshot.dart';
 import '../theme/app_theme.dart';
 import '../widgets/widgets.dart';
@@ -12,154 +13,128 @@ class DetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final typeColor = AppTheme.typeColor(screenshot.lamType);
+    final scheme = Theme.of(context).colorScheme;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final screenWidth = MediaQuery.sizeOf(context).width;
 
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          // Hero image with app bar
           SliverAppBar(
-            expandedHeight: 280,
+            expandedHeight: 240,
             pinned: true,
             stretch: true,
-            backgroundColor: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-            leading: Container(
-              margin: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: isDark ? Colors.black45 : Colors.white70,
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back_rounded),
-                onPressed: () => Navigator.pop(context),
-              ),
+            backgroundColor: isDark ? AppTheme.bgDark : AppTheme.bgLight,
+            leading: _circleButton(
+              context,
+              icon: Icons.arrow_back_rounded,
+              onTap: () => Navigator.pop(context),
             ),
             actions: [
-              Container(
-                margin: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.black45 : Colors.white70,
-                  shape: BoxShape.circle,
-                ),
-                child: IconButton(
-                  icon: const Icon(Icons.share_rounded),
-                  onPressed: () {},
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _circleButton(
+                  context,
+                  icon: Icons.share_rounded,
+                  onTap: () {
+                    if (Motion.enabled) HapticFeedback.mediumImpact();
+                  },
                 ),
               ),
             ],
             flexibleSpace: FlexibleSpaceBar(
-              background: ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  bottom: Radius.circular(24),
-                ),
-                child: Image.file(
-                  File(screenshot.filePath),
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      color: typeColor.withValues(alpha: 0.1),
+              background: Image.file(
+                File(screenshot.filePath),
+                fit: BoxFit.cover,
+                cacheWidth: (screenWidth * dpr).round(),
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    color: scheme.surfaceContainer,
+                    child: Center(
                       child: Icon(
                         Icons.image_rounded,
                         size: 64,
-                        color: typeColor,
+                        color: scheme.onSurfaceVariant,
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  );
+                },
               ),
             ),
           ),
-
-          // Content
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Type badge and confidence row
                   Row(
                     children: [
                       TypeBadge(type: screenshot.lamType),
                       const Spacer(),
-                      if (screenshot.confidence != null)
-                        ConfidenceBadge(confidence: screenshot.confidence!),
+                      if (screenshot.actionCompleted)
+                        _actionStatus(context),
                     ],
                   ),
                   const SizedBox(height: 16),
-
-                  // Summary
                   Text(
-                    screenshot.summary ?? 'Processing...',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.3,
-                          height: 1.3,
+                    screenshot.summary ?? 'Processing…',
+                    style: Theme.of(context).textTheme.displayMedium?.copyWith(
+                          height: 1.1,
                         ),
                   ),
-                  const SizedBox(height: 24),
-
-                  // What SIFT sees — deeper scene/context understanding
                   if (screenshot.description != null &&
                       screenshot.description!.isNotEmpty) ...[
-                    _buildSectionHeader(context, 'What SIFT sees', Icons.visibility_rounded),
+                    const SizedBox(height: 28),
+                    Text(
+                      'What SIFT sees',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
                     const SizedBox(height: 12),
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            AppTheme.primary.withValues(alpha: 0.06),
-                            AppTheme.accent.withValues(alpha: 0.04),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: AppTheme.primary.withValues(alpha: 0.15),
-                        ),
+                        color: scheme.surfaceContainer,
+                        borderRadius: BorderRadius.circular(AppTheme.rXl),
+                        border: Border.all(color: scheme.outlineVariant),
                       ),
-                      child: Text(
-                        screenshot.description!,
-                        style: TextStyle(
-                          fontSize: 14,
-                          height: 1.6,
-                          color: isDark ? Colors.white70 : Colors.black87,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            screenshot.description!,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          if (screenshot.recognitions.isNotEmpty) ...[
+                            const SizedBox(height: 14),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: screenshot.recognitions
+                                  .map((r) => _neutralChip(context, r))
+                                  .toList(),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
-                    if (screenshot.recognitions.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      _buildTagChips(screenshot.recognitions, AppTheme.info, Icons.star_rounded),
-                    ],
-                    if (screenshot.objects.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      _buildTagChips(screenshot.objects, AppTheme.primary, Icons.category_rounded),
-                    ],
-                    const SizedBox(height: 24),
                   ],
-
-                  // Action card
-                  if (screenshot.actionType != null && screenshot.actionType != 'none') ...[
-                    _buildActionCard(context, isDark),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // Extracted text
-                  if (screenshot.ocrText != null && screenshot.ocrText!.isNotEmpty) ...[
-                    _buildSectionHeader(context, 'Extracted Text', Icons.text_fields_rounded),
+                  if (screenshot.ocrText != null &&
+                      screenshot.ocrText!.isNotEmpty) ...[
+                    const SizedBox(height: 28),
+                    Text(
+                      'Extracted Text',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
                     const SizedBox(height: 12),
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.grey.shade50,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade100,
-                        ),
+                        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+                        borderRadius: BorderRadius.circular(AppTheme.rXl),
+                        border: Border.all(color: scheme.outlineVariant),
                       ),
                       child: SelectableText(
                         screenshot.ocrText!,
@@ -167,189 +142,139 @@ class DetailScreen extends StatelessWidget {
                           fontFamily: 'monospace',
                           fontSize: 13,
                           height: 1.6,
-                          color: isDark ? Colors.white70 : Colors.black87,
+                          color: isDark ? AppTheme.inkDark : AppTheme.inkLight,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 24),
                   ],
-
-                  // File info
-                  _buildSectionHeader(context, 'Details', Icons.info_outline_rounded),
+                  const SizedBox(height: 28),
+                  Text(
+                    'Details',
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
                   const SizedBox(height: 12),
-                  _buildInfoCard(context, isDark, [
+                  _buildInfoCard(context, [
                     _InfoRow('File', screenshot.fileName),
                     _InfoRow('Scanned', _formatDate(screenshot.timestamp)),
                     if (screenshot.lamType != null)
                       _InfoRow('Type', AppTheme.typeLabel(screenshot.lamType)),
                   ]),
-
-                  const SizedBox(height: 40),
                 ],
               ),
             ),
           ),
         ],
       ),
+      bottomNavigationBar: _buildActionBar(context),
     );
   }
 
-  Widget _buildActionCard(BuildContext context, bool isDark) {
-    final completed = screenshot.actionCompleted;
-    final actionColor = completed ? AppTheme.success : AppTheme.info;
-
+  Widget _circleButton(BuildContext context,
+      {required IconData icon, required VoidCallback onTap}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      margin: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            actionColor.withValues(alpha: 0.08),
-            actionColor.withValues(alpha: 0.04),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
+        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        shape: BoxShape.circle,
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: IconButton(
+        icon: Icon(icon, size: 22),
+        onPressed: onTap,
+        color: isDark ? AppTheme.inkDark : AppTheme.inkLight,
+      ),
+    );
+  }
+
+  Widget _actionStatus(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        borderRadius: BorderRadius.circular(AppTheme.rSm),
         border: Border.all(
-          color: actionColor.withValues(alpha: 0.15),
+          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
         ),
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: actionColor.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              completed ? Icons.check_circle_rounded : Icons.arrow_forward_rounded,
-              color: actionColor,
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _getActionDisplayName(screenshot.actionType!),
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 15,
-                    color: actionColor,
-                  ),
-                ),
-                if (screenshot.actionResult != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    screenshot.actionResult!,
-                    style: TextStyle(
-                      color: isDark ? Colors.white54 : Colors.black45,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
           Icon(
-            Icons.chevron_right_rounded,
-            color: actionColor.withValues(alpha: 0.5),
+            Icons.check_rounded,
+            size: 14,
+            color: isDark ? AppTheme.successDark : AppTheme.successLight,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            'Completed',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark ? AppTheme.successDark : AppTheme.successLight,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSectionHeader(BuildContext context, String title, IconData icon) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: AppTheme.primary),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.2,
-              ),
-        ),
-      ],
+  Widget _neutralChip(BuildContext context, String label) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.tagFillDark : AppTheme.tagFillLight,
+        borderRadius: BorderRadius.circular(AppTheme.rSm),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark ? AppTheme.tagTextDark : AppTheme.tagTextLight,
+            ),
+      ),
     );
   }
 
-  Widget _buildTagChips(List<String> tags, Color color, IconData icon) {
-    if (tags.isEmpty) return const SizedBox.shrink();
+  Widget _buildInfoCard(BuildContext context, List<_InfoRow> rows) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: tags.map((tag) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: color.withValues(alpha: 0.2)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 12, color: color),
-              const SizedBox(width: 4),
-              Text(
-                tag,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildInfoCard(BuildContext context, bool isDark, List<_InfoRow> rows) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade100,
-        ),
+        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        borderRadius: BorderRadius.circular(AppTheme.rXl),
+        border: Border.all(color: scheme.outlineVariant),
       ),
       child: Column(
         children: rows.map((row) {
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SizedBox(
                   width: 80,
                   child: Text(
                     row.label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: isDark ? Colors.white38 : Colors.black38,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+                          fontWeight: FontWeight.w500,
+                        ),
                   ),
                 ),
                 Expanded(
                   child: Text(
                     row.value,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: isDark ? Colors.white70 : Colors.black87,
-                    ),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w500,
+                        ),
                   ),
                 ),
               ],
@@ -360,27 +285,68 @@ class DetailScreen extends StatelessWidget {
     );
   }
 
-  String _getActionDisplayName(String actionType) {
+  Widget _buildActionBar(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final (icon, label) = _action(screenshot.actionType);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        border: Border(
+          top: BorderSide(color: isDark ? AppTheme.hairDark : AppTheme.hairLight),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () {
+                    if (Motion.enabled) HapticFeedback.mediumImpact();
+                  },
+                  icon: Icon(icon, size: 20),
+                  label: Text(label),
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () {
+                  if (Motion.enabled) HapticFeedback.mediumImpact();
+                },
+                child: const Text('Share'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  (IconData, String) _action(String? actionType) {
     switch (actionType) {
-      case 'add_calendar':
-        return '📅 Added to Calendar';
       case 'create_reminder':
-        return '⏰ Reminder Created';
+        return (Icons.alarm_rounded, 'Create Reminder');
       case 'create_shopping_list':
-        return '🛒 Shopping List Created';
+        return (Icons.shopping_cart_rounded, 'Add to Shopping List');
       case 'create_task':
-        return '✅ Task Created';
+        return (Icons.task_alt_rounded, 'Create Task');
+      case 'add_calendar':
+        return (Icons.event_rounded, 'Add to Calendar');
       default:
-        return actionType;
+        return (Icons.event_rounded, 'Add to Calendar');
     }
   }
 
   String _formatDate(DateTime date) {
     final months = [
       '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
-    return '${months[date.month]} ${date.day}, ${date.year} at ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+    return '${months[date.month]} ${date.day}, ${date.year} at '
+        '${date.hour}:${date.minute.toString().padLeft(2, '0')}';
   }
 }
 

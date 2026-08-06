@@ -556,19 +556,6 @@ class LAMResponse {
     return const [];
   }
 
-  String get typeEmoji {
-    switch (type) {
-      case 'flight': return '✈️';
-      case 'recipe': return '🍳';
-      case 'deadline': return '⏰';
-      case 'product': return '🛒';
-      case 'meeting': return '📅';
-      case 'shopping': return '🛒';
-      case 'document': return '📄';
-      default: return '📌';
-    }
-  }
-
   bool get isHighConfidence => confidence >= 0.7;
 }
 

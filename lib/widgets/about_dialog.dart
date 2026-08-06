@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import 'sift_mark.dart';
 
+/// Flat, porcelain-styled about dialog with the Sift mark. No sparkles,
+/// no emoji, no colored wells.
 class PremiumAboutDialog extends StatelessWidget {
   const PremiumAboutDialog({super.key});
 
@@ -16,41 +19,17 @@ class PremiumAboutDialog extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      backgroundColor: isDark ? AppTheme.cardDark : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppTheme.r2xl),
+      ),
+      backgroundColor: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
       child: Padding(
-        padding: const EdgeInsets.all(28),
+        padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // App icon
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [AppTheme.primary, AppTheme.primaryDark],
-                ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.primary.withValues(alpha: 0.3),
-                    blurRadius: 24,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.auto_awesome_rounded,
-                color: Colors.white,
-                size: 32,
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Title
+            const SiftMark(size: 40),
+            const SizedBox(height: 16),
             Text(
               'Sift',
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
@@ -60,80 +39,64 @@ class PremiumAboutDialog extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'AI-powered screenshot actions',
+              'Version 1.0.0',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: isDark ? Colors.white38 : Colors.black38,
+                    color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
                   ),
             ),
-            const SizedBox(height: 28),
-
-            // Features
-            _FeatureRow(
-              icon: Icons.screenshot_rounded,
+            const SizedBox(height: 24),
+            const _FeatureRow(
+              icon: Icons.photo_library_rounded,
               title: 'Capture',
               description: 'Take or pick any screenshot',
-              color: AppTheme.primary,
             ),
             const SizedBox(height: 12),
-            _FeatureRow(
-              icon: Icons.auto_awesome_rounded,
+            const _FeatureRow(
+              icon: Icons.visibility_rounded,
               title: 'Understand',
-              description: 'AI reads and comprehends content',
-              color: AppTheme.accent,
+              description: 'Reads and comprehends what you save',
             ),
             const SizedBox(height: 12),
-            _FeatureRow(
-              icon: Icons.bolt_rounded,
+            const _FeatureRow(
+              icon: Icons.task_alt_rounded,
               title: 'Act',
               description: 'Calendar, reminders, shopping lists',
-              color: AppTheme.success,
             ),
-            const SizedBox(height: 28),
-
-            // Privacy note
+            const SizedBox(height: 20),
             Container(
-              padding: const EdgeInsets.all(14),
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppTheme.success.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(12),
+                color: isDark ? AppTheme.raisedDark : AppTheme.raisedLight,
+                borderRadius: BorderRadius.circular(AppTheme.rMd),
                 border: Border.all(
-                  color: AppTheme.success.withValues(alpha: 0.15),
+                  color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
                 ),
               ),
               child: Row(
                 children: [
                   Icon(
-                    Icons.shield_rounded,
-                    color: AppTheme.success,
+                    Icons.shield_outlined,
                     size: 20,
+                    color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Your screenshots never leave your device. All processing is private.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: AppTheme.success,
-                      ),
+                      'Your screenshots stay on your device. You stay in control.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
                     ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 24),
-
-            // Close button
             SizedBox(
               width: double.infinity,
               child: FilledButton(
                 onPressed: () => Navigator.pop(context),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
                 child: const Text(
                   'Got it',
                   style: TextStyle(fontWeight: FontWeight.w600),
@@ -151,26 +114,23 @@ class _FeatureRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String description;
-  final Color color;
 
   const _FeatureRow({
     required this.icon,
     required this.title,
     required this.description,
-    required this.color,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Row(
       children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, color: color, size: 18),
+        Icon(
+          icon,
+          size: 20,
+          color: isDark ? AppTheme.inkDark : AppTheme.inkLight,
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -179,19 +139,15 @@ class _FeatureRow extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14,
-                ),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
               Text(
                 description,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? Colors.white38
-                      : Colors.black38,
-                ),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                    ),
               ),
             ],
           ),

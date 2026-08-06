@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
-import 'home_screen.dart';
+import '../widgets/sift_mark.dart';
+import 'app_shell.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -24,129 +25,93 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
 
-  final List<_OnboardingPage> _pages = const [
-    _OnboardingPage(
-      icon: Icons.screenshot_rounded,
-      title: 'Capture Anything',
-      description: 'Take a screenshot or pick from your gallery. Flights, recipes, deadlines, products — we handle them all.',
-      color: AppTheme.primary,
-    ),
-    _OnboardingPage(
-      icon: Icons.auto_awesome_rounded,
-      title: 'AI Understands',
-      description: 'Our multimodal AI reads your screenshot, understands the context, and extracts key information.',
-      color: AppTheme.accent,
-    ),
-    _OnboardingPage(
-      icon: Icons.bolt_rounded,
-      title: 'Take Action',
-      description: 'Automatically add to calendar, create reminders, shopping lists, and more — with one tap.',
-      color: AppTheme.success,
-    ),
-  ];
-
   @override
   void dispose() {
     _pageController.dispose();
     super.dispose();
   }
 
+  Future<void> _completeOnboarding() async {
+    await OnboardingScreen.markComplete();
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const AppShell()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Scaffold(
-      backgroundColor: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
       body: SafeArea(
         child: Column(
           children: [
-            // Skip button
             Align(
               alignment: Alignment.topRight,
-              child: TextButton(
-                onPressed: _completeOnboarding,
-                child: Text(
-                  'Skip',
-                  style: TextStyle(
-                    color: isDark ? Colors.white38 : Colors.black38,
-                    fontWeight: FontWeight.w500,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: TextButton(
+                  onPressed: _completeOnboarding,
+                  child: Text(
+                    'Skip',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? AppTheme.ashDark
+                              : AppTheme.ashLight,
+                        ),
                   ),
                 ),
               ),
             ),
-
-            // Pages
             Expanded(
               child: PageView.builder(
                 controller: _pageController,
-                itemCount: _pages.length,
-                onPageChanged: (index) {
-                  setState(() => _currentPage = index);
-                },
+                itemCount: 3,
+                onPageChanged: (index) => setState(() => _currentPage = index),
                 itemBuilder: (context, index) {
-                  return _buildPage(_pages[index], isDark);
+                  return _buildPage(context, index);
                 },
               ),
             ),
-
-            // Dots and button
+            // Dots
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(3, (index) {
+                final active = _currentPage == index;
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutCubic,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  width: active ? 24 : 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: active
+                        ? AppTheme.emberMain
+                        : Theme.of(context).brightness == Brightness.dark
+                            ? AppTheme.hairDark
+                            : AppTheme.hairLight,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                );
+              }),
+            ),
             Padding(
               padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  // Page indicator
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(
-                      _pages.length,
-                      (index) => AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        margin: const EdgeInsets.symmetric(horizontal: 4),
-                        width: _currentPage == index ? 24 : 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: _currentPage == index
-                              ? AppTheme.primary
-                              : isDark
-                                  ? Colors.white12
-                                  : Colors.black12,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                    ),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _currentPage == 2
+                      ? _completeOnboarding
+                      : () {
+                          _pageController.nextPage(
+                            duration: Motion.emphasis,
+                            curve: Curves.easeOutCubic,
+                          );
+                        },
+                  child: Text(
+                    _currentPage == 2 ? 'Start Sifting' : 'Next',
+                    style: const TextStyle(fontSize: 16),
                   ),
-                  const SizedBox(height: 32),
-
-                  // Next / Get Started button
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: _currentPage == _pages.length - 1
-                          ? _completeOnboarding
-                          : () {
-                              _pageController.nextPage(
-                                duration: const Duration(milliseconds: 300),
-                                curve: Curves.easeInOut,
-                              );
-                            },
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      child: Text(
-                        _currentPage == _pages.length - 1
-                            ? 'Get Started'
-                            : 'Next',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ],
@@ -155,46 +120,53 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Widget _buildPage(_OnboardingPage page, bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 40),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Icon
-          Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              color: page.color.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              page.icon,
-              size: 56,
-              color: page.color,
-            ),
-          ),
-          const SizedBox(height: 48),
+  Widget _buildPage(BuildContext context, int index) {
+    switch (index) {
+      case 0:
+        return _buildPromise(context);
+      case 1:
+        return _buildMockExchange(context);
+      default:
+        return _buildTrust(context);
+    }
+  }
 
-          // Title
+  Widget _buildPromise(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(28, 24, 28, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 80,
+            height: 80,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+              borderRadius: BorderRadius.circular(AppTheme.rXl),
+              border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+            ),
+            child: const SiftMark(size: 44),
+          ),
+          const SizedBox(height: 40),
           Text(
-            page.title,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
-                ),
-            textAlign: TextAlign.center,
+            'Remember everything you screenshot.',
+            style: Theme.of(context).textTheme.displayLarge,
           ),
           const SizedBox(height: 16),
-
-          // Description
           Text(
-            page.description,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: isDark ? Colors.white54 : Colors.black45,
-                  height: 1.6,
+            'Sift understands what you save and brings it back the moment you ask.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                ),
+          ),
+          const SizedBox(height: 48),
+          Text(
+            'Your memory stays on your device.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
                 ),
           ),
         ],
@@ -202,26 +174,171 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Future<void> _completeOnboarding() async {
-    await OnboardingScreen.markComplete();
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-      );
-    }
+  Widget _buildMockExchange(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final maxWidth = MediaQuery.sizeOf(context).width * 0.8;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Ask in plain words.',
+            style: Theme.of(context).textTheme.displayMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'See how Sift pulls up exactly what you need.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                ),
+          ),
+          const SizedBox(height: 32),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Container(
+              constraints: BoxConstraints(maxWidth: maxWidth),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: const BoxDecoration(
+                color: AppTheme.emberMain,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(AppTheme.rXl),
+                  topRight: Radius.circular(AppTheme.rXl),
+                  bottomLeft: Radius.circular(AppTheme.rXl),
+                  bottomRight: Radius.circular(4),
+                ),
+              ),
+              child: Text(
+                'What was that flight price I screenshotted?',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppTheme.emberInk,
+                    ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              constraints: BoxConstraints(maxWidth: maxWidth),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(AppTheme.rXl),
+                  topRight: Radius.circular(AppTheme.rXl),
+                  bottomLeft: Radius.circular(4),
+                  bottomRight: Radius.circular(AppTheme.rXl),
+                ),
+                border: Border.all(color: scheme.outlineVariant),
+              ),
+              child: Text(
+                r'You saved a Google Flights result on Jan 12 — round trip to Lisbon, $540.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(left: 4),
+            child: Row(
+              children: [
+                _mockThumb(context, Icons.flight_rounded),
+                const SizedBox(width: 6),
+                _mockThumb(context, Icons.attach_money_rounded),
+                const SizedBox(width: 8),
+                Text(
+                  'Read from 2 screenshots',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 32),
+          Text(
+            'Every answer is grounded in a screenshot you saved.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+                ),
+          ),
+        ],
+      ),
+    );
   }
-}
 
-class _OnboardingPage {
-  final IconData icon;
-  final String title;
-  final String description;
-  final Color color;
+  Widget _mockThumb(BuildContext context, IconData icon) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(AppTheme.rSm),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Icon(icon, size: 18, color: AppTheme.emberMain),
+    );
+  }
 
-  const _OnboardingPage({
-    required this.icon,
-    required this.title,
-    required this.description,
-    required this.color,
-  });
+  Widget _buildTrust(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(28, 16, 28, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'On your device.',
+            style: Theme.of(context).textTheme.displayLarge,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Sift is local-first. Your screenshots and answers never leave your phone.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                ),
+          ),
+          const SizedBox(height: 32),
+          _trustRow(context, Icons.lock_outline_rounded, 'Private by design'),
+          _trustRow(context, Icons.storage_rounded, 'Stored locally'),
+          _trustRow(context, Icons.verified_user_outlined, 'You stay in control'),
+        ],
+      ),
+    );
+  }
+
+  Widget _trustRow(BuildContext context, IconData icon, String title) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: ink),
+          const SizedBox(width: 12),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: ink,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
 }

@@ -30,8 +30,10 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
     }).toList();
 
     actions.sort((a, b) {
-      final dateA = DateTime.parse(a['created_at'] ?? DateTime.now().toIso8601String());
-      final dateB = DateTime.parse(b['created_at'] ?? DateTime.now().toIso8601String());
+      final dateA =
+          DateTime.parse(a['created_at'] ?? DateTime.now().toIso8601String());
+      final dateB =
+          DateTime.parse(b['created_at'] ?? DateTime.now().toIso8601String());
       return dateB.compareTo(dateA);
     });
 
@@ -45,14 +47,9 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Actions',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
+        title: const Text('Actions', style: TextStyle(fontWeight: FontWeight.w700)),
         actions: [
           if (_actions.isNotEmpty)
             IconButton(
@@ -63,7 +60,6 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
       ),
       body: Column(
         children: [
-          // Filter chips
           if (_actions.isNotEmpty)
             Container(
               height: 56,
@@ -71,24 +67,22 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
-                  _buildFilterChip('all', 'All', Icons.all_inclusive_rounded),
-                  _buildFilterChip('calendar', 'Calendar', Icons.calendar_today_rounded),
-                  _buildFilterChip('reminder', 'Reminders', Icons.notifications_rounded),
-                  _buildFilterChip('shopping_list', 'Shopping', Icons.shopping_cart_rounded),
-                  _buildFilterChip('task', 'Tasks', Icons.check_circle_rounded),
+                  _buildFilterChip('all', 'All'),
+                  _buildFilterChip('calendar', 'Calendar'),
+                  _buildFilterChip('reminder', 'Reminders'),
+                  _buildFilterChip('shopping_list', 'Shopping'),
+                  _buildFilterChip('task', 'Tasks'),
                 ],
               ),
             ),
-
-          // Actions list
           Expanded(
             child: _filteredActions.isEmpty
-                ? _buildEmptyState(isDark)
+                ? _buildEmptyState(context)
                 : ListView.builder(
                     padding: const EdgeInsets.all(16),
                     itemCount: _filteredActions.length,
                     itemBuilder: (context, index) {
-                      return _buildActionCard(context, _filteredActions[index], isDark);
+                      return _buildActionCard(context, _filteredActions[index]);
                     },
                   ),
           ),
@@ -97,38 +91,43 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
     );
   }
 
-  Widget _buildFilterChip(String value, String label, IconData icon) {
+  Widget _buildFilterChip(String value, String label) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
     final isSelected = _filter == value;
+    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
 
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: FilterChip(
-        label: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16),
-            const SizedBox(width: 4),
-            Text(label),
-          ],
-        ),
+        label: Text(label),
         selected: isSelected,
         onSelected: (_) => setState(() => _filter = value),
-        selectedColor: AppTheme.primary.withValues(alpha: 0.12),
-        checkmarkColor: AppTheme.primary,
+        showCheckmark: false,
+        backgroundColor: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        selectedColor: isDark ? AppTheme.raisedDark : AppTheme.raisedLight,
+        side: BorderSide(
+          color: isSelected ? AppTheme.emberMain : scheme.outlineVariant,
+          width: isSelected ? 1.5 : 1,
+        ),
         labelStyle: TextStyle(
-          color: isSelected ? AppTheme.primary : null,
-          fontWeight: FontWeight.w500,
+          color: isSelected ? AppTheme.emberMain : ink,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
         ),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(AppTheme.chipH / 2),
         ),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
       ),
     );
   }
 
-  Widget _buildActionCard(BuildContext context, Map<String, dynamic> action, bool isDark) {
+  Widget _buildActionCard(BuildContext context, Map<String, dynamic> action) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
     final type = action['type'] ?? 'unknown';
-    final color = _typeColor(type);
     final icon = _typeIcon(type);
     final label = _typeLabel(type);
     final date = action['created_at'] != null
@@ -139,22 +138,13 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.grey.shade100,
-        ),
+        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        borderRadius: BorderRadius.circular(AppTheme.rXl),
+        border: Border.all(color: scheme.outlineVariant),
       ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color, size: 20),
-          ),
+          Icon(icon, size: 20, color: ink),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -162,19 +152,17 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
               children: [
                 Text(
                   label,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                    color: color,
-                  ),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: ink,
+                      ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   _getActionDescription(action),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? Colors.white54 : Colors.black45,
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                      ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -185,7 +173,9 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
             date,
             style: TextStyle(
               fontSize: 11,
-              color: isDark ? Colors.white24 : Colors.black26,
+              fontWeight: FontWeight.w500,
+              color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
         ],
@@ -193,52 +183,36 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
     );
   }
 
-  Widget _buildEmptyState(bool isDark) {
+  Widget _buildEmptyState(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
             Icons.history_rounded,
-            size: 64,
-            color: isDark ? Colors.white12 : Colors.black12,
+            size: 56,
+            color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
           ),
           const SizedBox(height: 16),
           Text(
             'No actions yet',
-            style: TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 16,
-              color: isDark ? Colors.white38 : Colors.black38,
-            ),
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
           ),
           const SizedBox(height: 8),
           Text(
             'Actions will appear here after\nyou scan screenshots',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              color: isDark ? Colors.white24 : Colors.black26,
-            ),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                ),
           ),
         ],
       ),
     );
-  }
-
-  Color _typeColor(String type) {
-    switch (type) {
-      case 'calendar':
-        return AppTheme.info;
-      case 'reminder':
-        return AppTheme.warning;
-      case 'shopping_list':
-        return AppTheme.success;
-      case 'task':
-        return AppTheme.primary;
-      default:
-        return Colors.grey;
-    }
   }
 
   IconData _typeIcon(String type) {
@@ -286,7 +260,9 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.r2xl),
+        ),
         title: const Text('Clear All Actions?'),
         content: const Text('This cannot be undone.'),
         actions: [
@@ -301,7 +277,6 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
               setState(() => _actions = []);
               Navigator.pop(context);
             },
-            style: FilledButton.styleFrom(backgroundColor: AppTheme.error),
             child: const Text('Clear'),
           ),
         ],

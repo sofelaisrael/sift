@@ -109,8 +109,7 @@ class ScreenshotProvider extends ChangeNotifier {
 
       await _saveScreenshot(screenshot);
 
-      _processingStatus = actionResult?.message ?? 
-          '${lamResponse.typeEmoji} ${lamResponse.summary}';
+      _processingStatus = actionResult?.message ?? lamResponse.summary;
       notifyListeners();
     } catch (e) {
       _error = 'Processing failed: ${e.toString()}';
