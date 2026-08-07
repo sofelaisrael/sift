@@ -41,7 +41,6 @@ workflows:
             }
           }
           ENDCONFIG
-          cat lib/config.dart
       - name: Install dependencies
         script: flutter pub get
       - name: Clean Gradle cache

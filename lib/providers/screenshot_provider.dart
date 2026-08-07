@@ -63,8 +63,21 @@ class ScreenshotProvider extends ChangeNotifier {
       final savedKey = prefs.getString('key_$providerName') ?? '';
       final apiKey = savedKey.isNotEmpty ? savedKey : AppConfig.apiKeyFor(providerName);
 
-      // Step 1: Send image directly to AI
       final lamService = LAMService();
+
+      // Fail fast with a clear, actionable message when the selected
+      // provider needs a key that isn't configured yet.
+      final cfg = lamService.availableProviders.where((p) => p.name == providerName);
+      final needsKey = cfg.isNotEmpty ? cfg.first.requiresKey : true;
+      if (needsKey && (apiKey == null || apiKey.isEmpty)) {
+        _error = 'No API key set for $providerName. '
+            'Open Settings, choose a provider, and paste its free API key.';
+        _processingStatus = '';
+        notifyListeners();
+        return;
+      }
+
+      // Step 1: Send image directly to AI
       final lamResponse = await lamService.analyzeImage(
         imagePath,
         apiKey: apiKey,

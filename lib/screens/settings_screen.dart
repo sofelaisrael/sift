@@ -47,6 +47,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'recommended': false,
     },
     {
+      'name': 'NVIDIA',
+      'desc': 'Free tier · 40 RPM · Multimodal (Llama vision)',
+      'icon': Icons.developer_board_rounded,
+      'needsKey': true,
+      'keyUrl': 'https://build.nvidia.com',
+      'recommended': false,
+    },
+    {
       'name': 'OVHcloud',
       'desc': 'Free tier · 2 RPM · No signup needed',
       'icon': Icons.cloud_outlined,

@@ -6,6 +6,8 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 
 /// Multi-provider free LLM service with fallback chain
 class LAMService {
+  String _lastError = '';
+
   // Provider configs (OpenAI-compatible endpoints)
   static const List<ProviderConfig> _providers = [
     // Free multimodal providers (support image input)
@@ -29,6 +31,14 @@ class LAMService {
       name: 'OpenRouter',
       baseUrl: 'https://openrouter.ai/api/v1',
       model: 'google/gemma-4-31b-it:free',
+      requiresKey: true,
+      supportsImage: true,
+      format: ProviderFormat.openai,
+    ),
+    ProviderConfig(
+      name: 'NVIDIA',
+      baseUrl: 'https://integrate.api.nvidia.com/v1',
+      model: 'meta/llama-3.2-90b-vision-instruct',
       requiresKey: true,
       supportsImage: true,
       format: ProviderFormat.openai,
@@ -57,6 +67,8 @@ class LAMService {
   Future<LAMResponse> analyzeImage(String imagePath, {String? apiKey, String? provider}) async {
     final imageBytes = await File(imagePath).readAsBytes();
     final base64Image = base64Encode(imageBytes);
+    final mimeType = _mimeFromPath(imagePath);
+    _lastError = '';
 
     // Try the selected provider first
     if (provider != null) {
@@ -71,7 +83,7 @@ class LAMService {
         // Multimodal - send image directly
         debugPrint('Trying ${p.name} with image...');
         try {
-          final response = await _callProvider(p, base64Image: base64Image, apiKey: apiKey);
+          final response = await _callProvider(p, base64Image: base64Image, mimeType: mimeType, apiKey: apiKey);
           if (response != null) return response;
         } catch (e) {
           debugPrint('${p.name} failed: $e');
@@ -98,7 +110,7 @@ class LAMService {
       try {
         if (p.supportsImage) {
           debugPrint('Fallback: trying ${p.name} with image...');
-          final response = await _callProvider(p, base64Image: base64Image, apiKey: apiKey);
+          final response = await _callProvider(p, base64Image: base64Image, mimeType: mimeType, apiKey: apiKey);
           if (response != null) return response;
         } else {
           debugPrint('Fallback: trying ${p.name} with OCR...');
@@ -156,11 +168,12 @@ class LAMService {
     String? base64Image,
     String? text,
     String? apiKey,
+    String? mimeType,
   }) async {
     if (provider.format == ProviderFormat.gemini) {
-      return _callGemini(provider, base64Image: base64Image, text: text, apiKey: apiKey!);
+      return _callGemini(provider, base64Image: base64Image, text: text, apiKey: apiKey!, mimeType: mimeType);
     } else {
-      return _callOpenAI(provider, base64Image: base64Image, text: text, apiKey: apiKey);
+      return _callOpenAI(provider, base64Image: base64Image, text: text, apiKey: apiKey, mimeType: mimeType);
     }
   }
 
@@ -169,6 +182,7 @@ class LAMService {
     String? base64Image,
     String? text,
     required String apiKey,
+    String? mimeType,
   }) async {
     final parts = <Map<String, dynamic>>[];
 
@@ -179,7 +193,7 @@ class LAMService {
     if (base64Image != null) {
       parts.add({
         'inlineData': {
-          'mimeType': 'image/png',
+          'mimeType': mimeType ?? 'image/png',
           'data': base64Image,
         },
       });
@@ -187,20 +201,21 @@ class LAMService {
 
     parts.add({'text': '\n\nAnalyze this. Return ONLY valid JSON, no explanation.'});
 
-    final response = await http.post(
-      Uri.parse('${provider.baseUrl}/models/${provider.model}:generateContent?key=$apiKey'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'contents': [{'parts': parts}],
-        'systemInstruction': {'parts': [{'text': _buildSystemPrompt()}]},
-        'generationConfig': {
-          'temperature': 0.1,
-          'maxOutputTokens': 1024,
-        },
-      }),
-    );
+    final response = await _retry429(() => http.post(
+          Uri.parse('${provider.baseUrl}/models/${provider.model}:generateContent?key=$apiKey'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'contents': [{'parts': parts}],
+            'systemInstruction': {'parts': [{'text': _buildSystemPrompt()}]},
+            'generationConfig': {
+              'temperature': 0.1,
+              'maxOutputTokens': 1024,
+            },
+          }),
+        ));
 
     if (response.statusCode != 200) {
+      _lastError = '${provider.name} returned HTTP ${response.statusCode}';
       debugPrint('Gemini error: ${response.body}');
       return null;
     }
@@ -217,6 +232,7 @@ class LAMService {
     String? base64Image,
     String? text,
     String? apiKey,
+    String? mimeType,
   }) async {
     final messages = <Map<String, dynamic>>[
       {'role': 'system', 'content': _buildSystemPrompt()},
@@ -227,7 +243,7 @@ class LAMService {
         'role': 'user',
         'content': [
           {'type': 'text', 'text': 'Describe what you see in this screenshot — the scene, objects, and context — and extract all visible text. Return ONLY valid JSON.'},
-          {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,$base64Image'}},
+          {'type': 'image_url', 'image_url': {'url': 'data:${mimeType ?? 'image/png'};base64,$base64Image'}},
         ],
       });
     } else if (text != null) {
@@ -247,18 +263,19 @@ class LAMService {
       headers['X-Title'] = 'Sift';
     }
 
-    final response = await http.post(
-      Uri.parse('${provider.baseUrl}/chat/completions'),
-      headers: headers,
-      body: jsonEncode({
-        'model': provider.model,
-        'messages': messages,
-        'temperature': 0.1,
-        'max_tokens': 1024,
-      }),
-    );
+    final response = await _retry429(() => http.post(
+          Uri.parse('${provider.baseUrl}/chat/completions'),
+          headers: headers,
+          body: jsonEncode({
+            'model': provider.model,
+            'messages': messages,
+            'temperature': 0.1,
+            'max_tokens': 1024,
+          }),
+        ));
 
     if (response.statusCode != 200) {
+      _lastError = '${provider.name} returned HTTP ${response.statusCode}';
       debugPrint('${provider.name} error ${response.statusCode}: ${response.body}');
       return null;
     }
@@ -327,15 +344,45 @@ If you cannot determine the content well, still return valid JSON with low confi
   }
 
   LAMResponse _fallbackResponse(String reason) {
-    debugPrint('LAM fallback triggered: $reason');
+    final msg = _lastError.isNotEmpty ? '$_lastError.' : reason;
+    debugPrint('LAM fallback triggered: $msg');
     return LAMResponse(
       type: 'other',
       confidence: 0.0,
-      summary: 'Could not analyze screenshot: $reason',
-      description: 'Analysis failed. $reason',
+      summary: 'Could not analyze screenshot: $msg',
+      description: 'Analysis failed. $msg',
       extractedData: {},
       suggestedAction: LAMAction(type: 'none', data: {}),
     );
+  }
+
+  /// Detect the real image MIME type from the file extension, so we don't
+  /// send JPEG/WebP bytes mismarked as PNG (which providers reject).
+  String _mimeFromPath(String path) {
+    final ext = path.toLowerCase().split('.').last;
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'webp':
+        return 'image/webp';
+      case 'gif':
+        return 'image/gif';
+      case 'bmp':
+        return 'image/bmp';
+      default:
+        return 'image/png';
+    }
+  }
+
+  /// Retry once after a short delay when a provider rate-limits us (429).
+  Future<http.Response> _retry429(Future<http.Response> Function() post) async {
+    var response = await post();
+    if (response.statusCode == 429) {
+      await Future.delayed(const Duration(seconds: 3));
+      response = await post();
+    }
+    return response;
   }
 
   /// Get list of available providers
