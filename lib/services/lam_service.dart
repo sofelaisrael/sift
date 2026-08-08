@@ -209,7 +209,7 @@ class LAMService {
             'systemInstruction': {'parts': [{'text': _buildSystemPrompt()}]},
             'generationConfig': {
               'temperature': 0.1,
-              'maxOutputTokens': 1024,
+              'maxOutputTokens': 4096,
             },
           }),
         ));
@@ -221,8 +221,17 @@ class LAMService {
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final content = body['candidates']?[0]?['content']?['parts']?[0]?['text'] as String?;
-    if (content == null) return null;
+    // Thinking models can stream the answer across multiple parts; join them
+    // all instead of reading only parts[0].
+    final partsList = body['candidates']?[0]?['content']?['parts'] as List? ?? const [];
+    final content = partsList
+        .map((p) => (p is Map && p['text'] is String) ? p['text'] as String : '')
+        .where((t) => t.isNotEmpty)
+        .join('\n');
+    if (content.isEmpty) {
+      _lastError = '${provider.name} returned an empty response';
+      return null;
+    }
 
     return _parseResponse(content);
   }
@@ -288,19 +297,71 @@ class LAMService {
   }
 
   LAMResponse _parseResponse(String content) {
-    var cleaned = content.trim();
-    if (cleaned.startsWith('```')) {
-      cleaned = cleaned.replaceFirst(RegExp(r'^```\w*\n?'), '');
-      cleaned = cleaned.replaceFirst(RegExp(r'\n?```$'), '');
+    final json = _extractJsonObject(content);
+    if (json == null) {
+      debugPrint('JSON parse failed. Raw content: ${content.substring(0, content.length > 400 ? 400 : content.length)}');
+      return _fallbackResponse('JSON parse error');
     }
 
     try {
-      final json = jsonDecode(cleaned) as Map<String, dynamic>;
       return LAMResponse.fromJson(json);
     } catch (e) {
       debugPrint('JSON parse failed: $e');
       return _fallbackResponse('JSON parse error');
     }
+  }
+
+  /// Tolerantly extract a JSON object from a model response that may contain
+  /// markdown fences, prose, or multiple text parts. Returns null if no valid
+  /// JSON object can be found.
+  Map<String, dynamic>? _extractJsonObject(String content) {
+    // 1. Strip markdown code fences (```json ... ```) if present.
+    var cleaned = content.trim();
+    cleaned = cleaned.replaceAll(RegExp(r'^```(?:json)?\s*', multiLine: true), '');
+    cleaned = cleaned.replaceAll(RegExp(r'\s*```$', multiLine: true), '');
+    cleaned = cleaned.trim();
+
+    // 2. Find the outermost { ... } block, ignoring any prose around it.
+    final start = cleaned.indexOf('{');
+    if (start < 0) return null;
+
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+    var end = -1;
+    for (var i = start; i < cleaned.length; i++) {
+      final ch = cleaned[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch == r'\') {
+          escaped = true;
+        } else if (ch == '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch == '"') {
+        inString = true;
+      } else if (ch == '{') {
+        depth++;
+      } else if (ch == '}') {
+        depth--;
+        if (depth == 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end < 0) return null;
+
+    try {
+      final decoded = jsonDecode(cleaned.substring(start, end + 1));
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (_) {
+      return null;
+    }
+    return null;
   }
 
   String _buildSystemPrompt() {
