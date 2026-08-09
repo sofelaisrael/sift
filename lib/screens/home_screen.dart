@@ -8,6 +8,7 @@ import '../providers/screenshot_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/widgets.dart';
 import '../widgets/bottom_sheet.dart';
+import '../widgets/privacy_gate.dart';
 import 'detail_screen.dart';
 import 'actions_history_screen.dart';
 
@@ -235,6 +236,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pickScreenshot(BuildContext context) async {
+    final ok = await showPrivacyConsentIfNeeded(context);
+    if (!ok || !context.mounted) return;
+
     PremiumBottomSheet.show(
       context,
       onCamera: () async {

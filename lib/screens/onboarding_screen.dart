@@ -164,7 +164,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 48),
           Text(
-            'Your memory stays on your device.',
+            'Your screenshots live on this device. AI analysis sends images to the provider you pick — Local-only mode keeps everything on-device.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
                 ),
@@ -298,13 +298,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            'Sift is local-first. Your screenshots and answers never leave your phone.',
+            'Screenshots live on this device. AI analysis sends images to the provider you pick — Local-only mode keeps everything on-device.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
                 ),
           ),
           const SizedBox(height: 32),
-          _trustRow(context, Icons.lock_outline_rounded, 'Private by design'),
+          _trustRow(context, Icons.lock_outline_rounded, 'Your data, your call'),
           _trustRow(context, Icons.storage_rounded, 'Stored locally'),
           _trustRow(context, Icons.verified_user_outlined, 'You stay in control'),
         ],

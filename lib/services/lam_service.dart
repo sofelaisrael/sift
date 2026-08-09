@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
-/// Multi-provider free LLM service with fallback chain
+/// Multi-provider free LLM service
 class LAMService {
   String _lastError = '';
 
@@ -20,22 +20,6 @@ class LAMService {
       format: ProviderFormat.gemini,
     ),
     ProviderConfig(
-      name: 'Cerebras',
-      baseUrl: 'https://api.cerebras.ai/v1',
-      model: 'gemma-4-31b',
-      requiresKey: true,
-      supportsImage: true,
-      format: ProviderFormat.openai,
-    ),
-    ProviderConfig(
-      name: 'OpenRouter',
-      baseUrl: 'https://openrouter.ai/api/v1',
-      model: 'google/gemma-4-31b-it:free',
-      requiresKey: true,
-      supportsImage: true,
-      format: ProviderFormat.openai,
-    ),
-    ProviderConfig(
       name: 'NVIDIA',
       baseUrl: 'https://integrate.api.nvidia.com/v1',
       model: 'meta/llama-3.2-90b-vision-instruct',
@@ -43,20 +27,11 @@ class LAMService {
       supportsImage: true,
       format: ProviderFormat.openai,
     ),
-    // Free text-only providers (fallback)
     ProviderConfig(
       name: 'Groq',
       baseUrl: 'https://api.groq.com/openai/v1',
       model: 'llama-3.3-70b-versatile',
       requiresKey: true,
-      supportsImage: false,
-      format: ProviderFormat.openai,
-    ),
-    ProviderConfig(
-      name: 'OVHcloud',
-      baseUrl: 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',
-      model: 'Meta-Llama-3_3-70B-Instruct',
-      requiresKey: false,
       supportsImage: false,
       format: ProviderFormat.openai,
     ),
@@ -103,29 +78,6 @@ class LAMService {
       }
     }
 
-    // Fallback: try all providers
-    for (final p in _providers) {
-      if (p.requiresKey && (apiKey == null || apiKey.isEmpty)) continue;
-      
-      try {
-        if (p.supportsImage) {
-          debugPrint('Fallback: trying ${p.name} with image...');
-          final response = await _callProvider(p, base64Image: base64Image, mimeType: mimeType, apiKey: apiKey);
-          if (response != null) return response;
-        } else {
-          debugPrint('Fallback: trying ${p.name} with OCR...');
-          final ocrText = await _extractTextFromImage(imagePath);
-          if (ocrText.isNotEmpty) {
-            final response = await _callProvider(p, text: ocrText, apiKey: apiKey);
-            if (response != null) return response;
-          }
-        }
-      } catch (e) {
-        debugPrint('${p.name} fallback failed: $e');
-        continue;
-      }
-    }
-
     return _fallbackResponse('No available provider');
   }
 
@@ -142,25 +94,6 @@ class LAMService {
       debugPrint('OCR failed: $e');
       return '';
     }
-  }
-
-  /// Analyze via OCR text (fallback when image fails)
-  Future<LAMResponse> processScreenshot(String ocrText, {String? apiKey, String? provider}) async {
-    for (final p in _providers) {
-      if (provider != null && p.name != provider) continue;
-      if (p.requiresKey && (apiKey == null || apiKey.isEmpty)) continue;
-
-      debugPrint('Trying provider: ${p.name}');
-      try {
-        final response = await _callProvider(p, text: ocrText, apiKey: apiKey);
-        if (response != null) return response;
-      } catch (e) {
-        debugPrint('${p.name} failed: $e');
-        continue;
-      }
-    }
-
-    return _fallbackResponse('No available provider');
   }
 
   Future<LAMResponse?> _callProvider(
@@ -265,11 +198,6 @@ class LAMService {
 
     if (apiKey != null && apiKey.isNotEmpty) {
       headers['Authorization'] = 'Bearer $apiKey';
-    }
-
-    if (provider.name == 'OpenRouter') {
-      headers['HTTP-Referer'] = 'https://screensort.app';
-      headers['X-Title'] = 'Sift';
     }
 
     final response = await _retry429(() => http.post(
@@ -451,7 +379,7 @@ If you cannot determine the content well, still return valid JSON with low confi
 
   /// Chat with the AI about the user's screenshots.
   /// [context] is pre-built text describing relevant screenshots.
-  /// Tries the selected provider, then falls back through the chain.
+  /// Calls the selected provider only.
   Future<String> chat(
     String message, {
     required String context,
@@ -552,11 +480,6 @@ If you cannot determine the content well, still return valid JSON with low confi
 
     if (apiKey != null && apiKey.isNotEmpty) {
       headers['Authorization'] = 'Bearer $apiKey';
-    }
-
-    if (provider.name == 'OpenRouter') {
-      headers['HTTP-Referer'] = 'https://screensort.app';
-      headers['X-Title'] = 'Sift';
     }
 
     final response = await http.post(

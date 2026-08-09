@@ -6,22 +6,26 @@ import '../models/screenshot.dart';
 import '../services/lam_service.dart';
 import '../services/action_service.dart';
 import '../services/web_lookup.dart';
+import '../services/ocr_service.dart';
 import '../config.dart';
 
 class ScreenshotProvider extends ChangeNotifier {
   static const _uuid = Uuid();
-  
+  final OCRService _ocr = OCRService();
+
   List<Screenshot> _screenshots = [];
   bool _isLoading = false;
   String? _error;
   String _processingStatus = '';
   bool _showFavoritesOnly = false;
+  bool _localOnly = false;
 
   List<Screenshot> get screenshots => _screenshots;
   bool get isLoading => _isLoading;
   String? get error => _error;
   String get processingStatus => _processingStatus;
   bool get showFavoritesOnly => _showFavoritesOnly;
+  bool get localOnly => _localOnly;
   List<Screenshot> get favorites =>
       _screenshots.where((s) => s.isFavorite).toList();
   List<Screenshot> get visibleScreenshots =>
@@ -41,6 +45,7 @@ class ScreenshotProvider extends ChangeNotifier {
   void loadScreenshots() {
     _isLoading = true;
     notifyListeners();
+    _loadSettings();
 
     try {
       final box = Hive.box('screenshots');
@@ -57,20 +62,89 @@ class ScreenshotProvider extends ChangeNotifier {
     }
   }
 
-  /// Process a screenshot — sends image directly to multimodal AI
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    _localOnly = prefs.getBool('localOnly') ?? false;
+  }
+
+  /// Keep the in-memory local-only flag in sync with the Settings toggle.
+  void setLocalOnly(bool value) {
+    _localOnly = value;
+    notifyListeners();
+  }
+
+  /// Process a screenshot — local OCR when local-only mode is on, otherwise
+  /// the image goes directly to the chosen multimodal AI provider.
   Future<void> processScreenshot(String imagePath) async {
     try {
+      final prefs = await SharedPreferences.getInstance();
+      final localOnly = prefs.getBool('localOnly') ?? false;
+      _localOnly = localOnly;
+
+      if (localOnly) {
+        _processingStatus = 'Analyzing locally…';
+        _error = null;
+        notifyListeners();
+        try {
+          final ocrText = (await _ocr.extractText(imagePath)).trim();
+          final firstLine = ocrText.split('\n').firstWhere(
+                (line) => line.trim().isNotEmpty,
+                orElse: () => '',
+              );
+          final screenshot = Screenshot(
+            id: _uuid.v4(),
+            fileName: imagePath.split('/').last,
+            filePath: imagePath,
+            timestamp: DateTime.now(),
+            ocrText: ocrText.isEmpty ? null : ocrText,
+            lamType: 'document',
+            summary: ocrText.isEmpty
+                ? 'No text found'
+                : (firstLine.isNotEmpty
+                    ? (firstLine.length > 80
+                        ? firstLine.substring(0, 80)
+                        : firstLine)
+                    : (ocrText.length > 80
+                        ? ocrText.substring(0, 80)
+                        : ocrText)),
+            description: null,
+            objects: const [],
+            recognitions: const [],
+            actionType: null,
+            actionCompleted: false,
+            actionResult: null,
+            suggestedAction: null,
+            webResults: const [],
+            isFavorite: false,
+            tags: const [],
+          );
+          await _saveScreenshot(screenshot);
+          _processingStatus = 'Local analysis complete';
+          notifyListeners();
+          return;
+        } catch (e) {
+          _error = 'Local analysis failed: ${e.toString()}';
+          _processingStatus = '';
+          notifyListeners();
+          return;
+        }
+      }
+
       _processingStatus = 'AI analyzing screenshot...';
       _error = null;
       notifyListeners();
 
-      // Load settings
-      final prefs = await SharedPreferences.getInstance();
-      final providerName = prefs.getString('provider') ?? AppConfig.defaultProvider;
-      final savedKey = prefs.getString('key_$providerName') ?? '';
-      final apiKey = savedKey.isNotEmpty ? savedKey : AppConfig.apiKeyFor(providerName);
-
       final lamService = LAMService();
+
+      // Load settings
+      var providerName =
+          prefs.getString('provider') ?? AppConfig.defaultProvider;
+      if (!lamService.availableProviders.any((p) => p.name == providerName)) {
+        providerName = AppConfig.defaultProvider;
+      }
+      final savedKey = prefs.getString('key_$providerName') ?? '';
+      final apiKey =
+          savedKey.isNotEmpty ? savedKey : AppConfig.apiKeyFor(providerName);
 
       // Fail fast with a clear, actionable message when the selected
       // provider needs a key that isn't configured yet.
@@ -91,47 +165,7 @@ class ScreenshotProvider extends ChangeNotifier {
         provider: providerName,
       );
 
-      _processingStatus = 'Executing action...';
-      notifyListeners();
-
-      // Step 2: Execute Action
-      final actionService = ActionService();
-      ActionResult? actionResult;
-      
-      if (lamResponse.suggestedAction.type != 'none') {
-        actionResult = await actionService.executeAction(
-          lamResponse.suggestedAction,
-          _uuid.v4(),
-        );
-      }
-
-      // Step 2.5: Go online — find real links to what SIFT recognized
-      List<Map<String, String>> webResults = const [];
-      if (lamResponse.confidence > 0.0 &&
-          !lamResponse.summary.startsWith('Could not analyze')) {
-        _processingStatus = 'Searching the web…';
-        notifyListeners();
-        try {
-          final savedYouTubeKey = prefs.getString('key_youtube') ?? '';
-          final youTubeApiKey = savedYouTubeKey.isNotEmpty
-              ? savedYouTubeKey
-              : AppConfig.youTubeApiKey;
-          final lookupResults = await WebLookupService().lookup(
-            response: lamResponse,
-            youTubeApiKey: youTubeApiKey,
-          );
-          webResults = lookupResults
-              .map((r) => {'title': r.title, 'url': r.url})
-              .toList();
-        } catch (_) {
-          webResults = const [];
-        } finally {
-          _processingStatus = actionResult?.message ?? lamResponse.summary;
-          notifyListeners();
-        }
-      }
-
-      // Step 3: Save to database
+      // Step 2: Save to database
       final screenshot = Screenshot(
         id: _uuid.v4(),
         fileName: imagePath.split('/').last,
@@ -149,14 +183,20 @@ class ScreenshotProvider extends ChangeNotifier {
         objects: lamResponse.objects,
         recognitions: lamResponse.recognitions,
         actionType: lamResponse.suggestedAction.type,
-        actionCompleted: actionResult?.success ?? false,
-        actionResult: actionResult?.message,
-        webResults: webResults,
+        actionCompleted: false,
+        actionResult: null,
+        suggestedAction: lamResponse.suggestedAction.type != 'none'
+            ? {
+                'type': lamResponse.suggestedAction.type,
+                'data': lamResponse.suggestedAction.data ?? const {},
+              }
+            : null,
+        webResults: const [],
       );
 
       await _saveScreenshot(screenshot);
 
-      _processingStatus = actionResult?.message ?? lamResponse.summary;
+      _processingStatus = lamResponse.summary;
       notifyListeners();
     } catch (e) {
       _error = 'Processing failed: ${e.toString()}';
@@ -169,6 +209,106 @@ class ScreenshotProvider extends ChangeNotifier {
     final box = Hive.box('screenshots');
     await box.put(screenshot.id, screenshot.toJson());
     _screenshots.insert(0, screenshot);
+    notifyListeners();
+  }
+
+  /// Manually run the suggested action stored on a screenshot.
+  Future<ActionResult?> runSuggestedAction(Screenshot s) async {
+    final prefs = await SharedPreferences.getInstance();
+    if ((prefs.getBool('localOnly') ?? false) ||
+        !(prefs.getBool('privacy_consent') ?? false)) {
+      _error = 'Privacy consent is required before running actions.';
+      _processingStatus = '';
+      notifyListeners();
+      return null;
+    }
+
+    final suggested = s.suggestedAction;
+    if (suggested == null || suggested.isEmpty) return null;
+
+    try {
+      final action = LAMAction(
+        type: suggested['type'] as String? ?? 'none',
+        data: suggested['data'] is Map
+            ? Map<String, dynamic>.from(suggested['data'] as Map)
+            : const {},
+      );
+      if (action.type == 'none') return null;
+
+      _processingStatus = 'Running action…';
+      notifyListeners();
+
+      final result = await ActionService().executeAction(action, s.id);
+      s.actionCompleted = result.success;
+      s.actionResult = result.message;
+      final box = Hive.box('screenshots');
+      await box.put(s.id, s.toJson());
+      notifyListeners();
+      return result;
+    } catch (e) {
+      debugPrint('Action failed: $e');
+      return null;
+    } finally {
+      _processingStatus = s.summary ?? '';
+      notifyListeners();
+    }
+  }
+
+  /// Manually look up matching web links for a screenshot.
+  Future<void> findOnline(Screenshot s) async {
+    final prefs = await SharedPreferences.getInstance();
+    if ((prefs.getBool('localOnly') ?? false) ||
+        !(prefs.getBool('privacy_consent') ?? false)) {
+      _error = 'Privacy consent is required before searching the web.';
+      _processingStatus = '';
+      notifyListeners();
+      return;
+    }
+
+    _processingStatus = 'Searching the web…';
+    notifyListeners();
+    try {
+      final savedYouTubeKey = prefs.getString('key_youtube') ?? '';
+      final youTubeKey = savedYouTubeKey.isNotEmpty
+          ? savedYouTubeKey
+          : AppConfig.youTubeApiKey;
+      final results = await WebLookupService().lookup(
+        extractedText: s.ocrText ?? '',
+        summary: s.summary ?? '',
+        recognitions: s.recognitions,
+        youTubeApiKey: youTubeKey,
+      );
+      s.webResults
+        ..clear()
+        ..addAll(results.map((r) => {'title': r.title, 'url': r.url}));
+      final box = Hive.box('screenshots');
+      await box.put(s.id, s.toJson());
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Web lookup failed: $e');
+      s.webResults.clear();
+    } finally {
+      _processingStatus = s.summary ?? '';
+      notifyListeners();
+    }
+  }
+
+  /// Wipe everything Sift owns. Image files are never touched — Sift only
+  /// references gallery originals and must never delete them.
+  Future<void> deleteEverything() async {
+    final paths = _screenshots.map((s) => s.filePath).toList();
+    await Hive.box('screenshots').clear();
+    await Hive.box('actions').clear();
+    await Hive.box('chat').clear();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    if (paths.isNotEmpty) {
+      await prefs.setStringList('watcher_seen', paths);
+    }
+    _screenshots = [];
+    _error = null;
+    _processingStatus = '';
+    _localOnly = false;
     notifyListeners();
   }
 

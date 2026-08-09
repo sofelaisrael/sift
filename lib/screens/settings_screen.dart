@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/theme_controller.dart';
+import '../providers/screenshot_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/sift_mark.dart';
 import '../widgets/about_dialog.dart';
@@ -16,7 +17,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String _selectedProvider = 'Google Gemini';
   bool _hapticFeedback = true;
-  bool _autoAction = false;
+  bool _localOnly = false;
   bool _autoDetect = true;
 
   final Map<String, TextEditingController> _keyControllers = {};
@@ -32,35 +33,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'recommended': true,
     },
     {
-      'name': 'OpenRouter',
-      'desc': 'Free models · 20 RPM · Multimodal options',
-      'icon': Icons.route_rounded,
-      'needsKey': true,
-      'keyUrl': 'https://openrouter.ai/keys',
-      'recommended': false,
-    },
-    {
-      'name': 'Cerebras',
-      'desc': 'Free tier · 15 RPM · Fast + multimodal',
-      'icon': Icons.memory_rounded,
-      'needsKey': true,
-      'keyUrl': 'https://cloud.cerebras.ai/',
-      'recommended': false,
-    },
-    {
       'name': 'NVIDIA',
       'desc': 'Free tier · 40 RPM · Multimodal (Llama vision)',
       'icon': Icons.developer_board_rounded,
       'needsKey': true,
       'keyUrl': 'https://build.nvidia.com',
-      'recommended': false,
-    },
-    {
-      'name': 'OVHcloud',
-      'desc': 'Free tier · 2 RPM · No signup needed',
-      'icon': Icons.cloud_outlined,
-      'needsKey': false,
-      'keyUrl': null,
       'recommended': false,
     },
     {
@@ -93,8 +70,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     setState(() {
       _selectedProvider = prefs.getString('provider') ?? 'Google Gemini';
+      if (!_providers.any((p) => p['name'] == _selectedProvider)) {
+        _selectedProvider = 'Google Gemini';
+      }
       _hapticFeedback = prefs.getBool('hapticFeedback') ?? true;
-      _autoAction = prefs.getBool('autoAction') ?? false;
+      _localOnly = prefs.getBool('localOnly') ?? false;
       _autoDetect = prefs.getBool('autoDetect') ?? true;
     });
 
@@ -111,7 +91,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('provider', _selectedProvider);
     await prefs.setBool('hapticFeedback', _hapticFeedback);
-    await prefs.setBool('autoAction', _autoAction);
+    await prefs.setBool('localOnly', _localOnly);
     await prefs.setBool('autoDetect', _autoDetect);
 
     for (final p in _providers) {
@@ -183,30 +163,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _saveSettings();
           },
         ),
+        const SizedBox(height: 32),
+        _sectionTitle(context, 'Privacy'),
         _switchTile(
           context,
-          icon: Icons.bolt_rounded,
-          title: 'Auto-Execute Actions',
-          subtitle: 'Run actions without confirmation',
-          value: _autoAction,
+          icon: Icons.offline_bolt_rounded,
+          title: 'Local-only mode',
+          subtitle: 'Analyze on-device with OCR. Nothing is sent to AI providers; AI chat and web lookups are disabled.',
+          value: _localOnly,
           onChanged: (v) {
-            setState(() => _autoAction = v);
+            setState(() => _localOnly = v);
+            context.read<ScreenshotProvider>().setLocalOnly(v);
             _saveSettings();
           },
         ),
-        const SizedBox(height: 32),
-        _sectionTitle(context, 'Privacy'),
         _infoRow(
           context,
           icon: Icons.lock_outline_rounded,
-          title: 'Private by design',
-          subtitle: 'Your memory never leaves your device',
+          title: 'What leaves your device',
+          subtitle: 'Screenshots go to your chosen AI provider for analysis; optional link lookups query DuckDuckGo/YouTube.',
         ),
         _infoRow(
           context,
           icon: Icons.storage_rounded,
           title: 'Stored locally',
-          subtitle: 'Everything lives on this phone',
+          subtitle: 'Your screenshots, analysis, and chat history are stored on this phone.',
         ),
         _infoRow(
           context,
@@ -214,6 +195,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: 'You stay in control',
           subtitle: 'Delete anything, anytime',
         ),
+        const SizedBox(height: 8),
+        _buildDeleteEverythingTile(context),
         const SizedBox(height: 32),
         _sectionTitle(context, 'About'),
         _aboutTile(context, isDark, ink),
@@ -704,6 +687,103 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildDeleteEverythingTile(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final errorColor = isDark ? AppTheme.errorDark : AppTheme.errorLight;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _confirmDeleteEverything(context),
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+            borderRadius: BorderRadius.circular(AppTheme.rMd),
+            border: Border.all(
+              color: errorColor.withValues(alpha: 0.5),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.delete_forever_rounded, size: 20, color: errorColor),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Delete everything',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: errorColor,
+                          ),
+                    ),
+                    Text(
+                      'Wipe all saved screenshots, chat, actions, and settings',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: isDark
+                                ? AppTheme.slateDark
+                                : AppTheme.slateLight,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteEverything(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.r2xl),
+        ),
+        title: const Text('Delete everything?'),
+        content: const Text(
+          'This permanently deletes everything Sift owns: saved screenshots and their analysis, chat history, actions, settings, saved API keys, and search history. Your gallery photos are untouched.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete everything'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    await context.read<ScreenshotProvider>().deleteEverything();
+    if (!mounted) return;
+
+    setState(() {
+      _selectedProvider = 'Google Gemini';
+      _localOnly = false;
+      _autoDetect = true;
+      _hapticFeedback = true;
+    });
+    for (final c in _keyControllers.values) {
+      c.clear();
+    }
+    _youtubeKeyController.clear();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Everything deleted')),
+    );
+    Navigator.popUntil(context, (route) => route.isFirst);
   }
 
   Widget _aboutTile(BuildContext context, bool isDark, Color ink) {

@@ -10,6 +10,7 @@ import '../models/screenshot.dart';
 import '../providers/screenshot_provider.dart';
 import '../services/lam_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/privacy_gate.dart';
 import 'detail_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -121,19 +122,43 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
 
       final provider = context.read<ScreenshotProvider>();
-      final lam = context.read<LAMService>();
-      final prefs = await SharedPreferences.getInstance();
-      final providerName = prefs.getString('provider') ?? AppConfig.defaultProvider;
-      final savedKey = prefs.getString('key_$providerName') ?? '';
-      final apiKey = savedKey.isNotEmpty ? savedKey : AppConfig.apiKeyFor(providerName);
-
       final results = provider.search(text);
-      final reply = await lam.chat(
-        text,
-        context: _buildContextText(results),
-        apiKey: apiKey,
-        provider: providerName,
-      );
+
+      String reply;
+      if (provider.localOnly) {
+        reply = _buildLocalReply(results);
+      } else {
+        final ok = await showPrivacyConsentIfNeeded(context);
+        if (!ok || !mounted) {
+          if (!mounted) return;
+          final blockedMsg = ChatMessage(
+            id: _uuid.v4(),
+            role: 'assistant',
+            content: 'Privacy consent is required before Sift sends anything to an AI provider. You can grant it the next time you analyze a screenshot, or enable Local-only mode in Settings.',
+            timestamp: DateTime.now(),
+          );
+          setState(() {
+            _messages.add(blockedMsg);
+            _sources[blockedMsg.id] = results;
+          });
+          await _saveMessages();
+          return;
+        }
+
+        final lam = context.read<LAMService>();
+        final prefs = await SharedPreferences.getInstance();
+        final providerName =
+            prefs.getString('provider') ?? AppConfig.defaultProvider;
+        final savedKey = prefs.getString('key_$providerName') ?? '';
+        final apiKey =
+            savedKey.isNotEmpty ? savedKey : AppConfig.apiKeyFor(providerName);
+        reply = await lam.chat(
+          text,
+          context: _buildContextText(results),
+          apiKey: apiKey,
+          provider: providerName,
+        );
+      }
 
       final asstMsg = ChatMessage(
         id: _uuid.v4(),
@@ -189,6 +214,22 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       sb.writeln('  Taken: ${s.timestamp.toIso8601String()}');
       sb.writeln();
+    }
+    return sb.toString();
+  }
+
+  String _buildLocalReply(List<Screenshot> results) {
+    if (results.isEmpty) {
+      return 'Nothing found in your saved screenshots. '
+          'Local-only mode searches on-device text only — no AI.';
+    }
+    final capped = results.take(5).toList();
+    final sb = StringBuffer('Found ${results.length} matching screenshots:');
+    for (final s in capped) {
+      sb.write('\n• ${s.summary ?? 'No summary'}');
+      if (s.recognitions.isNotEmpty) {
+        sb.write(' (${s.recognitions.join(', ')})');
+      }
     }
     return sb.toString();
   }
@@ -385,7 +426,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
           const SizedBox(height: 32),
           Text(
-            'Everything stays on your device.',
+            'Screenshots stay on this device. AI analysis sends images to the provider you choose — or turn on Local-only mode.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
                 ),

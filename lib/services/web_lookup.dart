@@ -2,8 +2,6 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-import 'lam_service.dart';
-
 class WebResult {
   final String title;
   final String url;
@@ -12,15 +10,21 @@ class WebResult {
 }
 
 class WebLookupService {
+  /// Search for real links related to a screenshot's content. Extracted URLs
+  /// from the text are returned first; otherwise the summary plus the first
+  /// recognition become the web query against YouTube (when a key is given)
+  /// and DuckDuckGo.
   Future<List<WebResult>> lookup({
-    required LAMResponse response,
+    required String extractedText,
+    required String summary,
+    required List<String> recognitions,
     required String? youTubeApiKey,
   }) async {
     try {
-      final fromText = _extractUrls(response.extractedText);
+      final fromText = _extractUrls(extractedText);
       if (fromText.isNotEmpty) return fromText;
 
-      final query = _buildQuery(response);
+      final query = _buildQuery(summary: summary, recognitions: recognitions);
       if (query.isEmpty) return const [];
 
       if (youTubeApiKey != null && youTubeApiKey.isNotEmpty) {
@@ -69,12 +73,15 @@ class WebLookupService {
     return url;
   }
 
-  String _buildQuery(LAMResponse response) {
-    final summaryWords = response.summary.trim().isEmpty
+  String _buildQuery({
+    required String summary,
+    required List<String> recognitions,
+  }) {
+    final summaryWords = summary.trim().isEmpty
         ? ''
-        : response.summary.trim().split(RegExp(r'\s+')).take(3).join(' ');
-    if (response.recognitions.isNotEmpty) {
-      final recognition = response.recognitions.first.trim();
+        : summary.trim().split(RegExp(r'\s+')).take(3).join(' ');
+    if (recognitions.isNotEmpty) {
+      final recognition = recognitions.first.trim();
       if (recognition.isEmpty) return summaryWords;
       return summaryWords.isEmpty ? recognition : '$recognition $summaryWords';
     }

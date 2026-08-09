@@ -55,6 +55,9 @@ class Screenshot extends HiveObject {
   @HiveField(16)
   List<String> tags;
 
+  @HiveField(17)
+  Map<String, dynamic>? suggestedAction;
+
   Screenshot({
     required this.id,
     required this.fileName,
@@ -73,6 +76,7 @@ class Screenshot extends HiveObject {
     this.webResults = const [],
     this.isFavorite = false,
     List<String>? tags,
+    this.suggestedAction,
   }) : tags = tags ?? [];
 
   Map<String, dynamic> toJson() => {
@@ -95,6 +99,7 @@ class Screenshot extends HiveObject {
         .toList(),
     'isFavorite': isFavorite,
     'tags': tags,
+    'suggestedAction': suggestedAction,
   };
 
   factory Screenshot.fromJson(Map<String, dynamic> json) => Screenshot(
@@ -115,6 +120,9 @@ class Screenshot extends HiveObject {
     webResults: _stringMapList(json['webResults']),
     isFavorite: json['isFavorite'] ?? false,
     tags: _stringList(json['tags']),
+    suggestedAction: json['suggestedAction'] is Map
+        ? Map<String, dynamic>.from(json['suggestedAction'] as Map)
+        : null,
   );
 
   static List<String> _stringList(dynamic value) {

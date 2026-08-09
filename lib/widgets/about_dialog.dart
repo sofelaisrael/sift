@@ -83,7 +83,7 @@ class PremiumAboutDialog extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Your screenshots stay on your device. You stay in control.',
+                      'Your screenshots live on this device. AI analysis sends images to the provider you choose; enable Local-only mode in Settings to keep everything on-device.',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             fontWeight: FontWeight.w500,
                           ),

@@ -52,9 +52,11 @@ class ScreenshotWatcher {
     final files = await _findScreenshotFiles();
     for (final file in files) {
       if (_knownPaths.contains(file.path)) continue;
-      _knownPaths.add(file.path);
-      await _remember(file.path);
-      await _handleNew(file.path);
+      final processed = await _handleNew(file.path);
+      if (processed) {
+        _knownPaths.add(file.path);
+        await _remember(file.path);
+      }
     }
   }
 
@@ -93,12 +95,25 @@ class ScreenshotWatcher {
     }
   }
 
-  Future<void> _handleNew(String path) async {
+  Future<bool> _handleNew(String path) async {
     debugPrint('Watcher: new screenshot detected: $path');
 
     if (await Permission.notification.isDenied) {
       await Permission.notification.request();
     }
+
+    final prefs = await SharedPreferences.getInstance();
+    final localOnly = prefs.getBool('localOnly') ?? false;
+    final consented = prefs.getBool('privacy_consent') ?? false;
+
+    if (!localOnly && !consented) {
+      await actionService.notify(
+        'Sift needs permission',
+        'Open Sift and allow screenshot analysis',
+      );
+      return false;
+    }
+
     await actionService.notify(
       'New screenshot detected',
       'Sift is analyzing it now...',
@@ -106,8 +121,10 @@ class ScreenshotWatcher {
 
     try {
       await provider.processScreenshot(path);
+      return true;
     } catch (e) {
       debugPrint('Watcher: analysis failed: $e');
+      return false;
     }
   }
 }

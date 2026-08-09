@@ -96,14 +96,32 @@ class DetailScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      TypeBadge(type: screenshot.lamType),
-                      const Spacer(),
-                      if (screenshot.actionCompleted)
-                        _actionStatus(context),
-                    ],
+                  Consumer<ScreenshotProvider>(
+                    builder: (context, provider, _) {
+                      return Row(
+                        children: [
+                          TypeBadge(type: screenshot.lamType),
+                          const Spacer(),
+                          if (screenshot.actionCompleted)
+                            _actionStatus(context),
+                        ],
+                      );
+                    },
                   ),
+                  if (screenshot.actionType != null &&
+                      screenshot.actionType != 'none') ...[
+                    const SizedBox(height: 16),
+                    Consumer<ScreenshotProvider>(
+                      builder: (context, provider, _) {
+                        if (provider.localOnly) {
+                          return const SizedBox.shrink();
+                        }
+                        return _ManualActionButton(
+                          screenshot: screenshot,
+                        );
+                      },
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   Text(
                     screenshot.summary ?? 'Processing…',
@@ -148,16 +166,32 @@ class DetailScreen extends StatelessWidget {
                       ),
                     ),
                   ],
-                  if (screenshot.webResults.isNotEmpty) ...[
-                    const SizedBox(height: 28),
-                    Text(
-                      'Found online',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    ...screenshot.webResults
-                        .map((r) => _webResultTile(context, r)),
-                  ],
+                  Consumer<ScreenshotProvider>(
+                    builder: (context, provider, _) {
+                      if (screenshot.webResults.isEmpty) {
+                        if (provider.localOnly) {
+                          return const SizedBox.shrink();
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 28),
+                          child: _FindOnlineButton(screenshot: screenshot),
+                        );
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 28),
+                          Text(
+                            'Found online',
+                            style: Theme.of(context).textTheme.headlineMedium,
+                          ),
+                          const SizedBox(height: 12),
+                          ...screenshot.webResults
+                              .map((r) => _webResultTile(context, r)),
+                        ],
+                      );
+                    },
+                  ),
                   const SizedBox(height: 28),
                   Text(
                     'Tags',
@@ -617,6 +651,146 @@ class _TagAddButton extends StatelessWidget {
             Icons.add_rounded,
             color: AppTheme.emberInk,
             size: 20,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ManualActionButton extends StatefulWidget {
+  final Screenshot screenshot;
+
+  const _ManualActionButton({required this.screenshot});
+
+  @override
+  State<_ManualActionButton> createState() => _ManualActionButtonState();
+}
+
+class _ManualActionButtonState extends State<_ManualActionButton> {
+  bool _running = false;
+
+  Future<void> _run() async {
+    if (_running) return;
+    if (Motion.enabled) HapticFeedback.mediumImpact();
+    setState(() => _running = true);
+    await context
+        .read<ScreenshotProvider>()
+        .runSuggestedAction(widget.screenshot);
+    if (!mounted) return;
+    setState(() => _running = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _running ? null : _run,
+            icon: _running
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(_actionIcon(widget.screenshot.actionType), size: 20),
+            label: Text(_actionLabel(widget.screenshot.actionType)),
+          ),
+        ),
+        if (widget.screenshot.actionResult != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            widget.screenshot.actionResult!,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _actionLabel(String? type) {
+    switch (type) {
+      case 'add_calendar':
+        return 'Add to Calendar';
+      case 'create_reminder':
+        return 'Create reminder';
+      case 'create_shopping_list':
+        return 'Add to shopping list';
+      case 'create_task':
+        return 'Create task';
+      default:
+        return 'Run action';
+    }
+  }
+
+  IconData _actionIcon(String? type) {
+    switch (type) {
+      case 'add_calendar':
+        return Icons.event_rounded;
+      case 'create_reminder':
+        return Icons.alarm_rounded;
+      case 'create_shopping_list':
+        return Icons.shopping_cart_rounded;
+      case 'create_task':
+        return Icons.task_alt_rounded;
+      default:
+        return Icons.bolt_rounded;
+    }
+  }
+}
+
+class _FindOnlineButton extends StatefulWidget {
+  final Screenshot screenshot;
+
+  const _FindOnlineButton({required this.screenshot});
+
+  @override
+  State<_FindOnlineButton> createState() => _FindOnlineButtonState();
+}
+
+class _FindOnlineButtonState extends State<_FindOnlineButton> {
+  bool _running = false;
+
+  Future<void> _find() async {
+    if (_running) return;
+    if (Motion.enabled) HapticFeedback.mediumImpact();
+    setState(() => _running = true);
+    await context
+        .read<ScreenshotProvider>()
+        .findOnline(widget.screenshot);
+    if (!mounted) return;
+    setState(() => _running = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: _running ? null : _find,
+        icon: _running
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.travel_explore_rounded, size: 20),
+        label: const Text('Find online'),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(0, AppTheme.btnH),
+          foregroundColor: isDark ? AppTheme.inkDark : AppTheme.inkLight,
+          side: BorderSide(color: isDark ? AppTheme.hairDark : AppTheme.hairLight),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppTheme.rMd),
           ),
         ),
       ),
