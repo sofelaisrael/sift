@@ -35,13 +35,14 @@ class ScreenshotAdapter extends TypeAdapter<Screenshot> {
           .map((dynamic e) => (e as Map).cast<String, String>())
           .toList(),
       isFavorite: fields[15] as bool? ?? false,
+      tags: (fields[16] as List? ?? const []).cast<String>(),
     );
   }
 
   @override
   void write(BinaryWriter writer, Screenshot obj) {
     writer
-      ..writeByte(16)
+      ..writeByte(17)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -73,7 +74,9 @@ class ScreenshotAdapter extends TypeAdapter<Screenshot> {
       ..writeByte(14)
       ..write(obj.webResults)
       ..writeByte(15)
-      ..write(obj.isFavorite);
+      ..write(obj.isFavorite)
+      ..writeByte(16)
+      ..write(obj.tags);
   }
 
   @override

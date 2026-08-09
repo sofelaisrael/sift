@@ -158,6 +158,13 @@ class DetailScreen extends StatelessWidget {
                     ...screenshot.webResults
                         .map((r) => _webResultTile(context, r)),
                   ],
+                  const SizedBox(height: 28),
+                  Text(
+                    'Tags',
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  _TagEditor(screenshot: screenshot),
                   if (screenshot.ocrText != null &&
                       screenshot.ocrText!.isNotEmpty) ...[
                     const SizedBox(height: 28),
@@ -474,4 +481,145 @@ class _InfoRow {
   final String value;
 
   _InfoRow(this.label, this.value);
+}
+
+class _TagEditor extends StatefulWidget {
+  final Screenshot screenshot;
+
+  const _TagEditor({required this.screenshot});
+
+  @override
+  State<_TagEditor> createState() => _TagEditorState();
+}
+
+class _TagEditorState extends State<_TagEditor> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final text = _controller.text;
+    if (text.trim().isEmpty) {
+      _controller.clear();
+      return;
+    }
+    if (Motion.enabled) HapticFeedback.selectionClick();
+    final ok = await context
+        .read<ScreenshotProvider>()
+        .addTag(widget.screenshot.id, text);
+    if (!mounted) return;
+    if (ok) {
+      _controller.clear();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Couldn\'t save tag')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Consumer<ScreenshotProvider>(
+          builder: (context, provider, _) {
+            if (widget.screenshot.tags.isEmpty) {
+              return const SizedBox.shrink();
+            }
+            return Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: widget.screenshot.tags
+                  .map(
+                    (tag) => TagChip(
+                      label: tag,
+                      onDeleted: () {
+                        if (Motion.enabled) {
+                          HapticFeedback.selectionClick();
+                        }
+                        context
+                            .read<ScreenshotProvider>()
+                            .removeTag(widget.screenshot.id, tag);
+                      },
+                    ),
+                  )
+                  .toList(),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+                  borderRadius: BorderRadius.circular(AppTheme.rMd),
+                  border: Border.all(
+                    color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+                  ),
+                ),
+                child: TextField(
+                  controller: _controller,
+                  textInputAction: TextInputAction.done,
+                  maxLength: 50,
+                  onSubmitted: (_) => _submit(),
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  decoration: InputDecoration(
+                    hintText: 'Add a tag…',
+                    counterText: '',
+                    hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+                        ),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            _TagAddButton(onPressed: _submit),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _TagAddButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _TagAddButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.emberMain,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onPressed,
+        child: const SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(
+            Icons.add_rounded,
+            color: AppTheme.emberInk,
+            size: 20,
+          ),
+        ),
+      ),
+    );
+  }
 }

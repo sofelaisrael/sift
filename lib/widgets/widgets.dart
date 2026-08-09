@@ -35,6 +35,81 @@ class TypeBadge extends StatelessWidget {
   }
 }
 
+/// User-added tag chip. Optional delete affordance with a 40px hit target.
+class TagChip extends StatelessWidget {
+  final String label;
+  final VoidCallback? onDeleted;
+  final bool compact;
+
+  const TagChip({
+    super.key,
+    required this.label,
+    this.onDeleted,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        compact ? 8 : 10,
+        compact ? 3 : 5,
+        compact ? 8 : (onDeleted != null ? 6 : 10),
+        compact ? 3 : 5,
+      ),
+      decoration: BoxDecoration(
+        color: isDark
+            ? (compact
+                  ? AppTheme.surfaceContainerDark
+                  : AppTheme.surfaceDark)
+            : (compact
+                  ? AppTheme.surfaceContainerLight
+                  : AppTheme.surfaceLight),
+        borderRadius: BorderRadius.circular(AppTheme.rSm),
+        border: Border.all(
+          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: compact ? 11 : 12,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.emberMain,
+            ),
+          ),
+          if (onDeleted != null) ...[
+            const SizedBox(width: 2),
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: Center(
+                child: InkWell(
+                  onTap: onDeleted,
+                  customBorder: const CircleBorder(),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 14,
+                      color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 /// Flat processing banner with the Sift mark pulsing. No gradient, no spinner.
 class ProcessingBanner extends StatefulWidget {
   final String message;

@@ -687,6 +687,26 @@ class _SiftCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       TypeBadge(type: screenshot.lamType),
+                      if (screenshot.tags.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            ...screenshot.tags.take(3).map(
+                                  (tag) => TagChip(
+                                    label: tag,
+                                    compact: true,
+                                  ),
+                                ),
+                            if (screenshot.tags.length > 3)
+                              TagChip(
+                                label: '+${screenshot.tags.length - 3}',
+                                compact: true,
+                              ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),

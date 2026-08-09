@@ -191,6 +191,7 @@ class ScreenshotProvider extends ChangeNotifier {
         s.lamType,
         ...s.recognitions,
         ...s.objects,
+        ...s.tags,
       ]
           .whereType<String>()
           .join(' ')
@@ -232,6 +233,52 @@ class ScreenshotProvider extends ChangeNotifier {
       screenshot.isFavorite = !screenshot.isFavorite;
       notifyListeners();
       debugPrint('Failed to persist favorite state: $e');
+    }
+  }
+
+  Future<bool> addTag(String id, String tag) async {
+    var trimmed = tag.trim();
+    if (trimmed.isEmpty) return false;
+    if (trimmed.length > 50) trimmed = trimmed.substring(0, 50);
+    final matches = _screenshots.where((s) => s.id == id);
+    if (matches.isEmpty) return false;
+    final screenshot = matches.first;
+    if (screenshot.tags.length >= 25) return false;
+    final alreadyPresent = screenshot.tags.any(
+      (t) => t.toLowerCase() == trimmed.toLowerCase(),
+    );
+    if (alreadyPresent) return false;
+    screenshot.tags = [...screenshot.tags, trimmed];
+    notifyListeners();
+    try {
+      final box = Hive.box('screenshots');
+      await box.put(id, screenshot.toJson());
+      return true;
+    } catch (e) {
+      screenshot.tags = [...screenshot.tags]..remove(trimmed);
+      notifyListeners();
+      debugPrint('Failed to persist tag: $e');
+      return false;
+    }
+  }
+
+  Future<bool> removeTag(String id, String tag) async {
+    final matches = _screenshots.where((s) => s.id == id);
+    if (matches.isEmpty) return false;
+    final screenshot = matches.first;
+    final i = screenshot.tags.indexOf(tag);
+    if (i < 0) return false;
+    screenshot.tags = [...screenshot.tags]..removeAt(i);
+    notifyListeners();
+    try {
+      final box = Hive.box('screenshots');
+      await box.put(id, screenshot.toJson());
+      return true;
+    } catch (e) {
+      screenshot.tags = [...screenshot.tags]..insert(i, tag);
+      notifyListeners();
+      debugPrint('Failed to persist tag removal: $e');
+      return false;
     }
   }
 
