@@ -46,6 +46,9 @@ class Screenshot extends HiveObject {
   @HiveField(13)
   List<String> recognitions;
 
+  @HiveField(14)
+  final List<Map<String, String>> webResults;
+
   Screenshot({
     required this.id,
     required this.fileName,
@@ -61,6 +64,7 @@ class Screenshot extends HiveObject {
     this.description,
     this.objects = const [],
     this.recognitions = const [],
+    this.webResults = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -78,6 +82,9 @@ class Screenshot extends HiveObject {
     'description': description,
     'objects': objects,
     'recognitions': recognitions,
+    'webResults': webResults
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(),
   };
 
   factory Screenshot.fromJson(Map<String, dynamic> json) => Screenshot(
@@ -95,11 +102,24 @@ class Screenshot extends HiveObject {
     description: json['description'],
     objects: _stringList(json['objects']),
     recognitions: _stringList(json['recognitions']),
+    webResults: _stringMapList(json['webResults']),
   );
 
   static List<String> _stringList(dynamic value) {
     if (value is List) {
       return value.whereType<String>().toList();
+    }
+    return const [];
+  }
+
+  static List<Map<String, String>> _stringMapList(dynamic value) {
+    if (value is List) {
+      return value.map((e) {
+        if (e is Map) {
+          return e.map((k, v) => MapEntry(k.toString(), v?.toString() ?? ''));
+        }
+        return const <String, String>{};
+      }).toList();
     }
     return const [];
   }

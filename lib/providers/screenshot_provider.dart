@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../models/screenshot.dart';
 import '../services/lam_service.dart';
 import '../services/action_service.dart';
+import '../services/web_lookup.dart';
 import '../config.dart';
 
 class ScreenshotProvider extends ChangeNotifier {
@@ -98,6 +99,32 @@ class ScreenshotProvider extends ChangeNotifier {
         );
       }
 
+      // Step 2.5: Go online — find real links to what SIFT recognized
+      List<Map<String, String>> webResults = const [];
+      if (lamResponse.confidence > 0.0 &&
+          !lamResponse.summary.startsWith('Could not analyze')) {
+        _processingStatus = 'Searching the web…';
+        notifyListeners();
+        try {
+          final savedYouTubeKey = prefs.getString('key_youtube') ?? '';
+          final youTubeApiKey = savedYouTubeKey.isNotEmpty
+              ? savedYouTubeKey
+              : AppConfig.youTubeApiKey;
+          final lookupResults = await WebLookupService().lookup(
+            response: lamResponse,
+            youTubeApiKey: youTubeApiKey,
+          );
+          webResults = lookupResults
+              .map((r) => {'title': r.title, 'url': r.url})
+              .toList();
+        } catch (_) {
+          webResults = const [];
+        } finally {
+          _processingStatus = actionResult?.message ?? lamResponse.summary;
+          notifyListeners();
+        }
+      }
+
       // Step 3: Save to database
       final screenshot = Screenshot(
         id: _uuid.v4(),
@@ -118,6 +145,7 @@ class ScreenshotProvider extends ChangeNotifier {
         actionType: lamResponse.suggestedAction.type,
         actionCompleted: actionResult?.success ?? false,
         actionResult: actionResult?.message,
+        webResults: webResults,
       );
 
       await _saveScreenshot(screenshot);

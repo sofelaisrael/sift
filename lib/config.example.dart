@@ -4,6 +4,7 @@ class AppConfig {
   static const String geminiApiKey = '';
   static const String cerebrasApiKey = '';
   static const String openRouterApiKey = '';
+  static const String youTubeApiKey = '';
 
   // Default provider - Gemini for images
   static const String defaultProvider = 'Google Gemini';

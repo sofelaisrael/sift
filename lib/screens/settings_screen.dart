@@ -20,6 +20,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoDetect = true;
 
   final Map<String, TextEditingController> _keyControllers = {};
+  final TextEditingController _youtubeKeyController = TextEditingController();
 
   final List<Map<String, dynamic>> _providers = [
     {
@@ -83,6 +84,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     for (final c in _keyControllers.values) {
       c.dispose();
     }
+    _youtubeKeyController.dispose();
     super.dispose();
   }
 
@@ -102,6 +104,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _keyControllers[p['name']] = TextEditingController(text: key);
       }
     }
+    _youtubeKeyController.text = prefs.getString('key_youtube') ?? '';
   }
 
   Future<void> _saveSettings() async {
@@ -119,6 +122,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     }
+    await prefs.setString('key_youtube', _youtubeKeyController.text);
   }
 
   @override
@@ -149,6 +153,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ..._providers.map((p) => _buildProviderCard(context, p, isDark)),
         if (_providers.firstWhere((p) => p['name'] == _selectedProvider)['needsKey'])
           _buildApiKeyInput(context, isDark),
+        _buildYouTubeKeyCard(context, isDark),
         _checklistTile(
           context,
           done: _autoDetect,
@@ -456,6 +461,97 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildYouTubeKeyCard(BuildContext context, bool isDark) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+        borderRadius: BorderRadius.circular(AppTheme.rMd),
+        border: Border.all(
+          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.play_circle_outline_rounded,
+                size: 20,
+                color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'YouTube Data API key',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? AppTheme.inkDark : AppTheme.inkLight,
+                          ),
+                    ),
+                    Text(
+                      'Optional — for better video lookups, works without it',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _youtubeKeyController,
+            obscureText: true,
+            style: Theme.of(context).textTheme.bodyMedium,
+            decoration: InputDecoration(
+              hintText: 'Paste your YouTube API key…',
+              hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+                  ),
+              filled: true,
+              fillColor: isDark ? AppTheme.raisedDark : AppTheme.raisedLight,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTheme.rSm),
+                borderSide: BorderSide(
+                  color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTheme.rSm),
+                borderSide: BorderSide(
+                  color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTheme.rSm),
+                borderSide: const BorderSide(color: AppTheme.emberMain, width: 1.5),
+              ),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            ),
+            onChanged: (_) => _saveSettings(),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Get a free key → https://console.cloud.google.com/apis/credentials',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: AppTheme.emberMain,
+            ),
+          ),
         ],
       ),
     );

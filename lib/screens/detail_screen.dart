@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/screenshot.dart';
 import '../theme/app_theme.dart';
 import '../widgets/widgets.dart';
@@ -120,6 +121,16 @@ class DetailScreen extends StatelessWidget {
                       ),
                     ),
                   ],
+                  if (screenshot.webResults.isNotEmpty) ...[
+                    const SizedBox(height: 28),
+                    Text(
+                      'Found online',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    ...screenshot.webResults
+                        .map((r) => _webResultTile(context, r)),
+                  ],
                   if (screenshot.ocrText != null &&
                       screenshot.ocrText!.isNotEmpty) ...[
                     const SizedBox(height: 28),
@@ -238,6 +249,87 @@ class DetailScreen extends StatelessWidget {
             ),
       ),
     );
+  }
+
+  Widget _webResultTile(BuildContext context, Map<String, String> result) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final url = result['url'] ?? '';
+    final title = result['title'] ?? '';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _openUrl(url),
+          borderRadius: BorderRadius.circular(AppTheme.rMd),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
+              borderRadius: BorderRadius.circular(AppTheme.rMd),
+              border: Border.all(
+                color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.open_in_new_rounded,
+                  size: 20,
+                  color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        url,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+                            ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openUrl(String url) async {
+    if (url.isEmpty) return;
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        (uri.scheme != 'http' && uri.scheme != 'https')) {
+      return;
+    }
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok) debugPrint('Could not open $url');
+    } catch (e) {
+      debugPrint('Could not open URL: $e');
+    }
   }
 
   Widget _buildInfoCard(BuildContext context, List<_InfoRow> rows) {
