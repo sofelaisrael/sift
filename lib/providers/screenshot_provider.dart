@@ -15,11 +15,17 @@ class ScreenshotProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   String _processingStatus = '';
+  bool _showFavoritesOnly = false;
 
   List<Screenshot> get screenshots => _screenshots;
   bool get isLoading => _isLoading;
   String? get error => _error;
   String get processingStatus => _processingStatus;
+  bool get showFavoritesOnly => _showFavoritesOnly;
+  List<Screenshot> get favorites =>
+      _screenshots.where((s) => s.isFavorite).toList();
+  List<Screenshot> get visibleScreenshots =>
+      _showFavoritesOnly ? favorites : _screenshots;
 
   List<Screenshot> get recentScreenshots => _screenshots.take(10).toList();
   
@@ -206,6 +212,27 @@ class ScreenshotProvider extends ChangeNotifier {
     await box.delete(id);
     _screenshots.removeWhere((s) => s.id == id);
     notifyListeners();
+  }
+
+  void setShowFavoritesOnly(bool value) {
+    _showFavoritesOnly = value;
+    notifyListeners();
+  }
+
+  Future<void> toggleFavorite(String id) async {
+    final matches = _screenshots.where((s) => s.id == id);
+    if (matches.isEmpty) return;
+    final screenshot = matches.first;
+    screenshot.isFavorite = !screenshot.isFavorite;
+    notifyListeners();
+    try {
+      final box = Hive.box('screenshots');
+      await box.put(id, screenshot.toJson());
+    } catch (e) {
+      screenshot.isFavorite = !screenshot.isFavorite;
+      notifyListeners();
+      debugPrint('Failed to persist favorite state: $e');
+    }
   }
 
   void clearError() {

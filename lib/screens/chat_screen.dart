@@ -29,6 +29,7 @@ class _ChatScreenState extends State<ChatScreen> {
   List<ChatMessage> _messages = [];
   final Map<String, List<Screenshot>> _sources = {};
   bool _sending = false;
+  List<String> _recentQueries = [];
 
   static const List<String> _examplePrompts = [
     'Show me my flights',
@@ -41,6 +42,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _loadMessages();
+    _loadRecentQueries();
   }
 
   @override
@@ -67,6 +69,34 @@ class _ChatScreenState extends State<ChatScreen> {
     await box.put('history', _messages.map((m) => m.toJson()).toList());
   }
 
+  Future<void> _loadRecentQueries() async {
+    final prefs = await SharedPreferences.getInstance();
+    final history = prefs.getStringList('chat_history') ?? const [];
+    if (mounted) {
+      setState(() {
+        _recentQueries = history;
+      });
+    }
+  }
+
+  Future<void> _recordQuery(String text) async {
+    final capped = text.length > 120 ? text.substring(0, 120) : text;
+    final prefs = await SharedPreferences.getInstance();
+    final history = prefs.getStringList('chat_history') ?? <String>[];
+    history
+      ..remove(capped)
+      ..insert(0, capped);
+    if (history.length > 20) {
+      history.removeRange(20, history.length);
+    }
+    await prefs.setStringList('chat_history', history);
+    if (mounted) {
+      setState(() {
+        _recentQueries = history;
+      });
+    }
+  }
+
   Future<void> _send([String? override]) async {
     final text = (override ?? _controller.text).trim();
     if (text.isEmpty || _sending) return;
@@ -84,10 +114,12 @@ class _ChatScreenState extends State<ChatScreen> {
       _sending = true;
     });
     _scrollToBottom();
-    await _saveMessages();
-    if (!mounted) return;
 
     try {
+      await _saveMessages();
+      await _recordQuery(text);
+      if (!mounted) return;
+
       final provider = context.read<ScreenshotProvider>();
       final lam = context.read<LAMService>();
       final prefs = await SharedPreferences.getInstance();
@@ -126,8 +158,10 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       setState(() => _messages.add(errMsg));
     } finally {
-      setState(() => _sending = false);
-      _scrollToBottom();
+      if (mounted) {
+        setState(() => _sending = false);
+        _scrollToBottom();
+      }
     }
   }
 
@@ -196,10 +230,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final box = Hive.box('chat');
     await box.delete('history');
+    await (await SharedPreferences.getInstance()).remove('chat_history');
     if (mounted) {
       setState(() {
         _messages = [];
         _sources.clear();
+        _recentQueries = [];
       });
     }
   }
@@ -326,6 +362,27 @@ class _ChatScreenState extends State<ChatScreen> {
                 )
                 .toList(),
           ),
+          if (_recentQueries.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            Text(
+              'RECENT',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+                    letterSpacing: 0.8,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: _recentQueries
+                  .map(
+                    (q) => _PromptChip(label: q, onTap: () => _send(q)),
+                  )
+                  .toList(),
+            ),
+          ],
           const SizedBox(height: 32),
           Text(
             'Everything stays on your device.',

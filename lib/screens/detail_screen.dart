@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/screenshot.dart';
+import '../providers/screenshot_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/widgets.dart';
 
@@ -32,15 +34,40 @@ class DetailScreen extends StatelessWidget {
               onTap: () => Navigator.pop(context),
             ),
             actions: [
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: _circleButton(
-                  context,
-                  icon: Icons.share_rounded,
-                  onTap: () {
-                    if (Motion.enabled) HapticFeedback.mediumImpact();
-                  },
-                ),
+              Consumer<ScreenshotProvider>(
+                builder: (context, provider, _) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Row(
+                      children: [
+                        _circleButton(
+                          context,
+                          icon: screenshot.isFavorite
+                              ? Icons.push_pin_rounded
+                              : Icons.push_pin_outlined,
+                          color: screenshot.isFavorite
+                              ? AppTheme.emberMain
+                              : (isDark
+                                    ? AppTheme.ashDark
+                                    : AppTheme.ashLight),
+                          onTap: () {
+                            if (Motion.enabled) HapticFeedback.mediumImpact();
+                            context
+                                .read<ScreenshotProvider>()
+                                .toggleFavorite(screenshot.id);
+                          },
+                        ),
+                        _circleButton(
+                          context,
+                          icon: Icons.share_rounded,
+                          onTap: () {
+                            if (Motion.enabled) HapticFeedback.mediumImpact();
+                          },
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
             ],
             flexibleSpace: FlexibleSpaceBar(
@@ -181,7 +208,7 @@ class DetailScreen extends StatelessWidget {
   }
 
   Widget _circleButton(BuildContext context,
-      {required IconData icon, required VoidCallback onTap}) {
+      {required IconData icon, required VoidCallback onTap, Color? color}) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final scheme = Theme.of(context).colorScheme;
     return Container(
@@ -194,7 +221,7 @@ class DetailScreen extends StatelessWidget {
       child: IconButton(
         icon: Icon(icon, size: 22),
         onPressed: onTap,
-        color: isDark ? AppTheme.inkDark : AppTheme.inkLight,
+        color: color ?? (isDark ? AppTheme.inkDark : AppTheme.inkLight),
       ),
     );
   }
