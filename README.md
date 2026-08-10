@@ -2,6 +2,14 @@
 
 **Screenshot → AI understands → Takes action**
 
+## Download
+
+[![Latest release](https://img.shields.io/github/v/release/sofelaisrael/sift?label=latest)](https://github.com/sofelaisrael/sift/releases/latest)
+
+Grab the latest **Android APK** from the [Releases page](https://github.com/sofelaisrael/sift/releases/latest) — a new build is published automatically for every `v*` tag.
+
+Install the APK on your phone (allow "install from unknown sources"). Everything runs on-device; AI analysis uses your own Gemini API key, added in Settings.
+
 ## The Problem
 
 Screenshots are digital junk. You take them, you forget them. They sit in your gallery forever.
