@@ -172,13 +172,13 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       await _saveMessages();
     } catch (e) {
-      // Never surface raw exceptions to the user: provider errors can embed
-      // the API key (e.g. in the request URI) and would be persisted in chat.
       debugPrint('Chat error: $e');
+      final err = e.toString();
+      final bounded = err.length > 200 ? '${err.substring(0, 200)}…' : err;
       final errMsg = ChatMessage(
         id: _uuid.v4(),
         role: 'assistant',
-        content: 'Sorry, I hit an error. Check your API key in More > Settings and try again.',
+        content: 'Sorry, something went wrong: $bounded',
         timestamp: DateTime.now(),
       );
       setState(() => _messages.add(errMsg));

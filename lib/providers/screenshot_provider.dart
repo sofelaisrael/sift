@@ -19,6 +19,7 @@ class ScreenshotProvider extends ChangeNotifier {
   String _processingStatus = '';
   bool _showFavoritesOnly = false;
   bool _localOnly = false;
+  Future<void> _queueTail = Future.value();
 
   List<Screenshot> get screenshots => _screenshots;
   bool get isLoading => _isLoading;
@@ -75,7 +76,7 @@ class ScreenshotProvider extends ChangeNotifier {
 
   /// Process a screenshot — local OCR when local-only mode is on, otherwise
   /// the image goes directly to the chosen multimodal AI provider.
-  Future<void> processScreenshot(String imagePath) async {
+  Future<void> _processScreenshotInternal(String imagePath) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final localOnly = prefs.getBool('localOnly') ?? false;
@@ -191,6 +192,9 @@ class ScreenshotProvider extends ChangeNotifier {
                 'data': lamResponse.suggestedAction.data ?? const {},
               }
             : null,
+        extractedData: lamResponse.extractedData.isEmpty
+            ? null
+            : lamResponse.extractedData,
         webResults: const [],
       );
 
@@ -203,6 +207,14 @@ class ScreenshotProvider extends ChangeNotifier {
       _processingStatus = '';
       notifyListeners();
     }
+  }
+
+  /// Serializes analysis so concurrent calls (watcher poll + manual pick)
+  /// never run two AI/OCR jobs at once.
+  Future<void> processScreenshot(String imagePath) {
+    final result = _queueTail.then((_) => _processScreenshotInternal(imagePath));
+    _queueTail = result.catchError((_) {});
+    return result;
   }
 
   Future<void> _saveScreenshot(Screenshot screenshot) async {
@@ -332,6 +344,7 @@ class ScreenshotProvider extends ChangeNotifier {
         ...s.recognitions,
         ...s.objects,
         ...s.tags,
+        ...?s.extractedData?.entries.map((e) => '${e.key} ${e.value}'),
       ]
           .whereType<String>()
           .join(' ')

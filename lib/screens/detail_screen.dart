@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -163,6 +164,63 @@ class DetailScreen extends StatelessWidget {
                             ),
                           ],
                         ],
+                      ),
+                    ),
+                  ],
+                  if (screenshot.extractedData != null &&
+                      screenshot.extractedData!.isNotEmpty) ...[
+                    const SizedBox(height: 28),
+                    Text(
+                      'Extracted data',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainer,
+                        borderRadius: BorderRadius.circular(AppTheme.rXl),
+                        border: Border.all(color: scheme.outlineVariant),
+                      ),
+                      child: Column(
+                        children: screenshot.extractedData!.entries
+                            .map((entry) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  width: 110,
+                                  child: Text(
+                                    entry.key,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall
+                                        ?.copyWith(
+                                          color: isDark
+                                              ? AppTheme.ashDark
+                                              : AppTheme.ashLight,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    _formatExtractedValue(entry.value),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
                       ),
                     ),
                   ],
@@ -507,6 +565,24 @@ class DetailScreen extends StatelessWidget {
     ];
     return '${months[date.month]} ${date.day}, ${date.year} at '
         '${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _formatExtractedValue(dynamic value) {
+    if (value == null) return '';
+    String formatted;
+    if (value is String) {
+      formatted = value;
+    } else if (value is num || value is bool) {
+      formatted = value.toString();
+    } else if (value is List || value is Map) {
+      formatted = jsonEncode(value);
+    } else {
+      formatted = value.toString();
+    }
+    if (formatted.length > 200) {
+      formatted = '${formatted.substring(0, 200)}…';
+    }
+    return formatted;
   }
 }
 

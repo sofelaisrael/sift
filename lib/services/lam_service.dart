@@ -6,7 +6,10 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 
 /// Multi-provider free LLM service
 class LAMService {
+  final http.Client _client;
   String _lastError = '';
+
+  LAMService({http.Client? client}) : _client = client ?? http.Client();
 
   // Provider configs (OpenAI-compatible endpoints)
   static const List<ProviderConfig> _providers = [
@@ -134,9 +137,12 @@ class LAMService {
 
     parts.add({'text': '\n\nAnalyze this. Return ONLY valid JSON, no explanation.'});
 
-    final response = await _retry429(() => http.post(
-          Uri.parse('${provider.baseUrl}/models/${provider.model}:generateContent?key=$apiKey'),
-          headers: {'Content-Type': 'application/json'},
+    final response = await _retry429(() => _client.post(
+          Uri.parse('${provider.baseUrl}/models/${provider.model}:generateContent'),
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+          },
           body: jsonEncode({
             'contents': [{'parts': parts}],
             'systemInstruction': {'parts': [{'text': _buildSystemPrompt()}]},
@@ -200,7 +206,7 @@ class LAMService {
       headers['Authorization'] = 'Bearer $apiKey';
     }
 
-    final response = await _retry429(() => http.post(
+    final response = await _retry429(() => _client.post(
           Uri.parse('${provider.baseUrl}/chat/completions'),
           headers: headers,
           body: jsonEncode({
@@ -225,7 +231,7 @@ class LAMService {
   }
 
   LAMResponse _parseResponse(String content) {
-    final json = _extractJsonObject(content);
+    final json = extractJsonObject(content);
     if (json == null) {
       debugPrint('JSON parse failed. Raw content: ${content.substring(0, content.length > 400 ? 400 : content.length)}');
       return _fallbackResponse('JSON parse error');
@@ -237,59 +243,6 @@ class LAMService {
       debugPrint('JSON parse failed: $e');
       return _fallbackResponse('JSON parse error');
     }
-  }
-
-  /// Tolerantly extract a JSON object from a model response that may contain
-  /// markdown fences, prose, or multiple text parts. Returns null if no valid
-  /// JSON object can be found.
-  Map<String, dynamic>? _extractJsonObject(String content) {
-    // 1. Strip markdown code fences (```json ... ```) if present.
-    var cleaned = content.trim();
-    cleaned = cleaned.replaceAll(RegExp(r'^```(?:json)?\s*', multiLine: true), '');
-    cleaned = cleaned.replaceAll(RegExp(r'\s*```$', multiLine: true), '');
-    cleaned = cleaned.trim();
-
-    // 2. Find the outermost { ... } block, ignoring any prose around it.
-    final start = cleaned.indexOf('{');
-    if (start < 0) return null;
-
-    var depth = 0;
-    var inString = false;
-    var escaped = false;
-    var end = -1;
-    for (var i = start; i < cleaned.length; i++) {
-      final ch = cleaned[i];
-      if (inString) {
-        if (escaped) {
-          escaped = false;
-        } else if (ch == r'\') {
-          escaped = true;
-        } else if (ch == '"') {
-          inString = false;
-        }
-        continue;
-      }
-      if (ch == '"') {
-        inString = true;
-      } else if (ch == '{') {
-        depth++;
-      } else if (ch == '}') {
-        depth--;
-        if (depth == 0) {
-          end = i;
-          break;
-        }
-      }
-    }
-    if (end < 0) return null;
-
-    try {
-      final decoded = jsonDecode(cleaned.substring(start, end + 1));
-      if (decoded is Map<String, dynamic>) return decoded;
-    } catch (_) {
-      return null;
-    }
-    return null;
   }
 
   String _buildSystemPrompt() {
@@ -427,9 +380,12 @@ If you cannot determine the content well, still return valid JSON with low confi
     required String context,
     required String apiKey,
   }) async {
-    final response = await http.post(
-      Uri.parse('${provider.baseUrl}/models/${provider.model}:generateContent?key=$apiKey'),
-      headers: {'Content-Type': 'application/json'},
+    final response = await _client.post(
+      Uri.parse('${provider.baseUrl}/models/${provider.model}:generateContent'),
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
       body: jsonEncode({
         'contents': [
           {
@@ -482,7 +438,7 @@ If you cannot determine the content well, still return valid JSON with low confi
       headers['Authorization'] = 'Bearer $apiKey';
     }
 
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('${provider.baseUrl}/chat/completions'),
       headers: headers,
       body: jsonEncode({
@@ -518,6 +474,64 @@ RULES:
 3. Be concise and conversational. When relevant, tie the answer to a specific screenshot (e.g., "the TikTok you saved last week about...").
 4. Do not mention that you are reading from a context list. Just answer naturally.''';
   }
+}
+
+/// Tolerantly extract a JSON object from a model response that may contain
+/// markdown fences, prose, or multiple text parts. Returns null if no valid
+/// JSON object can be found. When a leading balanced block fails to decode
+/// (e.g. a truncated "thinking" part), later blocks are tried in turn.
+Map<String, dynamic>? extractJsonObject(String content) {
+  // 1. Strip markdown code fences (```json ... ```) if present.
+  var cleaned = content.trim();
+  cleaned = cleaned.replaceAll(RegExp(r'^```(?:json)?\s*', multiLine: true), '');
+  cleaned = cleaned.replaceAll(RegExp(r'\s*```$', multiLine: true), '');
+  cleaned = cleaned.trim();
+
+  // 2. Walk each outermost { ... } block, ignoring any prose around it.
+  var cursor = 0;
+  while (cursor < cleaned.length) {
+    final start = cleaned.indexOf('{', cursor);
+    if (start < 0) return null;
+
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+    var end = -1;
+    for (var i = start; i < cleaned.length; i++) {
+      final ch = cleaned[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch == r'\') {
+          escaped = true;
+        } else if (ch == '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (ch == '"') {
+        inString = true;
+      } else if (ch == '{') {
+        depth++;
+      } else if (ch == '}') {
+        depth--;
+        if (depth == 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end < 0) return null;
+
+    try {
+      final decoded = jsonDecode(cleaned.substring(start, end + 1));
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (_) {
+      // Fall through and try the next candidate block.
+    }
+    cursor = end + 1;
+  }
+  return null;
 }
 
 enum ProviderFormat { openai, gemini }

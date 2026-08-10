@@ -39,13 +39,16 @@ class ScreenshotAdapter extends TypeAdapter<Screenshot> {
       suggestedAction: fields[17] == null
           ? null
           : Map<String, dynamic>.from(fields[17] as Map),
+      extractedData: fields[18] == null
+          ? null
+          : Map<String, dynamic>.from(fields[18] as Map),
     );
   }
 
   @override
   void write(BinaryWriter writer, Screenshot obj) {
     writer
-      ..writeByte(18)
+      ..writeByte(19)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -81,7 +84,9 @@ class ScreenshotAdapter extends TypeAdapter<Screenshot> {
       ..writeByte(16)
       ..write(obj.tags)
       ..writeByte(17)
-      ..write(obj.suggestedAction);
+      ..write(obj.suggestedAction)
+      ..writeByte(18)
+      ..write(obj.extractedData);
   }
 
   @override
