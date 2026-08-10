@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion_tokens.dart';
+import '../widgets/sift_mark.dart';
+import 'shopping_list_screen.dart';
 
+/// Quiet actions history: back + title header with a hairline bottom,
+/// de-containerized hairline rows, sentence-case filter chips, and a serif
+/// empty state.
 class ActionsHistoryScreen extends StatefulWidget {
   const ActionsHistoryScreen({super.key});
 
@@ -13,6 +20,14 @@ class ActionsHistoryScreen extends StatefulWidget {
 class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
   List<Map<String, dynamic>> _actions = [];
   String _filter = 'all';
+
+  static const List<(String, String)> _filters = [
+    ('all', 'All'),
+    ('calendar', 'Calendar'),
+    ('reminder', 'Reminders'),
+    ('shopping_list', 'Shopping'),
+    ('task', 'Tasks'),
+  ];
 
   @override
   void initState() {
@@ -45,88 +60,107 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
     return _actions.where((a) => a['type'] == _filter).toList();
   }
 
+  /// Most recent shopping-list action, if any. _actions is sorted newest
+  /// first, so the first match is the latest list.
+  Map<String, dynamic>? get _latestShoppingListAction {
+    for (final action in _actions) {
+      if (action['type'] == 'shopping_list') return action;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final s = AppTheme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Actions', style: TextStyle(fontWeight: FontWeight.w700)),
-        actions: [
-          if (_actions.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.delete_sweep_rounded),
-              onPressed: _clearAll,
-            ),
-        ],
-      ),
-      body: Column(
-        children: [
-          if (_actions.isNotEmpty)
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
             Container(
-              height: 56,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  _buildFilterChip('all', 'All'),
-                  _buildFilterChip('calendar', 'Calendar'),
-                  _buildFilterChip('reminder', 'Reminders'),
-                  _buildFilterChip('shopping_list', 'Shopping'),
-                  _buildFilterChip('task', 'Tasks'),
-                ],
+              decoration: BoxDecoration(
+                color: s.canvas,
+                border: Border(
+                  bottom: BorderSide(
+                    color: s.divider,
+                    width: AppTheme.hairline(isDark),
+                  ),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(4, 4, 16, 12),
+                child: Row(
+                  children: [
+                    IconButton(
+                      tooltip: 'Back',
+                      onPressed: () => Navigator.pop(context),
+                      icon: Icon(
+                        Icons.arrow_back_rounded,
+                        color: s.ink,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        'Actions history',
+                        style: SiftType.serifTitle.copyWith(color: s.ink),
+                      ),
+                    ),
+                    if (_actions.isNotEmpty)
+                      IconButton(
+                        tooltip: 'Clear all',
+                        onPressed: _clearAll,
+                        icon: Icon(
+                          Icons.delete_sweep_rounded,
+                          color: s.stone,
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
-          Expanded(
-            child: _filteredActions.isEmpty
-                ? _buildEmptyState(context)
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _filteredActions.length,
-                    itemBuilder: (context, index) {
-                      return _buildActionCard(context, _filteredActions[index]);
-                    },
+            if (_actions.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final (value, label) in _filters) ...[
+                        if (value != _filters.first.$1) const SizedBox(width: 8),
+                        _FilterChip(
+                          label: label,
+                          selected: _filter == value,
+                          onTap: () => setState(() => _filter = value),
+                        ),
+                      ],
+                    ],
                   ),
-          ),
-        ],
+                ),
+              ),
+            if (_latestShoppingListAction != null)
+              _buildShoppingListEntry(context, _latestShoppingListAction!),
+            Expanded(
+              child: _filteredActions.isEmpty
+                  ? _buildEmptyState(context)
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+                      itemCount: _filteredActions.length,
+                      itemBuilder: (context, index) {
+                        return _buildActionRow(context, _filteredActions[index]);
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildFilterChip(String value, String label) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final scheme = Theme.of(context).colorScheme;
-    final isSelected = _filter == value;
-    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
-
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: FilterChip(
-        label: Text(label),
-        selected: isSelected,
-        onSelected: (_) => setState(() => _filter = value),
-        showCheckmark: false,
-        backgroundColor: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-        selectedColor: isDark ? AppTheme.raisedDark : AppTheme.raisedLight,
-        side: BorderSide(
-          color: isSelected ? AppTheme.emberMain : scheme.outlineVariant,
-          width: isSelected ? 1.5 : 1,
-        ),
-        labelStyle: TextStyle(
-          color: isSelected ? AppTheme.emberMain : ink,
-          fontWeight: FontWeight.w600,
-          fontSize: 12,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppTheme.chipH / 2),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-      ),
-    );
-  }
-
-  Widget _buildActionCard(BuildContext context, Map<String, dynamic> action) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final scheme = Theme.of(context).colorScheme;
-    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
+  Widget _buildActionRow(BuildContext context, Map<String, dynamic> action) {
+    final s = AppTheme.of(context);
     final type = action['type'] ?? 'unknown';
     final icon = _typeIcon(type);
     final label = _typeLabel(type);
@@ -134,83 +168,150 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
         ? DateFormat('MMM d, h:mm a').format(DateTime.parse(action['created_at']))
         : 'Unknown date';
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(AppTheme.rXl),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: ink),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: s.graphite),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: SiftType.bodySans.copyWith(
                         fontWeight: FontWeight.w600,
-                        color: ink,
+                        color: s.ink,
                       ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _getActionDescription(action),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _getActionDescription(action),
+                      style: SiftType.bodySansMd.copyWith(
+                        fontSize: 13,
+                        color: s.graphite,
                       ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                date,
+                style: SiftType.microLabel.copyWith(
+                  fontWeight: FontWeight.w500,
+                  color: s.stone,
+                ),
+              ),
+            ],
           ),
-          Text(
-            date,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ],
-      ),
+        ),
+        Divider(color: s.divider, height: 1, thickness: 1),
+      ],
     );
   }
 
   Widget _buildEmptyState(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final s = AppTheme.of(context);
 
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.history_rounded,
-            size: 56,
-            color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SiftMark(size: 40),
+            const SizedBox(height: 28),
+            Text(
+              'No actions yet',
+              textAlign: TextAlign.center,
+              style: SiftType.serifDisplay.copyWith(color: s.ink),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Actions will appear here after Sift handles a screenshot.',
+              textAlign: TextAlign.center,
+              style: SiftType.bodySans.copyWith(
+                color: s.graphite,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShoppingListEntry(
+    BuildContext context,
+    Map<String, dynamic> action,
+  ) {
+    final s = AppTheme.of(context);
+
+    return Column(
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () {
+              if (MotionTokens.canHaptic) HapticFeedback.lightImpact();
+              _openShoppingList(action);
+            },
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+              child: Row(
+                children: [
+                  Icon(Icons.shopping_cart_rounded,
+                      size: 20, color: s.graphite),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      'View shopping list',
+                      style: SiftType.bodySans.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: s.ink,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, size: 20, color: s.stone),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(height: 16),
-          Text(
-            'No actions yet',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Actions will appear here after\nyou scan screenshots',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
-                ),
-          ),
-        ],
+        ),
+        Divider(color: s.divider, height: 1, thickness: 1),
+      ],
+    );
+  }
+
+  void _openShoppingList(Map<String, dynamic> action) {
+    final listId = action['id'];
+    if (listId == null) return;
+
+    final rawItems = action['items'];
+    final items = rawItems is List
+        ? List<String>.from(rawItems.whereType<String>())
+        : <String>[];
+
+    var listName = 'Shopping list';
+    final rawName = action['name'];
+    if (rawName is String && rawName.trim().isNotEmpty) {
+      listName = rawName;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => ShoppingListScreen(
+          listId: listId.toString(),
+          listName: listName,
+          items: items,
+        ),
       ),
     );
   }
@@ -224,7 +325,7 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
       case 'shopping_list':
         return Icons.shopping_cart_rounded;
       case 'task':
-        return Icons.check_circle_rounded;
+        return Icons.task_alt_rounded;
       default:
         return Icons.help_outline_rounded;
     }
@@ -233,11 +334,11 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
   String _typeLabel(String type) {
     switch (type) {
       case 'calendar':
-        return 'Calendar Event';
+        return 'Calendar event';
       case 'reminder':
         return 'Reminder';
       case 'shopping_list':
-        return 'Shopping List';
+        return 'Shopping list';
       case 'task':
         return 'Task';
       default:
@@ -260,11 +361,8 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppTheme.r2xl),
-        ),
-        title: const Text('Clear All Actions?'),
-        content: const Text('This cannot be undone.'),
+        title: const Text('Clear all actions?'),
+        content: const Text('This removes every action from your history.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -272,14 +370,61 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
           ),
           FilledButton(
             onPressed: () {
+              if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
               final box = Hive.box('actions');
               box.clear();
               setState(() => _actions = []);
               Navigator.pop(context);
             },
-            child: const Text('Clear'),
+            child: const Text('Clear all'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppTheme.of(context);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          if (MotionTokens.canHaptic) HapticFeedback.lightImpact();
+          onTap();
+        },
+        borderRadius: BorderRadius.circular(999),
+        child: AnimatedContainer(
+          duration: MotionTokens.standard,
+          curve: MotionTokens.easeOutCubic,
+          height: SiftSpacing.chipH,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? s.accentSoft : s.surfaceWarm1,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            label,
+            style: SiftType.chipLabel.copyWith(
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+              color: selected ? s.accentDeep : s.ink,
+            ),
+          ),
+        ),
       ),
     );
   }

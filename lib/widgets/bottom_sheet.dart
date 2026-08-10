@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
-/// Capture source picker. Porcelain tiles, neutral icons, no tinted wells.
+/// Capture source picker. Paper tiles, neutral icons, no tinted wells.
 class PremiumBottomSheet extends StatelessWidget {
   final VoidCallback onCamera;
   final VoidCallback onGallery;
@@ -29,14 +29,16 @@ class PremiumBottomSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final s = AppTheme.of(context);
 
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? AppTheme.raisedDark : AppTheme.raisedLight,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(AppTheme.r2xl)),
-        border: Border(
-          top: BorderSide(color: isDark ? AppTheme.hairDark : AppTheme.hairLight),
+        color: s.paper,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(SiftRadii.rSheet),
+        ),
+        boxShadow: SiftElevation.sheet(
+          Theme.of(context).brightness == Brightness.dark,
         ),
       ),
       child: SafeArea(
@@ -50,7 +52,7 @@ class PremiumBottomSheet extends StatelessWidget {
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+                  color: s.divider,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -58,11 +60,8 @@ class PremiumBottomSheet extends StatelessWidget {
               Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Add Screenshot',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.4,
-                      ),
+                  'Add a screenshot',
+                  style: SiftType.serifHeadline.copyWith(color: s.ink),
                 ),
               ),
               const SizedBox(height: 4),
@@ -70,9 +69,7 @@ class PremiumBottomSheet extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'Take a photo or pick from your library',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
-                      ),
+                  style: SiftType.bodySansMd.copyWith(color: s.graphite),
                 ),
               ),
               const SizedBox(height: 16),
@@ -126,42 +123,35 @@ class _SourceOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final s = AppTheme.of(context);
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(AppTheme.rXl),
+        borderRadius: BorderRadius.circular(SiftRadii.rCard),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
           decoration: BoxDecoration(
-            color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-            borderRadius: BorderRadius.circular(AppTheme.rXl),
-            border: Border.all(
-              color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-            ),
+            color: s.paper,
+            borderRadius: BorderRadius.circular(SiftRadii.rCard),
+            border: Border.all(color: s.divider),
           ),
           child: Column(
             children: [
-              Icon(
-                icon,
-                size: 28,
-                color: isDark ? AppTheme.inkDark : AppTheme.inkLight,
-              ),
+              Icon(icon, size: 28, color: s.ink),
               const SizedBox(height: 12),
               Text(
                 label,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                style: SiftType.bodySans.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: s.ink,
+                ),
               ),
               const SizedBox(height: 2),
               Text(
                 subtitle,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
-                    ),
+                style: SiftType.metaLabel.copyWith(color: s.stone),
               ),
             ],
           ),

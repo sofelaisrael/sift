@@ -1,23 +1,49 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../providers/screenshot_provider.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion_tokens.dart';
 import 'home_screen.dart';
 import 'chat_screen.dart';
 import 'settings_screen.dart';
 
-/// Single shell Scaffold hosting the floating bottom nav and the three
+/// Single shell Scaffold hosting the flat paper bottom nav and the three
 /// Scaffold-less tabs (Library / Ask / More) in an IndexedStack.
+///
+/// [initialTab] and [scrollToChecklist] support the onboarding "Set up Sift"
+/// deep link: it lands on More with the "Get Sift ready" checklist scrolled
+/// into view.
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  final int initialTab;
+  final bool scrollToChecklist;
+
+  const AppShell(
+      {super.key, this.initialTab = 0, this.scrollToChecklist = false});
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
-  int _index = 0;
+  late int _index;
+  final GlobalKey _checklistKey = GlobalKey();
   final FocusNode _askFocusNode = FocusNode();
+  bool _checklistRevealed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _index = widget.initialTab.clamp(0, 2);
+    if (widget.scrollToChecklist) {
+      _checklistRevealed = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _revealChecklist());
+    }
+  }
+
+  @override
+  void dispose() {
+    _askFocusNode.dispose();
+    super.dispose();
+  }
 
   void _switchToAsk() {
     setState(() => _index = 1);
@@ -26,10 +52,24 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
-  @override
-  void dispose() {
-    _askFocusNode.dispose();
-    super.dispose();
+  void _revealChecklist() {
+    final ctx = _checklistKey.currentContext;
+    if (ctx == null || !mounted) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: MotionTokens.emphasis,
+      curve: MotionTokens.easeOutCubic,
+      alignment: 0.02,
+    );
+  }
+
+  void _switchTo(int index) {
+    if (_index == index) return;
+    setState(() => _index = index);
+    if (index == 2 && widget.scrollToChecklist && !_checklistRevealed) {
+      _checklistRevealed = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _revealChecklist());
+    }
   }
 
   @override
@@ -40,7 +80,7 @@ class _AppShellState extends State<AppShell> {
         children: [
           HomeScreen(onAsk: _switchToAsk),
           ChatScreen(askFocusNode: _askFocusNode),
-          const SettingsScreen(),
+          SettingsScreen(checklistKey: _checklistKey),
         ],
       ),
       bottomNavigationBar: _buildNav(context),
@@ -48,46 +88,42 @@ class _AppShellState extends State<AppShell> {
   }
 
   Widget _buildNav(BuildContext context) {
+    final s = AppTheme.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final count = context.select<ScreenshotProvider, int>(
-      (p) => p.screenshots.length,
-    );
 
     return Container(
-      color: isDark ? AppTheme.bgDark : AppTheme.bgLight,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      decoration: BoxDecoration(
+        color: s.canvas,
+        border: Border(
+          top: BorderSide(
+            color: s.divider,
+            width: AppTheme.hairline(isDark),
+          ),
+        ),
+      ),
       child: SafeArea(
         top: false,
-        child: Container(
-          height: AppTheme.navH,
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.raisedDark : AppTheme.raisedLight,
-            borderRadius: BorderRadius.circular(AppTheme.r2xl),
-            border: Border.all(
-              color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-            ),
-            boxShadow: AppTheme.raisedShadow(isDark),
-          ),
+        child: SizedBox(
+          height: SiftSpacing.navH,
           child: Row(
             children: [
               _NavTab(
-                icon: Icons.photo_library_rounded,
+                icon: Icons.photo_rounded,
                 label: 'Library',
                 active: _index == 0,
-                count: count > 0 ? count : null,
-                onTap: () => setState(() => _index = 0),
+                onTap: () => _switchTo(0),
               ),
               _NavTab(
-                icon: Icons.chat_bubble_rounded,
+                icon: Icons.chat_bubble_outline_rounded,
                 label: 'Ask',
                 active: _index == 1,
-                onTap: () => setState(() => _index = 1),
+                onTap: () => _switchTo(1),
               ),
               _NavTab(
-                icon: Icons.more_horiz_rounded,
+                icon: Icons.tune_rounded,
                 label: 'More',
                 active: _index == 2,
-                onTap: () => setState(() => _index = 2),
+                onTap: () => _switchTo(2),
               ),
             ],
           ),
@@ -97,11 +133,12 @@ class _AppShellState extends State<AppShell> {
   }
 }
 
-class _NavTab extends StatelessWidget {
+/// Flat paper tab: active = accent icon + ink label, inactive = stone.
+/// Color-only 200ms lerp, no capsule, no indicator, no badge, no shadow.
+class _NavTab extends StatefulWidget {
   final IconData icon;
   final String label;
   final bool active;
-  final int? count;
   final VoidCallback onTap;
 
   const _NavTab({
@@ -109,65 +146,75 @@ class _NavTab extends StatelessWidget {
     required this.label,
     required this.active,
     required this.onTap,
-    this.count,
   });
 
   @override
+  State<_NavTab> createState() => _NavTabState();
+}
+
+class _NavTabState extends State<_NavTab> {
+  late Color _iconBegin;
+  late Color _labelBegin;
+
+  @override
+  void initState() {
+    super.initState();
+    final s = AppTheme.of(context);
+    _iconBegin = widget.active ? s.accent : s.stone;
+    _labelBegin = widget.active ? s.ink : s.stone;
+  }
+
+  @override
+  void didUpdateWidget(covariant _NavTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active != widget.active) {
+      final s = AppTheme.of(context);
+      _iconBegin = oldWidget.active ? s.accent : s.stone;
+      _labelBegin = oldWidget.active ? s.ink : s.stone;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    const ember = AppTheme.emberMain;
-    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
-    final ash = isDark ? AppTheme.ashDark : AppTheme.ashLight;
+    final s = AppTheme.of(context);
+    final iconEnd = widget.active ? s.accent : s.stone;
+    final labelEnd = widget.active ? s.ink : s.stone;
 
     return Expanded(
       child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppTheme.r2xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            AnimatedSwitcher(
-              duration: Motion.standard,
-              child: Icon(
-                icon,
-                key: ValueKey('$label-$active'),
-                size: 22,
-                color: active ? ember : ash,
+        onTap: () {
+          if (MotionTokens.canHaptic) HapticFeedback.selectionClick();
+          widget.onTap();
+        },
+        child: Semantics(
+          selected: widget.active,
+          button: true,
+          label: widget.label,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              TweenAnimationBuilder<Color?>(
+                tween: ColorTween(begin: _iconBegin, end: iconEnd),
+                duration: MotionTokens.standard,
+                curve: MotionTokens.easeOutCubic,
+                builder: (context, color, child) {
+                  return Icon(widget.icon, size: 24, color: color);
+                },
               ),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Flexible(
-                  child: AnimatedDefaultTextStyle(
-                    duration: Motion.standard,
-                    curve: Curves.easeOutCubic,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                      color: active ? ink : ash,
-                      letterSpacing: 0.2,
-                    ),
-                    child: Text(label),
-                  ),
-                ),
-                if (active && count != null) ...[
-                  const SizedBox(width: 4),
-                  Text(
-                    '$count',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: ember,
-                      fontFeatures: [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ],
+              const SizedBox(height: 3),
+              TweenAnimationBuilder<Color?>(
+                tween: ColorTween(begin: _labelBegin, end: labelEnd),
+                duration: MotionTokens.standard,
+                curve: MotionTokens.easeOutCubic,
+                builder: (context, color, child) {
+                  return Text(
+                    widget.label,
+                    style: SiftType.tabLabel.copyWith(color: color),
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

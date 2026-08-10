@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion_tokens.dart';
 import 'sift_mark.dart';
 
-/// Single neutral recognition tag. Label differentiates, never color.
+/// Neutral recognition type badge. Label differentiates, never color.
+/// Full pill, badgeBg/badgeText tokens.
 class TypeBadge extends StatelessWidget {
   final String? type;
   final bool compact;
@@ -11,7 +13,7 @@ class TypeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final s = AppTheme.of(context);
     final label = AppTheme.typeLabel(type);
 
     return Container(
@@ -20,22 +22,21 @@ class TypeBadge extends StatelessWidget {
         vertical: compact ? 3 : 5,
       ),
       decoration: BoxDecoration(
-        color: isDark ? AppTheme.tagFillDark : AppTheme.tagFillLight,
-        borderRadius: BorderRadius.circular(AppTheme.rSm),
+        color: s.badgeBg,
+        borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         label,
-        style: TextStyle(
-          fontSize: 12,
+        style: SiftType.microLabel.copyWith(
           fontWeight: FontWeight.w600,
-          color: isDark ? AppTheme.tagTextDark : AppTheme.tagTextLight,
+          color: s.badgeText,
         ),
       ),
     );
   }
 }
 
-/// User-added tag chip. Optional delete affordance with a 40px hit target.
+/// User-added tag chip. Hairline pill with optional delete affordance.
 class TagChip extends StatelessWidget {
   final String label;
   final VoidCallback? onDeleted;
@@ -50,7 +51,7 @@ class TagChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final s = AppTheme.of(context);
 
     return Container(
       padding: EdgeInsets.fromLTRB(
@@ -60,27 +61,18 @@ class TagChip extends StatelessWidget {
         compact ? 3 : 5,
       ),
       decoration: BoxDecoration(
-        color: isDark
-            ? (compact
-                  ? AppTheme.surfaceContainerDark
-                  : AppTheme.surfaceDark)
-            : (compact
-                  ? AppTheme.surfaceContainerLight
-                  : AppTheme.surfaceLight),
-        borderRadius: BorderRadius.circular(AppTheme.rSm),
-        border: Border.all(
-          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-        ),
+        color: s.paper,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: s.tagBorder),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             label,
-            style: TextStyle(
-              fontSize: compact ? 11 : 12,
+            style: SiftType.microLabel.copyWith(
               fontWeight: FontWeight.w600,
-              color: AppTheme.emberMain,
+              color: s.tagText,
             ),
           ),
           if (onDeleted != null) ...[
@@ -97,7 +89,7 @@ class TagChip extends StatelessWidget {
                     child: Icon(
                       Icons.close_rounded,
                       size: 14,
-                      color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+                      color: s.stone,
                     ),
                   ),
                 ),
@@ -110,7 +102,78 @@ class TagChip extends StatelessWidget {
   }
 }
 
-/// Flat processing banner with the Sift mark pulsing. No gradient, no spinner.
+/// Pulsing Sift mark — the only idle loop besides the streaming caret.
+/// 1.0 -> 1.15 over 1200ms (easeOutCubic 45% / easeInCubic 55%). Static
+/// (scale 1.0) when reduced motion is on.
+class PulsingMark extends StatefulWidget {
+  final double size;
+  final Color? color;
+  final double toScale;
+
+  const PulsingMark({
+    super.key,
+    required this.size,
+    this.color,
+    this.toScale = 1.15,
+  });
+
+  @override
+  State<PulsingMark> createState() => _PulsingMarkState();
+}
+
+class _PulsingMarkState extends State<PulsingMark>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: MotionTokens.pulseCycle,
+    );
+    if (MotionTokens.enabled) {
+      _scale = TweenSequence<double>([
+        TweenSequenceItem(
+          tween: Tween<double>(begin: 1.0, end: widget.toScale).chain(
+            CurveTween(curve: MotionTokens.easeOutCubic),
+          ),
+          weight: 45,
+        ),
+        TweenSequenceItem(
+          tween: Tween<double>(begin: widget.toScale, end: 1.0).chain(
+            CurveTween(curve: MotionTokens.easeInCubic),
+          ),
+          weight: 55,
+        ),
+      ]).animate(_controller);
+      _controller.repeat();
+    } else {
+      _scale = const AlwaysStoppedAnimation(1.0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _scale,
+      builder: (context, child) {
+        return Transform.scale(scale: _scale.value, child: child);
+      },
+      child: SiftMark(size: widget.size, color: widget.color),
+    );
+  }
+}
+
+/// Flat processing banner: surfaceWarm2 + pulsing mark. No gradient,
+/// no spinner, no shimmer.
 class ProcessingBanner extends StatefulWidget {
   final String message;
   final VoidCallback? onDismiss;
@@ -125,57 +188,29 @@ class ProcessingBanner extends StatefulWidget {
   State<ProcessingBanner> createState() => _ProcessingBannerState();
 }
 
-class _ProcessingBannerState extends State<ProcessingBanner>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulse;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulse = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1600),
-    );
-    if (Motion.enabled) {
-      _pulse.repeat(reverse: true);
-    }
-  }
-
-  @override
-  void dispose() {
-    _pulse.dispose();
-    super.dispose();
-  }
-
+class _ProcessingBannerState extends State<ProcessingBanner> {
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final s = AppTheme.of(context);
 
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 4, 20, 4),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(AppTheme.rMd),
-        border: Border.all(
-          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-        ),
+        color: s.surfaceWarm2,
+        borderRadius: BorderRadius.circular(SiftRadii.rThumb),
       ),
       child: Row(
         children: [
-          FadeTransition(
-            opacity: Tween<double>(begin: 0.4, end: 1.0).animate(
-              CurvedAnimation(parent: _pulse, curve: Curves.easeInOutSine),
-            ),
-            child: const SiftMark(size: 18),
-          ),
+          const PulsingMark(size: 18),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               widget.message,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
+              style: SiftType.bodySansMd.copyWith(
+                fontWeight: FontWeight.w500,
+                color: s.ink,
+              ),
             ),
           ),
           if (widget.onDismiss != null)
@@ -184,7 +219,7 @@ class _ProcessingBannerState extends State<ProcessingBanner>
               onPressed: widget.onDismiss,
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
-              color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+              color: s.stone,
             ),
         ],
       ),
@@ -192,8 +227,7 @@ class _ProcessingBannerState extends State<ProcessingBanner>
   }
 }
 
-/// Empty library state: porcelain tile with the Sift mark and ghost card
-/// outlines behind it.
+/// Empty library state: mark 40 + serif headline + quiet line + CTA.
 class EmptyState extends StatelessWidget {
   final VoidCallback onScan;
   final VoidCallback? onAsk;
@@ -202,7 +236,7 @@ class EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final s = AppTheme.of(context);
 
     return Center(
       child: SingleChildScrollView(
@@ -210,59 +244,27 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SizedBox(
-              height: 140,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  _ghostCard(context, isDark, -7),
-                  _ghostCard(context, isDark, 6),
-                  Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      color: isDark ? AppTheme.raisedDark : AppTheme.raisedLight,
-                      borderRadius: BorderRadius.circular(AppTheme.r2xl),
-                      border: Border.all(
-                        color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-                      ),
-                      boxShadow: AppTheme.raisedShadow(isDark),
-                    ),
-                    child: const Center(
-                      child: SiftMark(size: 48),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            const SiftMark(size: 40),
             const SizedBox(height: 28),
             Text(
               'Nothing saved yet',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.4,
-                  ),
+              textAlign: TextAlign.center,
+              style: SiftType.serifDisplay.copyWith(color: s.ink),
             ),
             const SizedBox(height: 8),
             Text(
-              'Scan a screenshot and Sift will\nremember it for you.',
+              'Add a screenshot and Sift will remember it for you.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
-                    height: 1.5,
-                  ),
+              style: SiftType.bodySans.copyWith(
+                color: s.graphite,
+                height: 1.5,
+              ),
             ),
             const SizedBox(height: 28),
             FilledButton.icon(
               onPressed: onScan,
               icon: const Icon(Icons.camera_alt_rounded, size: 20),
-              label: const Text(
-                'Scan Screenshot',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 28),
-              ),
+              label: const Text('Add a screenshot'),
             ),
             if (onAsk != null) ...[
               const SizedBox(height: 8),
@@ -270,34 +272,14 @@ class EmptyState extends StatelessWidget {
                 onPressed: onAsk,
                 child: Text(
                   'Ask your memory instead',
-                  style: TextStyle(
-                    color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+                  style: SiftType.buttonLabel.copyWith(
+                    color: s.stone,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
             ],
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _ghostCard(BuildContext context, bool isDark, double angle) {
-    return Transform.rotate(
-      angle: angle * 3.14159 / 180,
-      child: Opacity(
-        opacity: 0.45,
-        child: Container(
-          width: 168,
-          height: 104,
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-            borderRadius: BorderRadius.circular(AppTheme.rXl),
-            border: Border.all(
-              color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-            ),
-          ),
         ),
       ),
     );

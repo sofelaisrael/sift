@@ -1,14 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../providers/theme_controller.dart';
 import '../providers/screenshot_provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion_tokens.dart';
 import '../widgets/sift_mark.dart';
 import '../widgets/about_dialog.dart';
+import 'actions_history_screen.dart';
 
+/// The More tab. A single flat ListView with zero bordered cards: Library
+/// cluster, the "Get Sift ready" checklist, Appearance, Behavior, Privacy
+/// and About. [checklistKey] is attached to the checklist so the onboarding
+/// "Set up Sift" deep link can scroll it into view.
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final GlobalKey? checklistKey;
+
+  const SettingsScreen({super.key, this.checklistKey});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -19,6 +29,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _hapticFeedback = true;
   bool _localOnly = false;
   bool _autoDetect = true;
+  int _expandedStep = 0;
 
   final Map<String, TextEditingController> _keyControllers = {};
   final TextEditingController _youtubeKeyController = TextEditingController();
@@ -26,24 +37,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final List<Map<String, dynamic>> _providers = [
     {
       'name': 'Google Gemini',
-      'desc': 'Free tier · 15 RPM · Best multimodal',
-      'icon': Icons.language_rounded,
+      'desc': 'Free tier, 15 requests per minute, multimodal',
       'needsKey': true,
       'keyUrl': 'https://aistudio.google.com/app/apikey',
       'recommended': true,
     },
     {
       'name': 'NVIDIA',
-      'desc': 'Free tier · 40 RPM · Multimodal (Llama vision)',
-      'icon': Icons.developer_board_rounded,
+      'desc': 'Free tier, 40 requests per minute, multimodal',
       'needsKey': true,
       'keyUrl': 'https://build.nvidia.com',
       'recommended': false,
     },
     {
       'name': 'Groq',
-      'desc': 'Free tier · 30 RPM · Text only',
-      'icon': Icons.bolt_rounded,
+      'desc': 'Free tier, 30 requests per minute, text only',
       'needsKey': true,
       'keyUrl': 'https://console.groq.com/keys',
       'recommended': false,
@@ -77,6 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _localOnly = prefs.getBool('localOnly') ?? false;
       _autoDetect = prefs.getBool('autoDetect') ?? true;
     });
+    MotionTokens.hapticsEnabled = _hapticFeedback;
 
     for (final p in _providers) {
       if (p['needsKey'] == true) {
@@ -105,534 +114,554 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.setString('key_youtube', _youtubeKeyController.text);
   }
 
+  bool get _hasKey {
+    final controller = _keyControllers[_selectedProvider];
+    return controller != null && controller.text.trim().isNotEmpty;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
+    final s = AppTheme.of(context);
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text(
-            'More',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
+    return SafeArea(
+      bottom: false,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: 8),
+            child: Text(
+              'More',
+              style: SiftType.serifTitle.copyWith(color: s.ink),
+            ),
+          ),
+          _sectionTitle(context, 'Library'),
+          _flatRow(
+            context,
+            icon: Icons.history_rounded,
+            title: 'Actions history',
+            subtitle: 'Everything Sift has done for you',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ActionsHistoryScreen()),
+            ),
+          ),
+          const _SectionGap(),
+          _sectionTitle(context, 'Get Sift ready'),
+          if (widget.checklistKey != null) Container(key: widget.checklistKey),
+          _checklistStep(
+            context,
+            number: 1,
+            title: 'Choose a provider',
+            caption: 'Pick the AI you trust',
+            done: true,
+            expanded: _expandedStep == 0,
+            onTap: () =>
+                setState(() => _expandedStep = _expandedStep == 0 ? -1 : 0),
+            child: Column(
+              children:
+                  _providers.map((p) => _providerRow(context, p)).toList(),
+            ),
+          ),
+          _checklistStep(
+            context,
+            number: 2,
+            title: 'Add your API key',
+            caption: _hasKey ? 'Saved' : 'Needed for $_selectedProvider',
+            done: _hasKey,
+            expanded: _expandedStep == 1,
+            onTap: () =>
+                setState(() => _expandedStep = _expandedStep == 1 ? -1 : 1),
+            child: _buildKeySection(context),
+          ),
+          _checklistStep(
+            context,
+            number: 3,
+            title: 'Enable auto-detect',
+            caption: 'Watch for new screenshots',
+            done: _autoDetect,
+            expanded: _expandedStep == 2,
+            trailing: _flatSwitch(
+              value: _autoDetect,
+              onChanged: (v) {
+                setState(() => _autoDetect = v);
+                _saveSettings();
+              },
+            ),
+            onTap: () =>
+                setState(() => _expandedStep = _expandedStep == 2 ? -1 : 2),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 4),
+              child: Text(
+                'When a new screenshot appears in your gallery, Sift can analyze it without being asked.',
+                style: SiftType.bodySansMd.copyWith(
+                  fontSize: 14,
+                  height: 1.45,
+                  color: s.graphite,
                 ),
+              ),
+            ),
           ),
-        ),
-        _sectionTitle(context, 'Get Sift ready'),
-        _checklistTile(
-          context,
-          done: true,
-          title: 'Choose provider',
-          caption: 'Pick the AI you trust',
-        ),
-        ..._providers.map((p) => _buildProviderCard(context, p, isDark)),
-        if (_providers.firstWhere((p) => p['name'] == _selectedProvider)['needsKey'])
-          _buildApiKeyInput(context, isDark),
-        _buildYouTubeKeyCard(context, isDark),
-        _checklistTile(
-          context,
-          done: _autoDetect,
-          title: 'Enable auto-detect',
-          caption: 'Watch for new screenshots',
-          trailing: Switch(
-            value: _autoDetect,
-            onChanged: (v) {
-              setState(() => _autoDetect = v);
-              _saveSettings();
-            },
+          const _SectionGap(),
+          _sectionTitle(context, 'Appearance'),
+          _ThemeSegmented(
+            value: context.watch<ThemeController>().themeMode,
+            onChanged: (mode) => context.read<ThemeController>().setMode(mode),
           ),
-        ),
-        const SizedBox(height: 32),
-        _sectionTitle(context, 'Appearance'),
-        _buildAppearanceSection(context),
-        const SizedBox(height: 32),
-        _sectionTitle(context, 'Behavior'),
-        _switchTile(
-          context,
-          icon: Icons.vibration_rounded,
-          title: 'Haptic Feedback',
-          subtitle: 'Vibrate on actions',
-          value: _hapticFeedback,
-          onChanged: (v) {
-            setState(() => _hapticFeedback = v);
-            _saveSettings();
-          },
-        ),
-        const SizedBox(height: 32),
-        _sectionTitle(context, 'Privacy'),
-        _switchTile(
-          context,
-          icon: Icons.offline_bolt_rounded,
-          title: 'Local-only mode',
-          subtitle: 'Analyze on-device with OCR. Nothing is sent to AI providers; AI chat and web lookups are disabled.',
-          value: _localOnly,
-          onChanged: (v) {
-            setState(() => _localOnly = v);
-            context.read<ScreenshotProvider>().setLocalOnly(v);
-            _saveSettings();
-          },
-        ),
-        _infoRow(
-          context,
-          icon: Icons.lock_outline_rounded,
-          title: 'What leaves your device',
-          subtitle: 'Screenshots go to your chosen AI provider for analysis; optional link lookups query DuckDuckGo/YouTube.',
-        ),
-        _infoRow(
-          context,
-          icon: Icons.storage_rounded,
-          title: 'Stored locally',
-          subtitle: 'Your screenshots, analysis, and chat history are stored on this phone.',
-        ),
-        _infoRow(
-          context,
-          icon: Icons.verified_user_outlined,
-          title: 'You stay in control',
-          subtitle: 'Delete anything, anytime',
-        ),
-        const SizedBox(height: 8),
-        _buildDeleteEverythingTile(context),
-        const SizedBox(height: 32),
-        _sectionTitle(context, 'About'),
-        _aboutTile(context, isDark, ink),
-      ],
+          const _SectionGap(),
+          _sectionTitle(context, 'Behavior'),
+          _flatRow(
+            context,
+            icon: Icons.vibration_rounded,
+            title: 'Haptic feedback',
+            subtitle: 'Vibrate on actions',
+            trailing: _flatSwitch(
+              value: _hapticFeedback,
+              onChanged: (v) {
+                setState(() => _hapticFeedback = v);
+                MotionTokens.hapticsEnabled = v;
+                _saveSettings();
+              },
+            ),
+          ),
+          const _SectionGap(),
+          _sectionTitle(context, 'Privacy'),
+          _flatRow(
+            context,
+            icon: Icons.offline_bolt_rounded,
+            title: 'Local-only mode',
+            subtitle:
+                'Analyze on-device with OCR. Nothing is sent to AI providers; AI chat and web lookups are disabled.',
+            trailing: _flatSwitch(
+              value: _localOnly,
+              onChanged: (v) {
+                setState(() => _localOnly = v);
+                context.read<ScreenshotProvider>().setLocalOnly(v);
+                _saveSettings();
+              },
+            ),
+          ),
+          _infoRow(
+            context,
+            icon: Icons.lock_outline_rounded,
+            title: 'What leaves your device',
+            subtitle:
+                'Screenshots go to your chosen AI provider for analysis; optional link lookups query DuckDuckGo and YouTube.',
+          ),
+          _infoRow(
+            context,
+            icon: Icons.storage_rounded,
+            title: 'Stored locally',
+            subtitle:
+                'Your screenshots, analysis, and chat history are stored on this phone.',
+          ),
+          _infoRow(
+            context,
+            icon: Icons.verified_user_outlined,
+            title: 'You stay in control',
+            subtitle: 'Delete anything, anytime',
+          ),
+          const SizedBox(height: 8),
+          _buildDeleteEverythingTile(context),
+          const _SectionGap(),
+          _sectionTitle(context, 'About'),
+          _aboutRow(context),
+        ],
+      ),
     );
   }
 
   Widget _sectionTitle(BuildContext context, String title) {
+    final s = AppTheme.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
       child: Text(
         title,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.3,
-            ),
-      ),
-    );
-  }
-
-  Widget _checklistTile(
-    BuildContext context, {
-    required bool done,
-    required String title,
-    required String caption,
-    Widget? trailing,
-  }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
-    final ash = isDark ? AppTheme.ashDark : AppTheme.ashLight;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(AppTheme.rMd),
-        border: Border.all(
-          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+        style: SiftType.chromeTitle.copyWith(
+          color: s.ink,
+          fontWeight: FontWeight.w700,
         ),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 22,
-            height: 22,
-            decoration: BoxDecoration(
-              color: done ? AppTheme.emberMain : Colors.transparent,
-              shape: BoxShape.circle,
-              border: done
-                  ? null
-                  : Border.all(
-                      color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-                    ),
-            ),
-            child: done
-                ? const Icon(Icons.check_rounded, size: 14, color: AppTheme.emberInk)
-                : null,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: ink,
-                      ),
-                ),
-                Text(
-                  caption,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: ash,
-                      ),
-                ),
-              ],
-            ),
-          ),
-          if (trailing != null) trailing,
-        ],
-      ),
     );
   }
 
-  Widget _buildProviderCard(
-    BuildContext context,
-    Map<String, dynamic> provider,
-    bool isDark,
-  ) {
-    final isSelected = _selectedProvider == provider['name'];
-    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
+  Widget _checklistStep(
+    BuildContext context, {
+    required int number,
+    required String title,
+    required String caption,
+    required bool done,
+    required bool expanded,
+    required VoidCallback onTap,
+    required Widget child,
+    Widget? trailing,
+  }) {
+    final s = AppTheme.of(context);
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            setState(() => _selectedProvider = provider['name']);
-            _saveSettings();
-          },
-          borderRadius: BorderRadius.circular(AppTheme.rMd),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-              borderRadius: BorderRadius.circular(AppTheme.rMd),
-              border: Border.all(
-                color: isSelected ? AppTheme.emberMain : (isDark ? AppTheme.hairDark : AppTheme.hairLight),
-                width: isSelected ? 1.5 : 1,
-              ),
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(SiftRadii.rField),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
             child: Row(
               children: [
-                Icon(
-                  provider['icon'],
-                  size: 20,
-                  color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
+                AnimatedScale(
+                  scale: done ? 0.9 : 1.0,
+                  duration: MotionTokens.standard,
+                  curve: MotionTokens.easeOutCubic,
+                  child: AnimatedContainer(
+                    duration: MotionTokens.standard,
+                    curve: MotionTokens.easeOutCubic,
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: done ? s.accentSoft : s.surfaceWarm2,
+                      shape: BoxShape.circle,
+                    ),
+                    child: done
+                        ? Icon(Icons.check_rounded, size: 16, color: s.accent)
+                        : Center(
+                            child: Text(
+                              '$number',
+                              style: SiftType.chipLabel.copyWith(
+                                color: s.ink,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                  ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              provider['name'],
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14,
-                                color: ink,
-                              ),
-                            ),
-                          ),
-                          if (provider['recommended'] == true) ...[
-                            const SizedBox(width: 6),
-                            _neutralTag(context, 'Recommended'),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 2),
                       Text(
-                        provider['desc'],
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
-                            ),
+                        title,
+                        style: SiftType.bodySans.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: s.ink,
+                        ),
+                      ),
+                      Text(
+                        caption,
+                        style: SiftType.bodySansMd.copyWith(
+                          fontSize: 13,
+                          color: s.stone,
+                        ),
                       ),
                     ],
                   ),
                 ),
-                if (isSelected)
-                  const Icon(
-                    Icons.check_circle_rounded,
-                    color: AppTheme.emberMain,
-                    size: 20,
-                  ),
+                if (trailing != null) trailing,
+                Icon(
+                  expanded
+                      ? Icons.expand_less_rounded
+                      : Icons.expand_more_rounded,
+                  size: 20,
+                  color: s.stone,
+                ),
               ],
             ),
           ),
         ),
-      ),
+        AnimatedSize(
+          duration: MotionTokens.emphasis,
+          curve: MotionTokens.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: expanded
+              ? Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: child,
+                )
+              : const SizedBox(width: double.infinity),
+        ),
+        Divider(color: s.divider, height: 1, thickness: 1),
+      ],
     );
   }
 
-  Widget _neutralTag(BuildContext context, String label) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: isDark ? AppTheme.tagFillDark : AppTheme.tagFillLight,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
-          color: isDark ? AppTheme.tagTextDark : AppTheme.tagTextLight,
-        ),
-      ),
-    );
-  }
+  Widget _providerRow(BuildContext context, Map<String, dynamic> provider) {
+    final s = AppTheme.of(context);
+    final isSelected = _selectedProvider == provider['name'];
 
-  Widget _buildApiKeyInput(BuildContext context, bool isDark) {
-    final controller = _keyControllers[_selectedProvider];
-    final provider = _providers.firstWhere((p) => p['name'] == _selectedProvider);
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(AppTheme.rMd),
-        border: Border.all(
-          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextField(
-            controller: controller,
-            obscureText: true,
-            style: Theme.of(context).textTheme.bodyMedium,
-            decoration: InputDecoration(
-              hintText: 'Paste your API key…',
-              hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
-                  ),
-              filled: true,
-              fillColor: isDark ? AppTheme.raisedDark : AppTheme.raisedLight,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppTheme.rSm),
-                borderSide: BorderSide(
-                  color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+    return InkWell(
+      onTap: () {
+        if (MotionTokens.canHaptic) HapticFeedback.lightImpact();
+        setState(() => _selectedProvider = provider['name']);
+        _saveSettings();
+      },
+      borderRadius: BorderRadius.circular(SiftRadii.rField),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+        child: Row(
+          children: [
+            AnimatedContainer(
+              duration: MotionTokens.standard,
+              curve: MotionTokens.easeOutCubic,
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                color: isSelected ? s.accentSoft : Colors.transparent,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isSelected ? s.accentDeep : s.divider,
+                  width: isSelected ? 1.5 : 1,
                 ),
               ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppTheme.rSm),
-                borderSide: BorderSide(
-                  color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppTheme.rSm),
-                borderSide: const BorderSide(color: AppTheme.emberMain, width: 1.5),
-              ),
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: isSelected
+                  ? Icon(Icons.check_rounded, size: 14, color: s.accentDeep)
+                  : null,
             ),
-            onChanged: (_) => _saveSettings(),
-          ),
-          if (provider['keyUrl'] != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Get a free key → ${provider['keyUrl']}',
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.emberMain,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          provider['name'],
+                          style: SiftType.bodySans.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: s.ink,
+                          ),
+                        ),
+                      ),
+                      if (provider['recommended'] == true) ...[
+                        const SizedBox(width: 6),
+                        _quietTag(context, 'Recommended'),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    provider['desc'],
+                    style: SiftType.bodySansMd.copyWith(
+                      fontSize: 13,
+                      color: s.graphite,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildYouTubeKeyCard(BuildContext context, bool isDark) {
+  Widget _quietTag(BuildContext context, String label) {
+    final s = AppTheme.of(context);
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(AppTheme.rMd),
-        border: Border.all(
-          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-        ),
+        color: s.badgeBg,
+        borderRadius: BorderRadius.circular(999),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.play_circle_outline_rounded,
-                size: 20,
-                color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'YouTube Data API key',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: isDark ? AppTheme.inkDark : AppTheme.inkLight,
-                          ),
-                    ),
-                    Text(
-                      'Optional — for better video lookups, works without it',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _youtubeKeyController,
-            obscureText: true,
-            style: Theme.of(context).textTheme.bodyMedium,
-            decoration: InputDecoration(
-              hintText: 'Paste your YouTube API key…',
-              hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
-                  ),
-              filled: true,
-              fillColor: isDark ? AppTheme.raisedDark : AppTheme.raisedLight,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppTheme.rSm),
-                borderSide: BorderSide(
-                  color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-                ),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppTheme.rSm),
-                borderSide: BorderSide(
-                  color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppTheme.rSm),
-                borderSide: const BorderSide(color: AppTheme.emberMain, width: 1.5),
-              ),
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            ),
-            onChanged: (_) => _saveSettings(),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Get a free key → https://console.cloud.google.com/apis/credentials',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-              color: AppTheme.emberMain,
-            ),
-          ),
-        ],
+      child: Text(
+        label,
+        style: SiftType.microLabel.copyWith(
+          fontWeight: FontWeight.w600,
+          color: s.badgeText,
+        ),
       ),
     );
   }
 
-  Widget _buildAppearanceSection(BuildContext context) {
-    final themeController = context.watch<ThemeController>();
+  Widget _buildKeySection(BuildContext context) {
+    final s = AppTheme.of(context);
+    final controller = _keyControllers[_selectedProvider];
+    final provider =
+        _providers.firstWhere((p) => p['name'] == _selectedProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _keyField(
+          context,
+          controller: controller,
+          hint: 'Paste your API key…',
+          onChanged: (_) => _saveSettings(),
+        ),
+        if (provider['keyUrl'] != null) ...[
+          const SizedBox(height: 8),
+          _linkRow(context, 'Get a free key', provider['keyUrl'] as String),
+        ],
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Icon(Icons.play_circle_outline_rounded,
+                size: 20, color: s.graphite),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'YouTube Data API key (optional)',
+                style: SiftType.bodySansMd.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: s.ink,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Used for better video lookups; Sift works without it.',
+          style: SiftType.bodySansMd.copyWith(
+            fontSize: 13,
+            color: s.stone,
+          ),
+        ),
+        const SizedBox(height: 8),
+        _keyField(
+          context,
+          controller: _youtubeKeyController,
+          hint: 'Paste your YouTube API key…',
+          onChanged: (_) => _saveSettings(),
+        ),
+        const SizedBox(height: 4),
+        _linkRow(
+          context,
+          'Get a free key',
+          'https://console.cloud.google.com/apis/credentials',
+        ),
+      ],
+    );
+  }
+
+  Widget _keyField(
+    BuildContext context, {
+    required TextEditingController? controller,
+    required String hint,
+    required ValueChanged<String> onChanged,
+  }) {
+    final s = AppTheme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
-      decoration: const BoxDecoration(
-        color: Colors.transparent,
+      height: 48,
+      decoration: BoxDecoration(
+        color: s.paper,
+        borderRadius: BorderRadius.circular(SiftRadii.rField),
+        border: Border.all(
+          color: s.divider,
+          width: AppTheme.hairline(isDark),
+        ),
       ),
-      child: SegmentedButton<ThemeMode>(
-        segments: const [
-          ButtonSegment(
-            value: ThemeMode.light,
-            label: Text('Light'),
-            icon: Icon(Icons.light_mode_outlined, size: 18),
+      child: TextField(
+        controller: controller,
+        obscureText: true,
+        style: SiftType.bodySans.copyWith(color: s.ink),
+        onChanged: onChanged,
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: SiftType.bodySans.copyWith(
+            fontSize: 15,
+            color: s.stone,
           ),
-          ButtonSegment(
-            value: ThemeMode.dark,
-            label: Text('Dark'),
-            icon: Icon(Icons.dark_mode_outlined, size: 18),
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
           ),
-          ButtonSegment(
-            value: ThemeMode.system,
-            label: Text('System'),
-            icon: Icon(Icons.brightness_auto_outlined, size: 18),
-          ),
-        ],
-        selected: {themeController.themeMode},
-        onSelectionChanged: (selection) {
-          themeController.setMode(selection.first);
-        },
-        showSelectedIcon: false,
-        style: const ButtonStyle(
-          visualDensity: VisualDensity(horizontal: 0, vertical: 0),
-          padding: WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 10)),
         ),
       ),
     );
   }
 
-  Widget _switchTile(
+  Widget _linkRow(BuildContext context, String label, String url) {
+    final s = AppTheme.of(context);
+
+    return InkWell(
+      onTap: () => _openUrl(url),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: SiftType.bodySansMd.copyWith(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: s.accent,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.open_in_new_rounded, size: 14, color: s.accent),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint('Could not open URL: $e');
+    }
+  }
+
+  Widget _flatRow(
     BuildContext context, {
     required IconData icon,
     required String title,
     required String subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
+    Widget? trailing,
+    VoidCallback? onTap,
+    Color? iconColor,
+    Color? titleColor,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
+    final s = AppTheme.of(context);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(AppTheme.rMd),
-        border: Border.all(
-          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: 20,
-            color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: ink,
-                      ),
-                ),
-                Text(
-                  subtitle,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
-                      ),
-                ),
-              ],
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(SiftRadii.rField),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: iconColor ?? s.graphite),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: SiftType.bodySans.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: titleColor ?? s.ink,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: SiftType.bodySansMd.copyWith(
+                      fontSize: 13,
+                      height: 1.4,
+                      color: s.graphite,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-          ),
-        ],
+            if (trailing != null) trailing,
+            if (onTap != null) ...[
+              const SizedBox(width: 4),
+              Icon(Icons.chevron_right_rounded, size: 20, color: s.stone),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -643,26 +672,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String title,
     required String subtitle,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final ink = isDark ? AppTheme.inkDark : AppTheme.inkLight;
+    final s = AppTheme.of(context);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(AppTheme.rMd),
-        border: Border.all(
-          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-        ),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
       child: Row(
         children: [
-          Icon(
-            icon,
-            size: 20,
-            color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
-          ),
+          Icon(icon, size: 20, color: s.stone),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -670,16 +686,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text(
                   title,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: ink,
-                      ),
+                  style: SiftType.bodySans.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: s.ink,
+                  ),
                 ),
                 Text(
                   subtitle,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
-                      ),
+                  style: SiftType.bodySansMd.copyWith(
+                    fontSize: 13,
+                    height: 1.4,
+                    color: s.stone,
+                  ),
                 ),
               ],
             ),
@@ -689,65 +707,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildDeleteEverythingTile(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final errorColor = isDark ? AppTheme.errorDark : AppTheme.errorLight;
+  Widget _flatSwitch({
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Switch(value: value, onChanged: onChanged);
+  }
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _confirmDeleteEverything(context),
-        borderRadius: BorderRadius.circular(AppTheme.rMd),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-            borderRadius: BorderRadius.circular(AppTheme.rMd),
-            border: Border.all(
-              color: errorColor.withValues(alpha: 0.5),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.delete_forever_rounded, size: 20, color: errorColor),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Delete everything',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: errorColor,
-                          ),
+  Widget _buildDeleteEverythingTile(BuildContext context) {
+    final s = AppTheme.of(context);
+
+    return InkWell(
+      onTap: () => _confirmDeleteEverything(context),
+      borderRadius: BorderRadius.circular(SiftRadii.rField),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+        child: Row(
+          children: [
+            Icon(Icons.delete_forever_rounded, size: 20, color: s.error),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Delete everything',
+                    style: SiftType.bodySans.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: s.error,
                     ),
-                    Text(
-                      'Wipe all saved screenshots, chat, actions, and settings',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: isDark
-                                ? AppTheme.slateDark
-                                : AppTheme.slateLight,
-                          ),
+                  ),
+                  Text(
+                    'Wipe all saved screenshots, chat, actions, and settings',
+                    style: SiftType.bodySansMd.copyWith(
+                      fontSize: 13,
+                      color: s.stone,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
   Future<void> _confirmDeleteEverything(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final provider = context.read<ScreenshotProvider>();
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppTheme.r2xl),
-        ),
         title: const Text('Delete everything?'),
         content: const Text(
           'This permanently deletes everything Sift owns: saved screenshots and their analysis, chat history, actions, settings, saved API keys, and search history. Your gallery photos are untouched.',
@@ -764,9 +777,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true) return;
 
-    await context.read<ScreenshotProvider>().deleteEverything();
+    if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
+    await provider.deleteEverything();
     if (!mounted) return;
 
     setState(() {
@@ -775,64 +789,121 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _autoDetect = true;
       _hapticFeedback = true;
     });
+    MotionTokens.hapticsEnabled = true;
     for (final c in _keyControllers.values) {
       c.clear();
     }
     _youtubeKeyController.clear();
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    messenger.showSnackBar(
       const SnackBar(content: Text('Everything deleted')),
     );
-    Navigator.popUntil(context, (route) => route.isFirst);
+    navigator.popUntil((route) => route.isFirst);
   }
 
-  Widget _aboutTile(BuildContext context, bool isDark, Color ink) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => PremiumAboutDialog.show(context),
-        borderRadius: BorderRadius.circular(AppTheme.rMd),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
-            color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-            borderRadius: BorderRadius.circular(AppTheme.rMd),
-            border: Border.all(
-              color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+  Widget _aboutRow(BuildContext context) {
+    final s = AppTheme.of(context);
+
+    return InkWell(
+      onTap: () => PremiumAboutDialog.show(context),
+      borderRadius: BorderRadius.circular(SiftRadii.rField),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+        child: Row(
+          children: [
+            const SiftMark(size: 40),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Sift',
+                    style: SiftType.serifSubhead.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: s.ink,
+                    ),
+                  ),
+                  Text(
+                    'Version 1.0.0',
+                    style: SiftType.metaLabel.copyWith(color: s.stone),
+                  ),
+                ],
+              ),
             ),
-          ),
-          child: Row(
-            children: [
-              const SiftMark(size: 28),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Sift',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: ink,
-                          ),
+            Icon(Icons.chevron_right_rounded, size: 20, color: s.stone),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionGap extends StatelessWidget {
+  const _SectionGap();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(height: 32);
+  }
+}
+
+/// Custom segmented theme control: surfaceWarm1 container (r16), selected
+/// segment gets a paper thumb (r13) with a 200ms lerp.
+class _ThemeSegmented extends StatelessWidget {
+  final ThemeMode value;
+  final ValueChanged<ThemeMode> onChanged;
+
+  const _ThemeSegmented({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppTheme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final options = <(ThemeMode, String)>[
+      (ThemeMode.light, 'Light'),
+      (ThemeMode.dark, 'Dark'),
+      (ThemeMode.system, 'System'),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: isDark ? s.surfaceWarm2 : s.surfaceWarm1,
+        borderRadius: BorderRadius.circular(SiftRadii.rField),
+      ),
+      child: Row(
+        children: [
+          for (final (mode, label) in options)
+            Expanded(
+              child: InkWell(
+                onTap: () {
+                  if (MotionTokens.canHaptic) HapticFeedback.selectionClick();
+                  onChanged(mode);
+                },
+                borderRadius: BorderRadius.circular(SiftRadii.rThumb),
+                child: AnimatedContainer(
+                  duration: MotionTokens.standard,
+                  curve: MotionTokens.easeOutCubic,
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: mode == value ? s.paper : Colors.transparent,
+                    borderRadius: BorderRadius.circular(SiftRadii.rThumb),
+                  ),
+                  child: Text(
+                    label,
+                    style: SiftType.chipLabel.copyWith(
+                      fontWeight:
+                          mode == value ? FontWeight.w600 : FontWeight.w500,
+                      color: mode == value ? s.ink : s.stone,
                     ),
-                    Text(
-                      'Version 1.0.0',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
-                          ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
-              ),
-            ],
-          ),
-        ),
+            ),
+        ],
       ),
     );
   }

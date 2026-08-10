@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'providers/theme_controller.dart';
@@ -10,9 +12,26 @@ import 'screens/onboarding_screen.dart';
 import 'screens/app_shell.dart';
 import 'widgets/sift_mark.dart';
 import 'theme/app_theme.dart';
+import 'theme/motion_tokens.dart';
+
+/// Registers the OFL licenses for the bundled fonts so they appear under
+/// Settings > About > Licenses.
+Future<void> _registerFontLicenses() async {
+  final sourceSerif = await rootBundle.loadString(
+    'assets/fonts/OFL-SourceSerif4.txt',
+  );
+  final jetBrains = await rootBundle.loadString(
+    'assets/fonts/OFL-JetBrainsMono.txt',
+  );
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(['Source Serif 4'], sourceSerif);
+    yield LicenseEntryWithLineBreaks(['JetBrains Mono'], jetBrains);
+  });
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _registerFontLicenses();
   await Hive.initFlutter();
   await Hive.openBox('screenshots');
   await Hive.openBox('actions');
@@ -73,7 +92,7 @@ class SiftApp extends StatelessWidget {
             darkTheme: AppTheme.darkTheme,
             themeMode: controller.themeMode,
             builder: (context, child) {
-              Motion.reduced = MediaQuery.disableAnimationsOf(context);
+              MotionTokens.reduced = MediaQuery.disableAnimationsOf(context);
               return MediaQuery.withClampedTextScaling(
                 minScaleFactor: 0.85,
                 maxScaleFactor: 1.6,
@@ -106,9 +125,9 @@ class _AppStartupState extends State<AppStartup>
     super.initState();
     _pulse = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1600),
+      duration: MotionTokens.pulseCycle,
     );
-    if (Motion.enabled) {
+    if (MotionTokens.enabled) {
       _pulse.repeat(reverse: true);
     }
     _checkOnboarding();

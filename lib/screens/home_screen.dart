@@ -6,12 +6,16 @@ import 'package:provider/provider.dart';
 import '../models/screenshot.dart';
 import '../providers/screenshot_provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/motion_tokens.dart';
 import '../widgets/widgets.dart';
 import '../widgets/bottom_sheet.dart';
 import '../widgets/privacy_gate.dart';
 import 'detail_screen.dart';
 import 'actions_history_screen.dart';
 
+/// The Library tab. Pinned flat Ask bar (field + accent camera circle),
+/// wordmark + one quiet sentence, flat banners, time-grouped 16:9 cards,
+/// and serif empty states. 2-column grid at >=600pt, 3-column at >=1000pt.
 class HomeScreen extends StatefulWidget {
   final VoidCallback? onAsk;
 
@@ -30,7 +34,7 @@ class _HomeScreenState extends State<HomeScreen> {
       bottom: false,
       child: NotificationListener<ScrollNotification>(
         onNotification: (notification) {
-          final scrolled = notification.metrics.pixels > 4;
+          final scrolled = notification.metrics.pixels > 8;
           if (scrolled != _scrolled) {
             setState(() => _scrolled = scrolled);
           }
@@ -60,8 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (provider.visibleScreenshots.isEmpty)
                   SliverFillRemaining(
                     hasScrollBody: false,
-                    child:
-                        provider.showFavoritesOnly &&
+                    child: provider.showFavoritesOnly &&
                             provider.screenshots.isNotEmpty
                         ? const _FavoritesEmptyState()
                         : EmptyState(
@@ -71,9 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   )
                 else
                   ..._buildGroupSlivers(context, provider),
-                const SliverToBoxAdapter(
-                  child: SizedBox(height: 96),
-                ),
+                const SliverToBoxAdapter(child: SizedBox(height: 96)),
               ],
             );
           },
@@ -92,7 +93,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final groups = <String, List<Screenshot>>{};
     for (final s in provider.visibleScreenshots) {
-      final day = DateTime(s.timestamp.year, s.timestamp.month, s.timestamp.day);
+      final day =
+          DateTime(s.timestamp.year, s.timestamp.month, s.timestamp.day);
       String key;
       if (day == today) {
         key = 'Today';
@@ -104,46 +106,78 @@ class _HomeScreenState extends State<HomeScreen> {
       groups.putIfAbsent(key, () => []).add(s);
     }
 
+    final width = MediaQuery.sizeOf(context).width;
+    final columns = width >= 1000 ? 3 : (width >= 600 ? 2 : 1);
+
     final order = ['Today', 'Yesterday', 'Earlier'];
     final slivers = <Widget>[];
-    var cardIndex = 0;
     for (final key in order) {
       final items = groups[key];
       if (items == null || items.isEmpty) continue;
       slivers.add(
-        SliverToBoxAdapter(
-          child: _TimeGroupHeader(label: key, count: items.length),
-        ),
+        SliverToBoxAdapter(child: _TimeGroupHeader(label: key)),
       );
-      slivers.add(
-        SliverList(
-          delegate: SliverChildBuilderDelegate(
-            (context, index) {
-              final screenshot = items[index];
-              final i = cardIndex++;
-              return _CardEntrance(
-                index: i,
-                child: _SiftCard(
-                  screenshot: screenshot,
-                  onTap: () => _openDetail(context, screenshot),
-                ),
-              );
-            },
-            childCount: items.length,
+      if (columns == 1) {
+        slivers.add(
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final screenshot = items[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _SiftCard(
+                      screenshot: screenshot,
+                      onTap: () => _openDetail(context, screenshot),
+                    ),
+                  );
+                },
+                childCount: items.length,
+              ),
+            ),
           ),
-        ),
-      );
+        );
+      } else {
+        final cardWidth =
+            (width - 40 - SiftSpacing.s12 * (columns - 1)) / columns;
+        final imageHeight = cardWidth * 9 / 16;
+        final mainAxisExtent = imageHeight + 150;
+        slivers.add(
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            sliver: SliverGrid(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                mainAxisSpacing: SiftSpacing.s12,
+                crossAxisSpacing: SiftSpacing.s12,
+                mainAxisExtent: mainAxisExtent,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final screenshot = items[index];
+                  return _SiftCard(
+                    screenshot: screenshot,
+                    onTap: () => _openDetail(context, screenshot),
+                  );
+                },
+                childCount: items.length,
+              ),
+            ),
+          ),
+        );
+      }
     }
     return slivers;
   }
 
   Widget _buildBrandRow(BuildContext context, ScreenshotProvider provider) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final ash = isDark ? AppTheme.ashDark : AppTheme.ashLight;
+    final s = AppTheme.of(context);
+    final count = provider.screenshots.length;
 
     return SliverToBoxAdapter(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(AppTheme.gutter, 16, AppTheme.gutter, 8),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
         child: Row(
           children: [
             Expanded(
@@ -152,43 +186,40 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Text(
                     'Sift',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.5,
-                        ),
+                    style: SiftType.serifTitle.copyWith(color: s.ink),
                   ),
+                  const SizedBox(height: 2),
                   Text(
-                    'Your screenshots, searchable.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
-                          fontWeight: FontWeight.w500,
-                        ),
+                    count == 1
+                        ? '1 screenshot remembered'
+                        : '$count screenshots remembered',
+                    style: SiftType.bodySansMd.copyWith(
+                      color: s.graphite,
+                    ),
                   ),
                 ],
               ),
             ),
             IconButton(
-              tooltip: provider.showFavoritesOnly
-                  ? 'Show all'
-                  : 'Show pinned only',
-              onPressed: () => context
-                  .read<ScreenshotProvider>()
-                  .setShowFavoritesOnly(!provider.showFavoritesOnly),
+              tooltip:
+                  provider.showFavoritesOnly ? 'Show all' : 'Show pinned only',
+              onPressed: () {
+                if (MotionTokens.canHaptic) HapticFeedback.lightImpact();
+                context
+                    .read<ScreenshotProvider>()
+                    .setShowFavoritesOnly(!provider.showFavoritesOnly);
+              },
               icon: Icon(
                 provider.showFavoritesOnly
                     ? Icons.push_pin_rounded
                     : Icons.push_pin_outlined,
-                color: provider.showFavoritesOnly
-                    ? AppTheme.emberMain
-                    : ash,
+                color: provider.showFavoritesOnly ? s.accent : s.stone,
               ),
             ),
             IconButton(
+              tooltip: 'Actions history',
               onPressed: () => _openActionsHistory(context),
-              icon: Icon(
-                Icons.history_rounded,
-                color: ash,
-              ),
+              icon: Icon(Icons.history_rounded, color: s.stone),
             ),
           ],
         ),
@@ -197,36 +228,32 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildErrorBanner(BuildContext context, ScreenshotProvider provider) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final errorColor = isDark ? AppTheme.errorDark : AppTheme.errorLight;
+    final s = AppTheme.of(context);
 
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 4, 20, 4),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(AppTheme.rMd),
-        border: Border.all(
-          color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-        ),
+        color: s.errorSoft,
+        borderRadius: BorderRadius.circular(SiftRadii.rThumb),
       ),
       child: Row(
         children: [
-          Icon(Icons.error_outline_rounded, size: 20, color: errorColor),
+          Icon(Icons.error_outline_rounded, size: 20, color: s.error),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               provider.error!,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: errorColor,
-                    fontWeight: FontWeight.w500,
-                  ),
+              style: SiftType.bodySansMd.copyWith(
+                color: s.error,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
           IconButton(
             icon: const Icon(Icons.close_rounded, size: 18),
             onPressed: provider.clearError,
-            color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+            color: s.stone,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
           ),
@@ -271,14 +298,14 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       PageRouteBuilder(
-        transitionDuration: Motion.emphasis,
-        reverseTransitionDuration: Motion.standard,
+        transitionDuration: MotionTokens.emphasis,
+        reverseTransitionDuration: MotionTokens.standard,
         pageBuilder: (context, animation, secondaryAnimation) =>
             DetailScreen(screenshot: screenshot),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           final curved = CurvedAnimation(
             parent: animation,
-            curve: Curves.easeOutCubic,
+            curve: MotionTokens.easeOutCubic,
           );
           return FadeTransition(
             opacity: curved,
@@ -301,7 +328,7 @@ class _FavoritesEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final s = AppTheme.of(context);
 
     return Center(
       child: SingleChildScrollView(
@@ -309,53 +336,28 @@ class _FavoritesEmptyState extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 96,
-              height: 96,
-              decoration: BoxDecoration(
-                color: isDark ? AppTheme.raisedDark : AppTheme.raisedLight,
-                borderRadius: BorderRadius.circular(AppTheme.r2xl),
-                border: Border.all(
-                  color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-                ),
-                boxShadow: AppTheme.raisedShadow(isDark),
-              ),
-              child: Icon(
-                Icons.push_pin_rounded,
-                size: 36,
-                color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
-              ),
-            ),
+            Icon(Icons.push_pin_outlined, size: 40, color: s.stone),
             const SizedBox(height: 28),
             Text(
               'No pinned screenshots yet',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.4,
-                  ),
+              textAlign: TextAlign.center,
+              style: SiftType.serifDisplay.copyWith(color: s.ink),
             ),
             const SizedBox(height: 8),
             Text(
               'Tap the pin on any screenshot to keep it here.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: isDark ? AppTheme.slateDark : AppTheme.slateLight,
-                    height: 1.5,
-                  ),
+              style: SiftType.bodySans.copyWith(
+                color: s.graphite,
+                height: 1.5,
+              ),
             ),
             const SizedBox(height: 28),
-            FilledButton.icon(
+            FilledButton(
               onPressed: () => context
                   .read<ScreenshotProvider>()
                   .setShowFavoritesOnly(false),
-              icon: const Icon(Icons.grid_view_rounded, size: 20),
-              label: const Text(
-                'Show all screenshots',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 28),
-              ),
+              child: const Text('Show all screenshots'),
             ),
           ],
         ),
@@ -364,6 +366,8 @@ class _FavoritesEmptyState extends StatelessWidget {
   }
 }
 
+/// Pinned flat Ask bar: paper field (r16, hairline) + accentDeep camera
+/// circle. Lifts a warm shadow once the user scrolls past 8px.
 class _AskBarDelegateHeader extends StatelessWidget {
   final bool scrolled;
   final VoidCallback? onAsk;
@@ -379,7 +383,8 @@ class _AskBarDelegateHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return SliverPersistentHeader(
       pinned: true,
-      delegate: _AskBarDelegate(scrolled: scrolled, onAsk: onAsk, onCapture: onCapture),
+      delegate: _AskBarDelegate(
+          scrolled: scrolled, onAsk: onAsk, onCapture: onCapture),
     );
   }
 }
@@ -407,22 +412,22 @@ class _AskBarDelegate extends SliverPersistentHeaderDelegate {
     double shrinkOffset,
     bool overlapsContent,
   ) {
+    final s = AppTheme.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
+        curve: MotionTokens.easeOutCubic,
         decoration: BoxDecoration(
-          color: isDark
-              ? (scrolled ? AppTheme.raisedDark : AppTheme.surfaceDark)
-              : (scrolled ? AppTheme.raisedLight : AppTheme.surfaceLight),
-          borderRadius: BorderRadius.circular(AppTheme.r2xl),
+          color: s.paper,
+          borderRadius: BorderRadius.circular(SiftRadii.rField),
           border: Border.all(
-            color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+            color: s.divider,
+            width: AppTheme.hairline(isDark),
           ),
-          boxShadow: scrolled ? AppTheme.raisedShadow(isDark) : null,
+          boxShadow: scrolled && !isDark ? SiftElevation.l2 : null,
         ),
         padding: const EdgeInsets.all(6),
         child: Row(
@@ -432,15 +437,16 @@ class _AskBarDelegate extends SliverPersistentHeaderDelegate {
                 color: Colors.transparent,
                 child: InkWell(
                   onTap: onAsk,
-                  borderRadius: BorderRadius.circular(AppTheme.rMd),
+                  borderRadius: BorderRadius.circular(SiftRadii.rField),
                   child: Container(
                     height: 44,
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     decoration: BoxDecoration(
-                      color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-                      borderRadius: BorderRadius.circular(AppTheme.rMd),
+                      color: s.paper,
+                      borderRadius: BorderRadius.circular(SiftRadii.rField),
                       border: Border.all(
-                        color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
+                        color: s.divider,
+                        width: AppTheme.hairline(isDark),
                       ),
                     ),
                     child: Row(
@@ -448,14 +454,15 @@ class _AskBarDelegate extends SliverPersistentHeaderDelegate {
                         Icon(
                           Icons.chat_bubble_outline_rounded,
                           size: 18,
-                          color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
+                          color: s.stone,
                         ),
                         const SizedBox(width: 10),
                         Text(
-                          'Ask your memory…',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: isDark ? AppTheme.ashDark : AppTheme.ashLight,
-                              ),
+                          'Ask about anything you\'ve saved…',
+                          style: SiftType.bodySans.copyWith(
+                            fontSize: 15,
+                            color: s.stone,
+                          ),
                         ),
                       ],
                     ),
@@ -464,23 +471,7 @@ class _AskBarDelegate extends SliverPersistentHeaderDelegate {
               ),
             ),
             const SizedBox(width: 8),
-            Material(
-              color: AppTheme.emberMain,
-              shape: const CircleBorder(),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: onCapture,
-                child: const SizedBox(
-                  width: AppTheme.sendBtn,
-                  height: AppTheme.sendBtn,
-                  child: Icon(
-                    Icons.camera_alt_rounded,
-                    color: AppTheme.emberInk,
-                    size: 20,
-                  ),
-                ),
-              ),
-            ),
+            _CameraCircle(onTap: onCapture),
           ],
         ),
       ),
@@ -495,48 +486,70 @@ class _AskBarDelegate extends SliverPersistentHeaderDelegate {
   }
 }
 
-class _TimeGroupHeader extends StatelessWidget {
-  final String label;
-  final int count;
+/// 40pt accentDeep camera circle — the only capture affordance (no FAB).
+class _CameraCircle extends StatefulWidget {
+  final VoidCallback onTap;
 
-  const _TimeGroupHeader({required this.label, required this.count});
+  const _CameraCircle({required this.onTap});
+
+  @override
+  State<_CameraCircle> createState() => _CameraCircleState();
+}
+
+class _CameraCircleState extends State<_CameraCircle> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (MotionTokens.enabled) setState(() => _pressed = value);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final ash = isDark ? AppTheme.ashDark : AppTheme.ashLight;
+    final s = AppTheme.of(context);
+
+    return GestureDetector(
+      onTapDown: (_) => _setPressed(true),
+      onTapUp: (_) => _setPressed(false),
+      onTapCancel: () => _setPressed(false),
+      onTap: () {
+        if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
+        widget.onTap();
+      },
+      child: AnimatedScale(
+        scale: _pressed ? 0.94 : 1.0,
+        duration: MotionTokens.press,
+        curve: MotionTokens.easeOutCubic,
+        child: Container(
+          width: SiftSpacing.sendBtn,
+          height: SiftSpacing.sendBtn,
+          decoration: BoxDecoration(
+            color: s.accentDeep,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(Icons.camera_alt_rounded, size: 20, color: s.onAccent),
+        ),
+      ),
+    );
+  }
+}
+
+class _TimeGroupHeader extends StatelessWidget {
+  final String label;
+
+  const _TimeGroupHeader({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppTheme.of(context);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Text(
-            label.toUpperCase(),
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: ash,
-                  letterSpacing: 0.8,
-                ),
-          ),
-          const SizedBox(width: 8),
-          TweenAnimationBuilder<double>(
-            tween: Tween(begin: 0.94, end: 1.0),
-            duration: Motion.emphasis,
-            curve: Curves.easeOutBack,
-            builder: (context, scale, child) {
-              return Transform.scale(scale: scale, child: child);
-            },
-            child: Text(
-              '$count',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.emberMain,
-                fontFeatures: [FontFeature.tabularFigures()],
-              ),
-            ),
-          ),
-        ],
+      child: Text(
+        label,
+        style: SiftType.microLabel.copyWith(
+          color: s.stone,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -550,58 +563,52 @@ class _SiftCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppTheme.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final dpr = MediaQuery.devicePixelRatioOf(context);
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-      child: Container(
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: isDark ? AppTheme.surfaceDark : AppTheme.surfaceLight,
-          borderRadius: BorderRadius.circular(AppTheme.rXl),
-          border: Border.all(
-            color: isDark ? AppTheme.hairDark : AppTheme.hairLight,
-          ),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Stack(
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: s.paper,
+        borderRadius: BorderRadius.circular(SiftRadii.rCard),
+        border: Border.all(color: s.divider),
+        boxShadow: SiftElevation.card(isDark),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Stack(
+                  fit: StackFit.expand,
                   children: [
-                    AspectRatio(
-                      aspectRatio: 16 / 9,
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          return Image.file(
-                            File(screenshot.filePath),
-                            fit: BoxFit.cover,
-                            cacheWidth:
-                                (constraints.maxWidth * dpr).round(),
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                color: isDark
-                                    ? AppTheme.surfaceContainerDark
-                                    : AppTheme.surfaceContainerLight,
-                                child: Center(
-                                  child: Icon(
-                                    Icons.image_outlined,
-                                    size: 32,
-                                    color: isDark
-                                        ? AppTheme.ashDark
-                                        : AppTheme.ashLight,
-                                  ),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        return Image.file(
+                          File(screenshot.filePath),
+                          fit: BoxFit.cover,
+                          cacheWidth: (constraints.maxWidth * dpr).round(),
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: s.surfaceWarm2,
+                              child: Center(
+                                child: Icon(
+                                  Icons.image_outlined,
+                                  size: 32,
+                                  color: s.stone,
                                 ),
-                              );
-                            },
-                          );
-                        },
-                      ),
+                              ),
+                            );
+                          },
+                        );
+                      },
                     ),
+                    Container(color: s.scrimPhoto),
                     Positioned(
                       top: 12,
                       left: 12,
@@ -611,37 +618,28 @@ class _SiftCard extends StatelessWidget {
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: isDark
-                              ? AppTheme.surfaceDark
-                              : AppTheme.surfaceLight,
-                          borderRadius: BorderRadius.circular(AppTheme.rSm),
-                          border: Border.all(
-                            color: isDark
-                                ? AppTheme.hairDark
-                                : AppTheme.hairLight,
-                          ),
+                          color: s.scrimPhoto,
+                          borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
                           _formatTime(screenshot.timestamp),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.emberMain,
-                            fontFeatures: [FontFeature.tabularFigures()],
+                          style: SiftType.microLabel.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: s.codeText,
                           ),
                         ),
                       ),
                     ),
                     Positioned(
-                      top: 12,
-                      right: 12,
+                      top: 6,
+                      right: 6,
                       child: Material(
                         color: Colors.transparent,
                         shape: const CircleBorder(),
                         child: InkWell(
                           customBorder: const CircleBorder(),
                           onTap: () {
-                            if (Motion.enabled) {
+                            if (MotionTokens.canHaptic) {
                               HapticFeedback.selectionClick();
                             }
                             context
@@ -651,26 +649,16 @@ class _SiftCard extends StatelessWidget {
                           child: Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: isDark
-                                  ? AppTheme.surfaceDark
-                                  : AppTheme.surfaceLight,
+                              color: s.scrimPhoto,
                               shape: BoxShape.circle,
-                              border: Border.all(
-                                color: isDark
-                                    ? AppTheme.hairDark
-                                    : AppTheme.hairLight,
-                              ),
                             ),
                             child: Icon(
                               screenshot.isFavorite
                                   ? Icons.push_pin_rounded
                                   : Icons.push_pin_outlined,
                               size: 16,
-                              color: screenshot.isFavorite
-                                  ? AppTheme.emberMain
-                                  : (isDark
-                                        ? AppTheme.ashDark
-                                        : AppTheme.ashLight),
+                              color:
+                                  screenshot.isFavorite ? s.accent : s.codeText,
                             ),
                           ),
                         ),
@@ -678,44 +666,50 @@ class _SiftCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        screenshot.summary ?? 'Processing…',
-                        style: Theme.of(context).textTheme.headlineSmall,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 10),
-                      TypeBadge(type: screenshot.lamType),
-                      if (screenshot.tags.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            ...screenshot.tags.take(3).map(
-                                  (tag) => TagChip(
-                                    label: tag,
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      screenshot.summary ?? 'Processing…',
+                      style: SiftType.serifSummary.copyWith(color: s.ink),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        TypeBadge(type: screenshot.lamType, compact: true),
+                        if (screenshot.tags.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
+                                ...screenshot.tags.take(3).map(
+                                      (tag) => TagChip(
+                                        label: tag,
+                                        compact: true,
+                                      ),
+                                    ),
+                                if (screenshot.tags.length > 3)
+                                  TagChip(
+                                    label: '+${screenshot.tags.length - 3}',
                                     compact: true,
                                   ),
-                                ),
-                            if (screenshot.tags.length > 3)
-                              TagChip(
-                                label: '+${screenshot.tags.length - 3}',
-                                compact: true,
-                              ),
-                          ],
-                        ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -726,66 +720,5 @@ class _SiftCard extends StatelessWidget {
     final hour = time.hour.toString().padLeft(2, '0');
     final minute = time.minute.toString().padLeft(2, '0');
     return '$hour:$minute';
-  }
-}
-
-class _CardEntrance extends StatefulWidget {
-  final int index;
-  final Widget child;
-
-  const _CardEntrance({required this.index, required this.child});
-
-  @override
-  State<_CardEntrance> createState() => _CardEntranceState();
-}
-
-class _CardEntranceState extends State<_CardEntrance>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: Motion.emphasis,
-    );
-    if (Motion.enabled) {
-      final delay = Duration(
-        milliseconds: (widget.index.clamp(0, 5) * 60),
-      );
-      Future.delayed(delay, () {
-        if (mounted) _controller.forward();
-      });
-    } else {
-      _controller.value = 1;
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        final curved = CurvedAnimation(
-          parent: _controller,
-          curve: Curves.easeOutCubic,
-        );
-        return Opacity(
-          opacity: curved.value,
-          child: Transform.translate(
-            offset: Offset(0, 24 * (1 - curved.value)),
-            child: child,
-          ),
-        );
-      },
-      child: widget.child,
-    );
   }
 }

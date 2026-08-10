@@ -1,262 +1,749 @@
 import 'package:flutter/material.dart';
 
-/// Motion tokens — all durations settle under 500ms and collapse to zero
-/// when the system requests reduced motion.
-class Motion {
-  Motion._();
+/// "Warm Paper Recall" design tokens.
+///
+/// Cream paper canvas, one terracotta accent, serif assistant voice / sans
+/// chrome, warm dark mode. No gradients, no glass, no glow. The ColorScheme
+/// is built BY HAND from [SiftColors] — `ColorScheme.fromSeed` is banned
+/// because tonal tinting breaks flat paper.
+///
+/// Screen code reads colors via `AppTheme.of(context)` (the [SiftColors]
+/// ThemeExtension) and type via [SiftType], avoiding M3 defaults entirely.
 
-  /// Set from the MaterialApp builder when a reduced-motion preference is active.
-  static bool reduced = false;
+/// Radius lock: 0 nav/hairlines, 4 inline code, 12 thumbs/OCR/banners,
+/// 16 fields/buttons, 20 cards/dialogs, 24 sheet top, full pills/chips.
+abstract final class SiftRadii {
+  SiftRadii._();
 
-  static bool get enabled => !reduced;
-
-  static Duration get standard =>
-      reduced ? Duration.zero : const Duration(milliseconds: 200);
-  static Duration get emphasis =>
-      reduced ? Duration.zero : const Duration(milliseconds: 300);
-  static Duration get press =>
-      reduced ? Duration.zero : const Duration(milliseconds: 60);
+  static const double r0 = 0;
+  static const double rInline = 4;
+  static const double rThumb = 12;
+  static const double rField = 16;
+  static const double rCard = 20;
+  static const double rSheet = 24;
 }
 
-/// "Ember & Porcelain" design tokens. Cool porcelain light / warm charcoal dark,
-/// one warm "ember" accent used as solid ink, and a single neutral tag system.
-class AppTheme {
-  AppTheme._();
+/// 4pt base spacing rhythm. 20pt gutters, 32–48pt sections.
+abstract final class SiftSpacing {
+  SiftSpacing._();
 
-  // Radius / control tokens
-  static const double rSm = 12;
-  static const double rMd = 16;
-  static const double rXl = 20;
-  static const double r2xl = 24;
-
-  static const double btnH = 52;
-  static const double navH = 68;
-  static const double chipH = 32;
-  static const double thumb = 48;
-  static const double sendBtn = 44;
-
-  static const double space4 = 4;
-  static const double space8 = 8;
-  static const double space12 = 12;
-  static const double space16 = 16;
-  static const double space20 = 20;
-  static const double space24 = 24;
-  static const double space32 = 32;
-  static const double space40 = 40;
-  static const double space48 = 48;
-  static const double space64 = 64;
+  static const double s2 = 2;
+  static const double s4 = 4;
+  static const double s6 = 6;
+  static const double s8 = 8;
+  static const double s10 = 10;
+  static const double s12 = 12;
+  static const double s14 = 14;
+  static const double s16 = 16;
+  static const double s20 = 20;
+  static const double s24 = 24;
+  static const double s28 = 28;
+  static const double s32 = 32;
+  static const double s40 = 40;
+  static const double s48 = 48;
+  static const double s64 = 64;
+  static const double s96 = 96;
 
   static const double gutter = 20;
   static const double gutterChat = 16;
 
-  // Ember accent family
-  static const Color emberDeep = Color(0xFFC13A12);
-  static const Color emberMain = Color(0xFFE14E1C);
-  static const Color emberBright = Color(0xFFFF7043);
-  static const Color emberInk = Color(0xFFF2EFE9);
+  static const double btnH = 48;
+  static const double navH = 64;
+  static const double chipH = 32;
+  static const double thumb = 48;
+  static const double sendBtn = 40;
+}
 
-  // Semantic (light / dark)
-  static const Color successLight = Color(0xFF167A44);
-  static const Color successDark = Color(0xFF4CD787);
-  static const Color warningLight = Color(0xFFA66A00);
-  static const Color warningDark = Color(0xFFF0B429);
-  static const Color errorLight = Color(0xFFC62F2F);
-  static const Color errorDark = Color(0xFFF26060);
-  static const Color infoLight = Color(0xFF3366CC);
-  static const Color infoDark = Color(0xFF6BA3F5);
+/// Warm shadows rgba(40,30,20,x). Light uses L1–L2 on cards; dark mode
+/// eliminates shadows below L4 — hairlines separate layers instead.
+abstract final class SiftElevation {
+  SiftElevation._();
 
-  // Tag system (single neutral tag)
-  static const Color tagTextLight = Color(0xFF5A626C);
-  static const Color tagTextDark = Color(0xFFBDB8AF);
-  static const Color tagFillLight = Color(0xFFEEF0F3);
-  static const Color tagFillDark = Color(0xFF2B2923);
+  static const List<BoxShadow> l1 = [
+    BoxShadow(color: Color(0x0A281E14), offset: Offset(0, 1), blurRadius: 2),
+  ];
+  static const List<BoxShadow> l2 = [
+    BoxShadow(color: Color(0x0F281E14), offset: Offset(0, 2), blurRadius: 8),
+  ];
+  static const List<BoxShadow> l3 = [
+    BoxShadow(color: Color(0x1A281E14), offset: Offset(0, 4), blurRadius: 16),
+  ];
+  static const List<BoxShadow> l4 = [
+    BoxShadow(color: Color(0x24281E14), offset: Offset(0, 8), blurRadius: 24),
+  ];
+  static const List<BoxShadow> l5 = [
+    BoxShadow(color: Color(0x2E281E14), offset: Offset(0, -12), blurRadius: 32),
+  ];
+  static const List<BoxShadow> l4Dark = [
+    BoxShadow(color: Color(0x15281E14), offset: Offset(0, 8), blurRadius: 24),
+  ];
 
-  // Neutral stacks
-  static const Color inkLight = Color(0xFF17191D);
-  static const Color inkDark = Color(0xFFF2EFE9);
-  static const Color slateLight = Color(0xFF5B626B);
-  static const Color slateDark = Color(0xFFB9B3A9);
-  static const Color ashLight = Color(0xFF8A9199);
-  static const Color ashDark = Color(0xFF8D887E);
-  static const Color bgLight = Color(0xFFF6F7F9);
-  static const Color bgDark = Color(0xFF181715);
-  static const Color surfaceLight = Color(0xFFFFFFFF);
-  static const Color surfaceDark = Color(0xFF211F1B);
-  static const Color raisedLight = Color(0xFFFFFFFF);
-  static const Color raisedDark = Color(0xFF282520);
-  static const Color hairLight = Color(0xFFE7EAEE);
-  static const Color hairDark = Color(0xFF3A372F);
-  static const Color surfaceContainerLight = Color(0xFFF1F2F4);
-  static const Color surfaceContainerDark = Color(0xFF282520);
+  /// Cards: L1 in light, none in dark.
+  static List<BoxShadow> card(bool isDark) => isDark ? const [] : l1;
 
-  /// The single raised-layer shadow token.
-  static List<BoxShadow> raisedShadow(bool isDark) {
-    return [
-      BoxShadow(
-        color: isDark
-            ? Colors.black.withValues(alpha: 0.4)
-            : const Color(0xFF17191D).withValues(alpha: 0.06),
-        blurRadius: isDark ? 32 : 24,
-        offset: isDark ? const Offset(0, 12) : const Offset(0, 8),
-      ),
-    ];
-  }
+  /// Sheets and dialogs: L4 in light, L4Dark in dark.
+  static List<BoxShadow> sheet(bool isDark) => isDark ? l4Dark : l4;
+}
 
-  /// Add tabular figures for dates/numerals (kept OFF the OCR mono block).
-  static TextStyle tabular(TextStyle style) {
-    return style.copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
-  }
+/// Typographic roles. Serif (Source Serif 4) is the assistant voice and the
+/// essayist headlines; sans is the system stack (never 'Inter'); mono is
+/// JetBrains Mono and appears ONLY in the OCR block. Tabular figures on all
+/// numeric/meta roles.
+abstract final class SiftType {
+  SiftType._();
 
-  static ThemeData get lightTheme {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: emberDeep,
-      brightness: Brightness.light,
-      dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
-    ).copyWith(
-      primary: emberDeep,
-      onPrimary: emberInk,
-      secondary: emberMain,
-      secondaryContainer: const Color(0xFFFFFFFF),
-      onSecondaryContainer: inkLight,
-      surface: const Color(0xFFFFFFFF),
-      onSurface: inkLight,
-      surfaceContainerLowest: const Color(0xFFFFFFFF),
-      surfaceContainerLow: const Color(0xFFF6F7F9),
-      surfaceContainer: const Color(0xFFF1F2F4),
-      surfaceContainerHigh: const Color(0xFFE9ECEF),
-      surfaceContainerHighest: const Color(0xFFE9ECEF),
-      onSurfaceVariant: const Color(0xFF5C6270),
-      outline: const Color(0xFFD9DEE4),
-      outlineVariant: const Color(0xFFE7EAEE),
-      error: const Color(0xFFB3261E),
-      onError: const Color(0xFFFFFFFF),
-      inverseSurface: inkLight,
-      onInverseSurface: const Color(0xFFF6F7F9),
-      surfaceTint: Colors.transparent,
+  static const String serifFamily = 'SourceSerif4';
+  static const String monoFamily = 'JetBrainsMono';
+
+  // Serif — assistant voice + essayist headlines.
+  static TextStyle get serifDisplay => const TextStyle(
+    fontFamily: serifFamily,
+    fontSize: 32,
+    fontWeight: FontWeight.w600,
+    height: 1.2,
+    letterSpacing: -0.4,
+    fontVariations: [FontVariation('opsz', 30)],
+  );
+
+  static TextStyle get serifTitle => const TextStyle(
+    fontFamily: serifFamily,
+    fontSize: 28,
+    fontWeight: FontWeight.w600,
+    height: 1.25,
+    letterSpacing: -0.3,
+    fontVariations: [FontVariation('opsz', 30)],
+  );
+
+  static TextStyle get serifHeadline => const TextStyle(
+    fontFamily: serifFamily,
+    fontSize: 24,
+    fontWeight: FontWeight.w600,
+    height: 1.3,
+    letterSpacing: -0.2,
+  );
+
+  static TextStyle get serifSubhead => const TextStyle(
+    fontFamily: serifFamily,
+    fontSize: 20,
+    fontWeight: FontWeight.w600,
+    height: 1.3,
+    letterSpacing: -0.1,
+  );
+
+  static TextStyle get serifSubhead2 => const TextStyle(
+    fontFamily: serifFamily,
+    fontSize: 17,
+    fontWeight: FontWeight.w600,
+    height: 1.35,
+  );
+
+  static TextStyle get serifBody => const TextStyle(
+    fontFamily: serifFamily,
+    fontSize: 16,
+    fontWeight: FontWeight.w400,
+    height: 1.55,
+  );
+
+  static TextStyle get serifSummary => const TextStyle(
+    fontFamily: serifFamily,
+    fontSize: 17,
+    fontWeight: FontWeight.w400,
+    height: 1.5,
+  );
+
+  // Sans — system stack (no family override), all chrome.
+  static TextStyle get bodySans => const TextStyle(
+    fontSize: 16,
+    fontWeight: FontWeight.w400,
+    height: 1.5,
+  );
+
+  static TextStyle get bodySansMd => const TextStyle(
+    fontSize: 15,
+    fontWeight: FontWeight.w400,
+    height: 1.45,
+  );
+
+  static TextStyle get chromeTitle => const TextStyle(
+    fontSize: 18,
+    fontWeight: FontWeight.w600,
+    height: 1.25,
+    letterSpacing: -0.1,
+  );
+
+  static TextStyle get buttonLabel => const TextStyle(
+    fontSize: 15,
+    fontWeight: FontWeight.w600,
+    height: 1.0,
+  );
+
+  static TextStyle get chipLabel => const TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w500,
+    height: 1.2,
+  );
+
+  static TextStyle get metaLabel => const TextStyle(
+    fontSize: 12,
+    fontWeight: FontWeight.w400,
+    height: 1.3,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+
+  static TextStyle get microLabel => const TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w400,
+    height: 1.3,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+
+  static TextStyle get tabLabel => const TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w500,
+    height: 1.2,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+
+  // Mono — OCR block only.
+  static TextStyle get ocrMono => const TextStyle(
+    fontFamily: monoFamily,
+    fontSize: 13,
+    fontWeight: FontWeight.w400,
+    height: 1.6,
+  );
+
+  /// Add tabular figures for dates/numerals.
+  static TextStyle tabular(TextStyle style) => style.copyWith(
+    fontFeatures: const [FontFeature.tabularFigures()],
+  );
+}
+
+/// Full token palette as a ThemeExtension so every screen can read the whole
+/// warm-paper ramp with one lookup. [SiftColors.light] and [SiftColors.dark]
+/// are the two canonical instances; lerp exists for theme transitions.
+class SiftColors extends ThemeExtension<SiftColors> {
+  final Color canvas;
+  final Color paper;
+  final Color surfaceWarm1;
+  final Color surfaceWarm2;
+  final Color divider;
+  final Color ink;
+  final Color graphite;
+  final Color stone;
+  final Color bone;
+  final Color accent;
+  final Color accentDeep;
+  final Color accentPressed;
+  final Color accentSoft;
+  final Color onAccent;
+  final Color success;
+  final Color warning;
+  final Color error;
+  final Color errorSoft;
+  final Color info;
+  final Color codeBg;
+  final Color codeText;
+  final Color codeBorder;
+  final Color badgeBg;
+  final Color badgeText;
+  final Color tagBorder;
+  final Color tagText;
+  final Color scrimPhoto;
+  final Color barrier;
+
+  const SiftColors({
+    required this.canvas,
+    required this.paper,
+    required this.surfaceWarm1,
+    required this.surfaceWarm2,
+    required this.divider,
+    required this.ink,
+    required this.graphite,
+    required this.stone,
+    required this.bone,
+    required this.accent,
+    required this.accentDeep,
+    required this.accentPressed,
+    required this.accentSoft,
+    required this.onAccent,
+    required this.success,
+    required this.warning,
+    required this.error,
+    required this.errorSoft,
+    required this.info,
+    required this.codeBg,
+    required this.codeText,
+    required this.codeBorder,
+    required this.badgeBg,
+    required this.badgeText,
+    required this.tagBorder,
+    required this.tagText,
+    required this.scrimPhoto,
+    required this.barrier,
+  });
+
+  static const SiftColors light = SiftColors(
+    canvas: Color(0xFFF8F4ED),
+    paper: Color(0xFFFBF9F4),
+    surfaceWarm1: Color(0xFFF0EAE0),
+    surfaceWarm2: Color(0xFFE8E0D2),
+    divider: Color(0xFFDDD2BD),
+    ink: Color(0xFF2D2520),
+    graphite: Color(0xFF5A4F44),
+    stone: Color(0xFF7A6E61),
+    bone: Color(0xFFB5AB9E),
+    accent: Color(0xFFD97757),
+    accentDeep: Color(0xFFB04F2B),
+    accentPressed: Color(0xFFBE6242),
+    accentSoft: Color(0xFFF2DDD0),
+    onAccent: Color(0xFFFBF9F4),
+    success: Color(0xFF4E7C43),
+    warning: Color(0xFF96600F),
+    error: Color(0xFFA64A33),
+    errorSoft: Color(0xFFF3E0DC),
+    info: Color(0xFF6E6A62),
+    codeBg: Color(0xFF1F1B16),
+    codeText: Color(0xFFE8E0D2),
+    codeBorder: Color(0xFFDDD2BD),
+    badgeBg: Color(0xFFE8E0D2),
+    badgeText: Color(0xFF5A4F44),
+    tagBorder: Color(0xFFDDD2BD),
+    tagText: Color(0xFF7A6E61),
+    scrimPhoto: Color(0xAA1F1B16),
+    barrier: Color(0x662D2520),
+  );
+
+  static const SiftColors dark = SiftColors(
+    canvas: Color(0xFF1F1B16),
+    paper: Color(0xFF2A2520),
+    surfaceWarm1: Color(0xFF2A2520),
+    surfaceWarm2: Color(0xFF3A332C),
+    divider: Color(0xFF3A332C),
+    ink: Color(0xFFE8E0D2),
+    graphite: Color(0xFFB5AB9E),
+    stone: Color(0xFF998D80),
+    bone: Color(0xFF5A4F44),
+    accent: Color(0xFFD97757),
+    accentDeep: Color(0xFFB04F2B),
+    accentPressed: Color(0xFFBE6242),
+    accentSoft: Color(0xFF4A352A),
+    onAccent: Color(0xFFFBF9F4),
+    success: Color(0xFF7FB069),
+    warning: Color(0xFFD49952),
+    error: Color(0xFFD9846F),
+    errorSoft: Color(0xFF4A2E28),
+    info: Color(0xFFA49E93),
+    codeBg: Color(0xFF161210),
+    codeText: Color(0xFFE8E0D2),
+    codeBorder: Color(0xFF3A332C),
+    badgeBg: Color(0xFF3A332C),
+    badgeText: Color(0xFFB5AB9E),
+    tagBorder: Color(0xFF3A332C),
+    tagText: Color(0xFF998D80),
+    scrimPhoto: Color(0xAA1F1B16),
+    barrier: Color(0x662D2520),
+  );
+
+  @override
+  SiftColors copyWith({
+    Color? canvas,
+    Color? paper,
+    Color? surfaceWarm1,
+    Color? surfaceWarm2,
+    Color? divider,
+    Color? ink,
+    Color? graphite,
+    Color? stone,
+    Color? bone,
+    Color? accent,
+    Color? accentDeep,
+    Color? accentPressed,
+    Color? accentSoft,
+    Color? onAccent,
+    Color? success,
+    Color? warning,
+    Color? error,
+    Color? errorSoft,
+    Color? info,
+    Color? codeBg,
+    Color? codeText,
+    Color? codeBorder,
+    Color? badgeBg,
+    Color? badgeText,
+    Color? tagBorder,
+    Color? tagText,
+    Color? scrimPhoto,
+    Color? barrier,
+  }) {
+    return SiftColors(
+      canvas: canvas ?? this.canvas,
+      paper: paper ?? this.paper,
+      surfaceWarm1: surfaceWarm1 ?? this.surfaceWarm1,
+      surfaceWarm2: surfaceWarm2 ?? this.surfaceWarm2,
+      divider: divider ?? this.divider,
+      ink: ink ?? this.ink,
+      graphite: graphite ?? this.graphite,
+      stone: stone ?? this.stone,
+      bone: bone ?? this.bone,
+      accent: accent ?? this.accent,
+      accentDeep: accentDeep ?? this.accentDeep,
+      accentPressed: accentPressed ?? this.accentPressed,
+      accentSoft: accentSoft ?? this.accentSoft,
+      onAccent: onAccent ?? this.onAccent,
+      success: success ?? this.success,
+      warning: warning ?? this.warning,
+      error: error ?? this.error,
+      errorSoft: errorSoft ?? this.errorSoft,
+      info: info ?? this.info,
+      codeBg: codeBg ?? this.codeBg,
+      codeText: codeText ?? this.codeText,
+      codeBorder: codeBorder ?? this.codeBorder,
+      badgeBg: badgeBg ?? this.badgeBg,
+      badgeText: badgeText ?? this.badgeText,
+      tagBorder: tagBorder ?? this.tagBorder,
+      tagText: tagText ?? this.tagText,
+      scrimPhoto: scrimPhoto ?? this.scrimPhoto,
+      barrier: barrier ?? this.barrier,
     );
-
-    return _buildTheme(Brightness.light, scheme, bgLight);
   }
 
-  static ThemeData get darkTheme {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: emberDeep,
-      brightness: Brightness.dark,
-      dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
-    ).copyWith(
-      primary: emberBright,
-      onPrimary: const Color(0xFF181715),
-      secondary: emberBright,
-      secondaryContainer: const Color(0xFF211F1B),
-      onSecondaryContainer: emberInk,
-      surface: const Color(0xFF211F1B),
-      onSurface: emberInk,
-      surfaceContainerLowest: const Color(0xFF181715),
-      surfaceContainerLow: const Color(0xFF211F1B),
-      surfaceContainer: const Color(0xFF282520),
-      surfaceContainerHigh: const Color(0xFF282520),
-      surfaceContainerHighest: const Color(0xFF302C26),
-      onSurfaceVariant: const Color(0xFFB9B3A9),
-      outline: const Color(0xFF3A372F),
-      outlineVariant: const Color(0xFF3A372F),
-      error: const Color(0xFFF26060),
-      onError: const Color(0xFF181715),
-      inverseSurface: emberInk,
-      onInverseSurface: const Color(0xFF211F1B),
-      surfaceTint: Colors.transparent,
+  @override
+  SiftColors lerp(ThemeExtension<SiftColors>? other, double t) {
+    if (other is! SiftColors) return this;
+    return SiftColors(
+      canvas: Color.lerp(canvas, other.canvas, t)!,
+      paper: Color.lerp(paper, other.paper, t)!,
+      surfaceWarm1: Color.lerp(surfaceWarm1, other.surfaceWarm1, t)!,
+      surfaceWarm2: Color.lerp(surfaceWarm2, other.surfaceWarm2, t)!,
+      divider: Color.lerp(divider, other.divider, t)!,
+      ink: Color.lerp(ink, other.ink, t)!,
+      graphite: Color.lerp(graphite, other.graphite, t)!,
+      stone: Color.lerp(stone, other.stone, t)!,
+      bone: Color.lerp(bone, other.bone, t)!,
+      accent: Color.lerp(accent, other.accent, t)!,
+      accentDeep: Color.lerp(accentDeep, other.accentDeep, t)!,
+      accentPressed: Color.lerp(accentPressed, other.accentPressed, t)!,
+      accentSoft: Color.lerp(accentSoft, other.accentSoft, t)!,
+      onAccent: Color.lerp(onAccent, other.onAccent, t)!,
+      success: Color.lerp(success, other.success, t)!,
+      warning: Color.lerp(warning, other.warning, t)!,
+      error: Color.lerp(error, other.error, t)!,
+      errorSoft: Color.lerp(errorSoft, other.errorSoft, t)!,
+      info: Color.lerp(info, other.info, t)!,
+      codeBg: Color.lerp(codeBg, other.codeBg, t)!,
+      codeText: Color.lerp(codeText, other.codeText, t)!,
+      codeBorder: Color.lerp(codeBorder, other.codeBorder, t)!,
+      badgeBg: Color.lerp(badgeBg, other.badgeBg, t)!,
+      badgeText: Color.lerp(badgeText, other.badgeText, t)!,
+      tagBorder: Color.lerp(tagBorder, other.tagBorder, t)!,
+      tagText: Color.lerp(tagText, other.tagText, t)!,
+      scrimPhoto: Color.lerp(scrimPhoto, other.scrimPhoto, t)!,
+      barrier: Color.lerp(barrier, other.barrier, t)!,
     );
-
-    return _buildTheme(Brightness.dark, scheme, bgDark);
   }
+}
 
-  static ThemeData _buildTheme(
-    Brightness brightness,
-    ColorScheme scheme,
-    Color scaffoldColor,
-  ) {
-    final ink = brightness == Brightness.dark ? inkDark : inkLight;
+/// App theme factory. Builds the hand-crafted ColorScheme, warm component
+/// themes, and the essayist typography for both modes. `AppTheme.lightTheme`
+/// and `AppTheme.darkTheme` keep their signatures so ThemeController is
+/// untouched.
+class AppTheme {
+  AppTheme._();
+
+  /// Convenience access to the active palette.
+  static SiftColors of(BuildContext context) =>
+      Theme.of(context).extension<SiftColors>() ?? SiftColors.light;
+
+  /// Hairline width: 0.5pt in light, 1pt in dark.
+  static double hairline(bool isDark) => isDark ? 1.0 : 0.5;
+
+  static ThemeData get lightTheme => _build(Brightness.light, SiftColors.light);
+
+  static ThemeData get darkTheme => _build(Brightness.dark, SiftColors.dark);
+
+  static ThemeData _build(Brightness brightness, SiftColors s) {
     final isDark = brightness == Brightness.dark;
+
+    final scheme = ColorScheme(
+      brightness: brightness,
+      primary: s.accent,
+      onPrimary: s.onAccent,
+      primaryContainer: s.accentSoft,
+      onPrimaryContainer: s.ink,
+      secondary: s.accent,
+      onSecondary: s.onAccent,
+      secondaryContainer: s.accentSoft,
+      onSecondaryContainer: s.ink,
+      tertiary: s.accent,
+      onTertiary: s.onAccent,
+      tertiaryContainer: s.accentSoft,
+      onTertiaryContainer: s.ink,
+      error: s.error,
+      onError: isDark ? s.canvas : s.paper,
+      errorContainer: s.errorSoft,
+      onErrorContainer: s.error,
+      surface: s.canvas,
+      onSurface: s.ink,
+      surfaceDim: isDark ? s.canvas : s.surfaceWarm1,
+      surfaceBright: s.paper,
+      surfaceContainerLowest: s.canvas,
+      surfaceContainerLow: s.paper,
+      surfaceContainer: s.surfaceWarm1,
+      surfaceContainerHigh: s.surfaceWarm2,
+      surfaceContainerHighest: s.surfaceWarm2,
+      onSurfaceVariant: s.graphite,
+      outline: s.divider,
+      outlineVariant: s.divider,
+      shadow: const Color(0xFF281E14),
+      scrim: s.barrier,
+      inverseSurface: s.ink,
+      onInverseSurface: s.paper,
+      inversePrimary: s.accent,
+      surfaceTint: Colors.transparent,
+    );
 
     final textTheme = const TextTheme(
       displayLarge: TextStyle(
-          fontSize: 40, fontWeight: FontWeight.w800, height: 1.05, letterSpacing: -1.0),
+        fontFamily: SiftType.serifFamily,
+        fontSize: 32,
+        fontWeight: FontWeight.w600,
+        height: 1.2,
+        letterSpacing: -0.4,
+        fontVariations: [FontVariation('opsz', 30)],
+      ),
       displayMedium: TextStyle(
-          fontSize: 34, fontWeight: FontWeight.w800, height: 1.1, letterSpacing: -0.8),
+        fontFamily: SiftType.serifFamily,
+        fontSize: 28,
+        fontWeight: FontWeight.w600,
+        height: 1.25,
+        letterSpacing: -0.3,
+        fontVariations: [FontVariation('opsz', 30)],
+      ),
       headlineLarge: TextStyle(
-          fontSize: 28, fontWeight: FontWeight.w800, height: 1.15, letterSpacing: -0.6),
+        fontFamily: SiftType.serifFamily,
+        fontSize: 24,
+        fontWeight: FontWeight.w600,
+        height: 1.3,
+        letterSpacing: -0.2,
+      ),
       headlineMedium: TextStyle(
-          fontSize: 20, fontWeight: FontWeight.w700, height: 1.2, letterSpacing: -0.3),
+        fontFamily: SiftType.serifFamily,
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+        height: 1.3,
+        letterSpacing: -0.1,
+      ),
       headlineSmall: TextStyle(
-          fontSize: 17, fontWeight: FontWeight.w700, height: 1.25, letterSpacing: -0.2),
-      bodyLarge: TextStyle(fontSize: 15, fontWeight: FontWeight.w400, height: 1.55),
-      bodyMedium: TextStyle(fontSize: 15, fontWeight: FontWeight.w400, height: 1.55),
-      bodySmall: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, height: 1.4),
-      labelLarge: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.2),
-      labelMedium: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.2),
-      labelSmall: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.8),
-    ).apply(bodyColor: ink, displayColor: ink);
+        fontFamily: SiftType.serifFamily,
+        fontSize: 17,
+        fontWeight: FontWeight.w600,
+        height: 1.35,
+      ),
+      titleLarge: TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+        height: 1.25,
+        letterSpacing: -0.1,
+      ),
+      titleMedium: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        height: 1.4,
+      ),
+      titleSmall: TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        height: 1.3,
+      ),
+      bodyLarge: TextStyle(
+        fontFamily: SiftType.serifFamily,
+        fontSize: 16,
+        fontWeight: FontWeight.w400,
+        height: 1.55,
+      ),
+      bodyMedium: TextStyle(fontSize: 16, fontWeight: FontWeight.w400, height: 1.5),
+      bodySmall: TextStyle(fontSize: 15, fontWeight: FontWeight.w400, height: 1.45),
+      labelLarge: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, height: 1.0),
+      labelMedium: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, height: 1.2),
+      labelSmall: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w400,
+        height: 1.3,
+        fontFeatures: [FontFeature.tabularFigures()],
+      ),
+    ).apply(bodyColor: s.ink, displayColor: s.ink);
+
+    final borderColor = s.divider;
+    final borderWidth = hairline(isDark);
 
     return ThemeData(
       useMaterial3: true,
-      colorScheme: scheme,
       brightness: brightness,
-      scaffoldBackgroundColor: scaffoldColor,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: s.canvas,
+      canvasColor: s.canvas,
       textTheme: textTheme,
-      appBarTheme: const AppBarTheme(
+      extensions: [s],
+      splashFactory: NoSplash.splashFactory,
+      highlightColor: Colors.transparent,
+      hoverColor: Colors.transparent,
+      focusColor: s.accent.withValues(alpha: 0.18),
+      dividerColor: s.divider,
+      appBarTheme: AppBarTheme(
         backgroundColor: Colors.transparent,
         scrolledUnderElevation: 0,
         elevation: 0,
         centerTitle: false,
+        foregroundColor: s.ink,
+        iconTheme: IconThemeData(color: s.ink),
+        titleTextStyle: SiftType.chromeTitle.copyWith(color: s.ink),
       ),
       cardTheme: CardThemeData(
         elevation: 0,
-        color: isDark ? surfaceDark : surfaceLight,
+        color: s.paper,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(rXl),
-          side: BorderSide(color: isDark ? hairDark : hairLight),
+          borderRadius: BorderRadius.circular(SiftRadii.rCard),
+          side: BorderSide(color: borderColor, width: 1),
         ),
         margin: EdgeInsets.zero,
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: scheme.inverseSurface,
-        contentTextStyle: TextStyle(color: scheme.onInverseSurface),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rMd)),
+        backgroundColor: s.ink,
+        contentTextStyle: TextStyle(
+          color: isDark ? s.canvas : s.paper,
+          fontSize: 14,
+          height: 1.4,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(SiftRadii.rThumb),
+        ),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: isDark ? surfaceDark : surfaceLight,
+        backgroundColor: s.paper,
         surfaceTintColor: Colors.transparent,
+        modalBackgroundColor: s.paper,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(r2xl)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(SiftRadii.rSheet)),
         ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: s.paper,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(SiftRadii.rCard),
+        ),
+        titleTextStyle: SiftType.serifHeadline.copyWith(color: s.ink),
+        contentTextStyle: SiftType.bodySansMd.copyWith(color: s.graphite),
+      ),
+      dividerTheme: DividerThemeData(
+        color: s.divider,
+        thickness: borderWidth,
+        space: borderWidth,
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? s.paper : s.paper,
+        ),
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? s.accentDeep
+              : s.surfaceWarm2,
+        ),
+        trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
       ),
       filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          minimumSize: const Size(0, btnH),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rMd)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w700),
-        ),
-      ),
-      segmentedButtonTheme: SegmentedButtonThemeData(
         style: ButtonStyle(
+          minimumSize: const WidgetStatePropertyAll(Size(0, SiftSpacing.btnH)),
+          maximumSize: const WidgetStatePropertyAll(Size.fromHeight(SiftSpacing.btnH)),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 20),
+          ),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(SiftRadii.rField),
+            ),
+          ),
+          textStyle: WidgetStatePropertyAll(SiftType.buttonLabel),
           backgroundColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) {
-              return isDark ? raisedDark : raisedLight;
+            if (states.contains(WidgetState.disabled)) return s.surfaceWarm2;
+            if (isDark) {
+              return states.contains(WidgetState.pressed)
+                  ? const Color(0xFFC9BFA9)
+                  : s.ink;
             }
-            return Colors.transparent;
+            return states.contains(WidgetState.pressed)
+                ? s.accentPressed
+                : s.accentDeep;
           }),
           foregroundColor: WidgetStateProperty.resolveWith((states) {
-            if (states.contains(WidgetState.selected)) return ink;
-            return isDark ? slateDark : slateLight;
+            if (states.contains(WidgetState.disabled)) return s.stone;
+            return isDark ? const Color(0xFF1F1B16) : s.onAccent;
           }),
-          side: WidgetStateProperty.all(
-            BorderSide(color: isDark ? hairDark : hairLight),
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+          elevation: const WidgetStatePropertyAll(0),
+          side: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.focused)) {
+              return BorderSide(color: s.accent, width: 1.5);
+            }
+            return BorderSide.none;
+          }),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: ButtonStyle(
+          minimumSize: const WidgetStatePropertyAll(Size(0, SiftSpacing.btnH)),
+          maximumSize: const WidgetStatePropertyAll(Size.fromHeight(SiftSpacing.btnH)),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 20),
           ),
-          shape: WidgetStateProperty.all(
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(rMd)),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(SiftRadii.rField),
+            ),
+          ),
+          textStyle: WidgetStatePropertyAll(SiftType.buttonLabel),
+          foregroundColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.disabled) ? s.stone : s.ink,
+          ),
+          backgroundColor: WidgetStatePropertyAll(s.paper),
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+          elevation: const WidgetStatePropertyAll(0),
+          side: WidgetStateProperty.resolveWith(
+            (states) => BorderSide(
+              color: states.contains(WidgetState.focused) ? s.accent : s.divider,
+              width: states.contains(WidgetState.focused) ? 1.5 : 1,
+            ),
           ),
         ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: ButtonStyle(
+          minimumSize: const WidgetStatePropertyAll(Size(0, 40)),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(SiftRadii.rField),
+            ),
+          ),
+          textStyle: WidgetStatePropertyAll(SiftType.buttonLabel),
+          foregroundColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.disabled) ? s.stone : s.ink,
+          ),
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        ),
+      ),
+      iconTheme: IconThemeData(color: s.graphite, size: 22),
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: s.accent,
+        selectionColor: s.accentSoft,
+        selectionHandleColor: s.accent,
+      ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: s.accent,
+        linearTrackColor: s.surfaceWarm2,
+        circularTrackColor: s.surfaceWarm2,
       ),
     );
   }

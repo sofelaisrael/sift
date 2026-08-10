@@ -33,7 +33,7 @@ class ScreenshotProvider extends ChangeNotifier {
       _showFavoritesOnly ? favorites : _screenshots;
 
   List<Screenshot> get recentScreenshots => _screenshots.take(10).toList();
-  
+
   Map<String, List<Screenshot>> get byType {
     final map = <String, List<Screenshot>>{};
     for (final s in _screenshots) {
@@ -131,7 +131,7 @@ class ScreenshotProvider extends ChangeNotifier {
         }
       }
 
-      _processingStatus = 'AI analyzing screenshot...';
+      _processingStatus = 'Analyzing screenshot…';
       _error = null;
       notifyListeners();
 
@@ -149,7 +149,8 @@ class ScreenshotProvider extends ChangeNotifier {
 
       // Fail fast with a clear, actionable message when the selected
       // provider needs a key that isn't configured yet.
-      final cfg = lamService.availableProviders.where((p) => p.name == providerName);
+      final cfg =
+          lamService.availableProviders.where((p) => p.name == providerName);
       final needsKey = cfg.isNotEmpty ? cfg.first.requiresKey : true;
       if (needsKey && (apiKey == null || apiKey.isEmpty)) {
         _error = 'No API key set for $providerName. '
@@ -178,9 +179,8 @@ class ScreenshotProvider extends ChangeNotifier {
         lamType: lamResponse.type,
         confidence: lamResponse.confidence,
         summary: lamResponse.summary,
-        description: lamResponse.description.isNotEmpty
-            ? lamResponse.description
-            : null,
+        description:
+            lamResponse.description.isNotEmpty ? lamResponse.description : null,
         objects: lamResponse.objects,
         recognitions: lamResponse.recognitions,
         actionType: lamResponse.suggestedAction.type,
@@ -189,7 +189,7 @@ class ScreenshotProvider extends ChangeNotifier {
         suggestedAction: lamResponse.suggestedAction.type != 'none'
             ? {
                 'type': lamResponse.suggestedAction.type,
-                'data': lamResponse.suggestedAction.data ?? const {},
+                'data': lamResponse.suggestedAction.data,
               }
             : null,
         extractedData: lamResponse.extractedData.isEmpty
@@ -203,7 +203,9 @@ class ScreenshotProvider extends ChangeNotifier {
       _processingStatus = lamResponse.summary;
       notifyListeners();
     } catch (e) {
-      _error = 'Processing failed: ${e.toString()}';
+      debugPrint('Screenshot processing failed: ${e.toString()}');
+      _error =
+          "Couldn't analyze this screenshot. Check your API key and try again.";
       _processingStatus = '';
       notifyListeners();
     }
@@ -212,7 +214,8 @@ class ScreenshotProvider extends ChangeNotifier {
   /// Serializes analysis so concurrent calls (watcher poll + manual pick)
   /// never run two AI/OCR jobs at once.
   Future<void> processScreenshot(String imagePath) {
-    final result = _queueTail.then((_) => _processScreenshotInternal(imagePath));
+    final result =
+        _queueTail.then((_) => _processScreenshotInternal(imagePath));
     _queueTail = result.catchError((_) {});
     return result;
   }
@@ -345,10 +348,7 @@ class ScreenshotProvider extends ChangeNotifier {
         ...s.objects,
         ...s.tags,
         ...?s.extractedData?.entries.map((e) => '${e.key} ${e.value}'),
-      ]
-          .whereType<String>()
-          .join(' ')
-          .toLowerCase();
+      ].whereType<String>().join(' ').toLowerCase();
 
       var score = 0;
       for (final term in terms) {
