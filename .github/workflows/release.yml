@@ -16,6 +16,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # lib/config.dart is gitignored (holds personal API keys). CI builds from
+      # the committed template, so the app compiles without any real keys.
+      - name: Prepare config for CI
+        run: cp lib/config.example.dart lib/config.dart
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
