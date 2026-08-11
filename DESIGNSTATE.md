@@ -145,9 +145,11 @@ No new pub deps (font assets allowed). No Hive/schema/provider-logic changes bey
 - Optional split (2 commits: redesign vs fixes) suggested — requires `git add -p` on app_theme/chat_message/screenshot_provider; single commit is honest and complete.
 
 ## Current Status
-- **v3 "Warm Paper Recall" design: implemented + verified + security-audited.** All 5 design stages merged into the Consolidated Design Direction; implementor built it; reviewer PASS-WITH-NOTES (all routed fixes applied), security-reviewer PASS-WITH-NOTES (process-error sanitization closed the one flagged item), tester 23/23, linter clean. Working tree left **uncommitted** (commit is a user decision).
-- Files: 21 modified + 2 new (assets/fonts ×5, lib/theme/motion_tokens.dart, lib/widgets/chat_atoms.dart) vs commit 419bf73. Untracked also: design_wip/.
-- **NOTE (out-of-band)**: commit `419bf73 refactor(lam): inject http client, harden JSON parse, add test suite` (authored 11:29 today, repo-owner identity) appeared during the pipeline. It captured the PRE-EXISTING uncommitted state (LAM injectable-client refactor, JSON-parse hardening, 10 test files, WORKFLOWSTATE.md, an early snapshot of this DESIGNSTATE.md) — NOT the v3 redesign. Secret-scan of that commit is clean. The v3 redesign sits uncommitted on top of it.
+- **v3 "Warm Paper Recall" design: implemented + verified + security-audited + committed.** All 5 design stages merged into the Consolidated Design Direction; implementor built it; reviewer PASS-WITH-NOTES (all routed fixes applied), security-reviewer PASS-WITH-NOTES (process-error sanitization closed the one flagged item), tester 23/23, linter clean.
+- **Committed as `e2d6fce`** — "feat: warm paper recall redesign — flat paper UI, serif chat, fixes" (27 files, +4566/−3047), single commit per commit-message agent recommendation. Staged-diff secret scan CLEAN.
+- Files in commit: 21 modified + 6 new (assets/fonts ×5, lib/theme/motion_tokens.dart, lib/widgets/chat_atoms.dart).
+- Remaining uncommitted: `WORKFLOWSTATE.md` (contains an unrelated bulk-ingest feature-debate writeup; left out of the redesign commit intentionally — user may commit separately) and this file's one-line status update.
+- **NOTE (out-of-band)**: commit `419bf73` (11:29, repo-owner identity) captured the PRE-EXISTING uncommitted state (LAM injectable-client refactor, JSON-parse hardening, 10 test files) — not the redesign. Secret-scan clean. Redesign sits on top of it as e2d6fce.
 
 ## Next Agent
 - **User decision**: commit the change (single commit or the 2-commit split). No further design-agent work required. Optional future hardening (out of scope): encrypted key storage (flutter_secure_storage), manifest permission pruning, exact-alarm runtime gating.
