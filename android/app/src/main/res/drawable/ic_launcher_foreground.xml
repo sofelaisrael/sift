@@ -1,12 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Sift alternative launcher mark: whisper-white hourglass ("sifting time")
-     centred in the adaptive-icon safe zone on the terracotta background. -->
+<!-- Sift launcher mark: two triangles whose tips touch at the centre,
+     skewed into an "S" (the down-facing triangle is longer on its left,
+     the up-facing one longer on its right), whisper-paper on terracotta. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- top triangle, facing down -->
     <path
         android:fillColor="#FBF9F4"
-        android:pathData="M39,30 L69,30 L54,54 L69,78 L39,78 L54,54 Z"/>
+        android:pathData="M34,26 L69,42 L54,54 Z"/>
+    <!-- bottom triangle, facing up -->
+    <path
+        android:fillColor="#FBF9F4"
+        android:pathData="M54,54 L39,66 L74,82 Z"/>
 </vector>
