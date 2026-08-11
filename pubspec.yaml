@@ -3,7 +3,7 @@ description: Screenshot → AI understands → Takes action (Calendar, Reminders
 
 publish_to: 'none'
 
-version: 1.0.2+2
+version: 1.0.3+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -15,6 +15,9 @@ dependencies:
   
   # OCR - ML Kit
   google_mlkit_text_recognition: ^0.16.0
+
+  # On-device visual labels (searchable terms for text-less screenshots)
+  google_mlkit_image_labeling: ^0.15.0
 
   # Calendar integration
   add_2_calendar: ^3.1.1
@@ -49,6 +52,12 @@ dependencies:
 
   # Shared preferences (for onboarding state)
   shared_preferences: ^2.2.2
+
+  # App-private storage for imported images
+  path_provider: ^2.1.5
+
+  # Path utilities (safe basename for import sanitization)
+  path: ^1.9.0
 
   # Open web links in the browser
   url_launcher: ^6.3.0

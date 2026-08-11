@@ -2,7 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'providers/theme_controller.dart';
 import 'providers/screenshot_provider.dart';
 import 'services/lam_service.dart';
@@ -10,6 +12,7 @@ import 'services/action_service.dart';
 import 'services/watcher_service.dart';
 import 'services/ocr_service.dart';
 import 'services/ingest_service.dart';
+import 'services/image_labeler.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/app_shell.dart';
 import 'widgets/sift_mark.dart';
@@ -52,13 +55,15 @@ Future<void> main() async {
 
   final themeController = await ThemeController.load();
   final ocrService = OCRService();
-  final screenshotProvider = ScreenshotProvider(ocr: ocrService)
+  final labeler = ImageLabeler();
+  final screenshotProvider = ScreenshotProvider(ocr: ocrService, labeler: labeler)
     ..loadScreenshots();
   final lamService = LAMService();
   final actionService = ActionService();
   final ingestService = IngestService(
     provider: screenshotProvider,
     ocr: ocrService,
+    labeler: labeler,
   );
   final watcherService = WatcherService(
     provider: screenshotProvider,
@@ -171,6 +176,35 @@ class _AppStartupState extends State<AppStartup>
       _showOnboarding = showOnboarding;
       _checking = false;
     });
+    if (!showOnboarding) {
+      _maybeAutoIndexLibrary();
+    }
+  }
+
+  /// Full-library index on first launch after onboarding (local OCR + labels
+  /// over the screenshot folders), gated on photo permission. The flag is set
+  /// when the pass starts so a mid-pass crash never re-enumerates every
+  /// launch; the manual Settings row stays as the always-available
+  /// alternative. Fire-and-forget: any failure must not become an unhandled
+  /// async error.
+  Future<void> _maybeAutoIndexLibrary() async {
+    try {
+      final ingest = context.read<IngestService>();
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool('library_indexed') ?? false) return;
+      final status = await Permission.photos.status;
+      if (status != PermissionStatus.granted &&
+          status != PermissionStatus.limited) {
+        return;
+      }
+      if (ingest.isIngesting) return;
+      await prefs.setBool('library_indexed', true);
+      ingest.start().catchError((Object e) {
+        debugPrint('Auto library index failed: $e');
+      });
+    } catch (e) {
+      debugPrint('Auto library index skipped: $e');
+    }
   }
 
   @override

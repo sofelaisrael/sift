@@ -16,7 +16,7 @@ Future<bool> showPrivacyConsentIfNeeded(BuildContext context) async {
     builder: (context) => AlertDialog(
       title: const Text('One thing before we start'),
       content: const Text(
-        'To understand a screenshot, Sift sends the image to the AI provider you choose (Google Gemini, NVIDIA, or Groq). Optional link lookups query DuckDuckGo and YouTube. No analysis or lookups ever happen without your permission, and you can turn on Local-only mode in Settings to keep everything on this device.',
+        'To understand a screenshot, Sift sends the image to the AI provider you choose (Google Gemini, NVIDIA, or Groq). Optional link lookups query DuckDuckGo and YouTube. No analysis or lookups ever happen without your permission, and you can turn on Local-only mode in Settings to keep everything on this device. On-device labeling may download a small labeling model from Google Play services (no images leave the device).',
       ),
       actions: [
         TextButton(

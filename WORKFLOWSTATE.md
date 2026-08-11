@@ -201,3 +201,62 @@ Cut from slice: photo_manager enumerator, 429 backoff as headline, persisted ter
 - **Version**: bumped 1.0.1+2 → 1.0.2+1.
 - **Verified (real runs)**: `flutter analyze` = No issues found (134.5s); `flutter test` = 33/33 passed. Per user request, NO local APK build (Codemagic builds). Gradle kts edited to the canonical template pattern; not compile-checked locally (would require a build).
 - **Repo state discovered this session**: parallel session completed + pushed everything (HEAD now 552bf98 — docs; history includes cb0162f feat(ingest) [our Round A+B], 46e9d28 + c115fe1 [icon], dec817c [GH Releases CI], e2d6fce [Warm Paper Recall redesign], 419bf73 [LAM refactor]); tags v1.0.0 + v1.0.1 exist. The corrupt git index (bad signature 0x00000000) from the parallel session was repaired via `Remove-Item .git/index` + `git read-tree HEAD` (working tree untouched, all changes re-materialized).
+
+### REQUEST (Aug 11 2026): chat must cover the WHOLE screenshot library + web links in answers
+- User clarification: "you will look at only the screenshots that i have added to the app...? i wanted it to be so that we can do it for all the screenshots but for all of them we just do the local ocr extraction so when we ask, it can actually check the whole folder, and go online and give us links like maybe tiktok or youtube or anything useful based on that image"
+- User decisions: (1) scope = 1a (the 3 screenshot folders) PLUS a manual "add the images they want" option; (2) textless images = algorithm-based local labeling (ML Kit Image Labeling) or flag-for-later; (3) auto-index = my recommendation.
+- Current behavior verified in code: chat runs provider.search() over the Hive library ONLY (screenshots already in the app); AI answers solely from that context. "Index my library" = manual local-OCR pass over the 3 folders. WebLookupService exists (YouTube key + DuckDuckGo, privacy-gated) but is wired only to the per-screenshot "Find online links" button (provider.findOnline), never into chat.
+- PLAN (drafted): (a) ImageLabeler service (google_mlkit_image_labeling, injectable seam) run during ingest + watcher local path + imports, labels stored in a NEW Hive box 'labels' (id -> List<String>) so the frozen Screenshot model stays untouched, merged into the provider search blob + chat context; (b) auto-index on first launch after photo permission (prefs 'library_indexed' flag) + existing manual row stays; (c) Settings "Add images" row (image_picker multi -> copy into app docs sift_imports/ -> OCR+labels -> import); (d) chat: WebLookupService on the top search result (consent-gated, parallel with the LLM call), links appended to the answer; (e) manual flag-for-later already exists as tags + pin (no new UI; explained to user).
+- Risks: ML Kit labeling needs Google Play services + a one-time model download; new dep is required (only local-algorithm option); image_picker returns temp copies - must persist. Verify: flutter analyze + flutter test (extend suite); no local build (Codemagic).
+
+### IMPLEMENTATION — Chat covers whole library + web links (Aug 11 2026, uncommitted)
+- Implemented so far (working tree): (1) NEW lib/services/image_labeler.dart — google_mlkit_image_labeling with `labelOverride` seam; (2) lib/providers/screenshot_provider.dart — `labeler` param + `importImages()` (copy→dedupe by name-suffix+byte-size→OCR→label→addFromBulkIngest), dedupe fix: imported copies are `{uuid}_<name>`, so match is `fileName.endsWith(name) && length`; (3) lib/services/ingest_service.dart — runs labeler on shallow-OCR shots, labels land in `objects`; (4) lib/screens/chat_screen.dart — reply pipeline extracted to ChatEngine; `lookupOverride` test seam; assistant answer appends privacy-gated "Related links" card (top-3 web results); (5) NEW lib/services/chat_engine.dart — testable reply builder (local-only / consent-blocked / granted + parallel lam.chat + web lookup, key resolution); (6) lib/widgets/chat_atoms.dart — RelatedLinksStrip; (7) lib/widgets/privacy_gate.dart — consent copy now states on-device labeling may download a small ML Kit model from Google Play services; (8) lib/main.dart — `_maybeAutoIndexLibrary` (first launch after onboarding, try/catch-guarded, `library_indexed` flag; deleteEverything reseeds it); (9) pubspec: google_mlkit_image_labeling + path (direct); version 1.0.2+2 → 1.0.3+1; (10) tests: label_search_test (3), import_images_test (2), chat_engine_test (11), chat_message_roundtrip_test (1). NOTE: screenshot_watcher.dart was NOT modified (labels reach it via the provider); earlier draft claim of a watcher labeler param was wrong.
+- **ENVIRONMENT TRAP discovered**: `testWidgets` bodies run in flutter_test's FakeAsync zone — real file I/O (Hive `box.put` → `backend.writeFrames` → disk) never completes there, and mixing `tester.runAsync` with a real-I/O future that resolves mid-test DEADLOCKS the framework's `runTest` teardown (`while (_pendingAsyncTasks != null)` loop + fake-zone continuation never flushed). Proved empirically with probe tests (A/D/E: pure runAsync teardown fine; Hive put alone fails cleanly; put+runAsync hangs teardown). Pre-existing repo widget tests are only the 1+1 placeholder.
+- **DECISION (executed)**: extract the send pipeline out of the 800-line ChatScreen into `lib/services/chat_engine.dart`, test it with plain `test()`s (real async — the repo's proven pattern). test/chat_links_test.dart → test/chat_engine_test.dart; probe scaffolding deleted.
+
+### Review findings (reviewer + security-reviewer, both APPROVE-WITH-FIXES → all fixed)
+- R1 MAJOR: importImages OCR bypassed `_queueTail` → concurrent use of the shared ML Kit TextRecognizer (watcher/ingest/import overlap). FIXED: per-file work enqueued on `_queueTail` via `_importOne`; per-file catch kept.
+- S1 MINOR: no URL scheme allowlist before `launchUrl`; DDG `uddg` path could pass arbitrary schemes. FIXED: `_stripToCore`/`_realUrl` require http/https + non-empty host (else drop); `RelatedLinksStrip._openLink` uses `Uri.tryParse` + scheme check + `canLaunchUrl` + try/catch.
+- S2+S7 MINOR: import filename not sanitized; `src.split('/')` broke on Windows paths. FIXED: `p.basename` (path now direct dep), `_acceptableImportName` (rejects `..`, separators, control chars, non-whitelisted extensions .png/.jpg/.jpeg/.webp/.heic/.heif).
+- S3 MINOR: no import size cap. FIXED: `_maxImportBytes = 25 MB` pre-copy skip; `_capturedAtFor` uses source mtime, falls back to now.
+- R2 MINOR: settings_screen.dart:940 `use_build_context_synchronously` info was on NEW code (not pre-existing). FIXED: provider read hoisted above await → analyze is now fully clean (0 issues).
+- R4 MINOR: `_maybeAutoIndexLibrary` unguarded. FIXED: body wrapped in try/catch; doc comment corrected to "first launch after onboarding".
+- R5 MINOR: test gaps. FIXED: chat_engine_test +4 (throwing lookup → [], 5 results → exactly 3, prefs key reaches `x-goog-api-key` header, no-prefs fallback); NEW chat_message_roundtrip_test (relatedLinks round-trip); import_images_test +1 (Windows/`..`/`.exe`/`.gif` rejected).
+- R6 MINOR: inconsistent label gating (200-char OCR gate only in ingest). FIXED: `ScreenshotProvider.shouldLabel` used at all three label call sites.
+- R7 NIT: `linksFuture` orphaned if reply throws. FIXED: `Future.wait([replyFuture, linksFuture])` in ChatEngine.reply.
+- R8 NIT: unguarded launchUrl (covered by S1 fix).
+- R9 NIT: WORKFLOWSTATE stale (watcher labeler claim, chat_links_test name) — fixed in this file.
+- R10 NIT: imports stamped with import-time instead of mtime — fixed via `_capturedAtFor`.
+- R3 NIT (deferred, recorded): auto-index timing on fresh-install first launch — kept as "first launch after onboarding" (comment-corrected, behavior unchanged). S4/S5/S6 recorded: DDG body cap FIXED (content-length > 2 MB → skip); consent copy documents ML Kit model download FIXED; per-pass ImageLabeler reuse deferred (per-call instance, non-blocking, noted).
+
+### Test Results
+`flutter test` = **50/50 passed** (0 failures; no live network — all HTTP mocked). New: label_search (3), import_images (2), chat_engine (11), chat_message_roundtrip (1) + 33 pre-existing.
+
+### Lint Results
+`flutter analyze` = **No issues found** (0 errors/warnings/info — the previously pre-existing settings_screen info is gone). `dart format` not enforced by CI (probe: baseline repo not format-clean; informational only).
+
+### Commit Message Draft
+```
+feat(chat): answer from the whole library — image labels, gallery imports, related links
+
+- Chat now searches the entire locally-indexed screenshot library; text-less
+  screenshots get on-device ML Kit image labels (stored in `objects`,
+  searchable) so answers draw on visual content too, not just OCR text
+- Settings "Add images" imports picked gallery photos into an app-private
+  folder (copy → OCR → label → dedupe by name + size); first launch after
+  onboarding auto-indexes the library once, gated on photo permission and
+  flagged so a mid-pass crash never re-enumerates every launch
+- Assistant answers append a privacy-gated "Related links" card with the
+  top-3 web results (YouTube / DuckDuckGo) grounded in the top matching
+  screenshot, persisted on the message; blocked replies leave no links
+- Reply building extracted from the widget into a testable ChatEngine: the
+  LLM answer and the link lookup run in parallel, each swallowing its own
+  failures; DDG responses over 2 MB are dropped before reading
+- Version 1.0.2+2 -> 1.0.3+1; verified: analyze clean, 50/50 tests pass
+```
+
+## Current Status
+**FEATURE COMPLETE + VERIFIED (Aug 11 2026).** Whole-library chat (labels/imports/related links) implemented, reviewed (2 reviews APPROVE-WITH-FIXES), all findings fixed, re-verified. flutter analyze: 0 issues; flutter test: 50/50. Changeset uncommitted (14 source/test files + pubspec). WORKFLOWSTATE.md is the only file besides source/tests that changed.
+
+## Next Agent
+Awaiting user: (a) commit + push (message drafted above), or (b) further review/iteration. Known follow-ups (recorded, non-blocking): per-pass ImageLabeler reuse; auto-index also on onboarding completion (behavioral, deferred); import dedupe false-negative when image_picker re-encodes HEIC→JPG (size changes); DDG streaming body read.

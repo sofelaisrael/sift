@@ -4,11 +4,12 @@ import 'package:hive/hive.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
-import '../config.dart';
 import '../models/chat_message.dart';
 import '../models/screenshot.dart';
 import '../providers/screenshot_provider.dart';
+import '../services/chat_engine.dart';
 import '../services/lam_service.dart';
+import '../services/web_lookup.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
 import '../widgets/chat_atoms.dart';
@@ -21,7 +22,16 @@ import 'detail_screen.dart';
 class ChatScreen extends StatefulWidget {
   final FocusNode? askFocusNode;
 
-  const ChatScreen({super.key, this.askFocusNode});
+  /// Test seam: replace the real web lookup (WebLookupService).
+  final Future<List<WebResult>> Function({
+    required String extractedText,
+    required String summary,
+    required List<String> recognitions,
+    required String? youTubeApiKey,
+  })?
+  lookupOverride;
+
+  const ChatScreen({super.key, this.askFocusNode, this.lookupOverride});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -152,44 +162,35 @@ class _ChatScreenState extends State<ChatScreen> {
       final provider = context.read<ScreenshotProvider>();
       final results = provider.search(text);
 
-      String reply;
-      if (provider.localOnly) {
-        reply = _buildLocalReply(results);
-      } else {
-        final ok = await showPrivacyConsentIfNeeded(context);
-        if (!ok || !mounted) {
-          if (!mounted) return;
-          reply =
-              'Privacy consent is required before Sift sends anything to an AI provider. You can grant it the next time you analyze a screenshot, or enable Local-only mode in More.';
-          final blockedMsg = ChatMessage(
-            id: _uuid.v4(),
-            role: 'assistant',
-            content: reply,
-            timestamp: DateTime.now(),
-            sourceIds: results.map((s) => s.id).toList(),
-          );
-          _streamingIds.add(blockedMsg.id);
-          setState(() {
-            _messages.add(blockedMsg);
-            _sources[blockedMsg.id] = results;
-          });
-          await _saveMessages();
-          return;
-        }
+      final engine = ChatEngine(
+        lam: context.read<LAMService>(),
+        consentCheck: () => showPrivacyConsentIfNeeded(context),
+        lookup: widget.lookupOverride ?? WebLookupService().lookup,
+      );
+      final replyResult = await engine.reply(
+        text: text,
+        results: results,
+        localOnly: provider.localOnly,
+      );
+      final reply = replyResult.content;
+      final relatedLinks = replyResult.relatedLinks;
 
-        final lam = context.read<LAMService>();
-        final prefs = await SharedPreferences.getInstance();
-        final providerName =
-            prefs.getString('provider') ?? AppConfig.defaultProvider;
-        final savedKey = prefs.getString('key_$providerName') ?? '';
-        final apiKey =
-            savedKey.isNotEmpty ? savedKey : AppConfig.apiKeyFor(providerName);
-        reply = await lam.chat(
-          text,
-          context: _buildContextText(results),
-          apiKey: apiKey,
-          provider: providerName,
+      if (replyResult.blocked) {
+        if (!mounted) return;
+        final blockedMsg = ChatMessage(
+          id: _uuid.v4(),
+          role: 'assistant',
+          content: reply,
+          timestamp: DateTime.now(),
+          sourceIds: results.map((s) => s.id).toList(),
         );
+        _streamingIds.add(blockedMsg.id);
+        setState(() {
+          _messages.add(blockedMsg);
+          _sources[blockedMsg.id] = results;
+        });
+        await _saveMessages();
+        return;
       }
 
       await _ensureMinTyping(startedAt);
@@ -201,6 +202,7 @@ class _ChatScreenState extends State<ChatScreen> {
         content: reply,
         timestamp: DateTime.now(),
         sourceIds: results.map((s) => s.id).toList(),
+        relatedLinks: relatedLinks,
       );
       _streamingIds.add(asstMsg.id);
       setState(() {
@@ -258,50 +260,6 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     await _saveMessages();
     await _runQuery(query, addUser: false);
-  }
-
-  String _buildContextText(List<Screenshot> results) {
-    if (results.isEmpty) {
-      return 'No saved screenshots matched the query. Answer honestly that nothing matches.';
-    }
-
-    final sb = StringBuffer();
-    for (var i = 0; i < results.length; i++) {
-      final s = results[i];
-      sb.writeln('[$i]');
-      sb.writeln('  Summary: ${s.summary ?? 'No summary'}');
-      if (s.description != null && s.description!.isNotEmpty) {
-        sb.writeln('  Description: ${s.description}');
-      }
-      if (s.ocrText != null && s.ocrText!.isNotEmpty) {
-        sb.writeln('  Text: ${s.ocrText}');
-      }
-      if (s.recognitions.isNotEmpty) {
-        sb.writeln('  Recognitions: ${s.recognitions.join(', ')}');
-      }
-      if (s.lamType != null) {
-        sb.writeln('  Type: ${s.lamType}');
-      }
-      sb.writeln('  Taken: ${s.timestamp.toIso8601String()}');
-      sb.writeln();
-    }
-    return sb.toString();
-  }
-
-  String _buildLocalReply(List<Screenshot> results) {
-    if (results.isEmpty) {
-      return 'Nothing found in your saved screenshots. '
-          'Local-only mode searches on-device text only — no AI.';
-    }
-    final capped = results.take(5).toList();
-    final sb = StringBuffer('Found ${results.length} matching screenshots:');
-    for (final s in capped) {
-      sb.write('\n• ${s.summary ?? 'No summary'}');
-      if (s.recognitions.isNotEmpty) {
-        sb.write(' (${s.recognitions.join(', ')})');
-      }
-    }
-    return sb.toString();
   }
 
   void _scrollToBottom() {
@@ -515,6 +473,10 @@ class _ChatScreenState extends State<ChatScreen> {
             onRegenerate:
                 message.id == _messages.lastOrNull?.id ? _regenerate : null,
           ),
+          if (message.relatedLinks.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            RelatedLinksStrip(links: message.relatedLinks),
+          ],
         ],
       ),
     );

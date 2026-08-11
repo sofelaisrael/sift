@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/screenshot.dart';
@@ -7,6 +11,7 @@ import '../services/lam_service.dart';
 import '../services/action_service.dart';
 import '../services/web_lookup.dart';
 import '../services/ocr_service.dart';
+import '../services/image_labeler.dart';
 import '../config.dart';
 
 class ScreenshotProvider extends ChangeNotifier {
@@ -14,11 +19,23 @@ class ScreenshotProvider extends ChangeNotifier {
   static const int _bulkNotifyInterval = 25;
   static const int _maxQueryTerms = 6;
   static const int _ocrBlobCap = 2000;
+  static const int _maxImportBytes = 25 * 1024 * 1024;
+  static const Set<String> _importExtensions = {
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.webp',
+    '.heic',
+    '.heif',
+  };
   static final RegExp _cjk = RegExp(r'[\u4e00-\u9fff]');
 
   late final OCRService _ocr;
+  final ImageLabeler? _labeler;
 
-  ScreenshotProvider({OCRService? ocr}) : _ocr = ocr ?? OCRService();
+  ScreenshotProvider({OCRService? ocr, ImageLabeler? labeler})
+      : _ocr = ocr ?? OCRService(),
+        _labeler = labeler;
 
   List<Screenshot> _screenshots = [];
   Map<String, Screenshot> _byPath = {};
@@ -121,6 +138,19 @@ class ScreenshotProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<List<String>> _labelsFor(String path) async {
+    try {
+      return await _labeler?.labelsFor(path) ?? const [];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// True when [ocrText] is short enough that on-device visual labels add a
+  /// search surface beyond the extracted text.
+  static bool shouldLabel(String? ocrText) =>
+      (ocrText ?? '').trim().length <= 200;
+
   /// Process a screenshot — local OCR when local-only mode is on, otherwise
   /// the image goes directly to the chosen multimodal AI provider.
   Future<void> _processScreenshotInternal(String imagePath) async {
@@ -135,6 +165,9 @@ class ScreenshotProvider extends ChangeNotifier {
         notifyListeners();
         try {
           final ocrText = (await _ocr.extractText(imagePath)).trim();
+          final labels = shouldLabel(ocrText)
+              ? await _labelsFor(imagePath)
+              : const <String>[];
           final firstLine = ocrText.split('\n').firstWhere(
                 (line) => line.trim().isNotEmpty,
                 orElse: () => '',
@@ -156,7 +189,7 @@ class ScreenshotProvider extends ChangeNotifier {
                         ? ocrText.substring(0, 80)
                         : ocrText)),
             description: null,
-            objects: const [],
+            objects: _mergeObjects(labels),
             recognitions: const [],
             actionType: null,
             actionCompleted: false,
@@ -335,10 +368,12 @@ class ScreenshotProvider extends ChangeNotifier {
 
   /// Add a record from the bulk ingest pass. Real capture time, no
   /// prefs/consent reads, no per-item rebuild (notify throttled).
+  /// [objects] carries on-device visual labels for text-less images.
   Future<String?> addFromBulkIngest({
     required String path,
     required DateTime capturedAt,
     required String ocrText,
+    List<String>? objects,
   }) async {
     if (_byPath.containsKey(path)) return null;
     final ocr = ocrText.trim();
@@ -361,7 +396,7 @@ class ScreenshotProvider extends ChangeNotifier {
                   : firstLine)
               : (ocr.length > 80 ? ocr.substring(0, 80) : ocr)),
       description: null,
-      objects: const [],
+      objects: _mergeObjects(objects),
       recognitions: const [],
       actionType: null,
       actionCompleted: false,
@@ -390,6 +425,108 @@ class ScreenshotProvider extends ChangeNotifier {
     if (_pendingNotifies > 0) {
       _pendingNotifies = 0;
       notifyListeners();
+    }
+  }
+
+  /// Dedupe + cap the visual labels stored on the frozen `objects` field.
+  List<String> _mergeObjects(List<String>? incoming) {
+    if (incoming == null || incoming.isEmpty) return const [];
+    final seen = <String>{};
+    final out = <String>[];
+    for (final o in incoming) {
+      final t = o.trim();
+      if (t.isEmpty || !seen.add(t.toLowerCase())) continue;
+      out.add(t);
+      if (out.length >= 12) break;
+    }
+    return out;
+  }
+
+  /// Add user-picked images to the library: each file is copied into Sift's
+  /// private folder, OCR'd + labeled on-device, then indexed. Dedupes by
+  /// (file name + size) against existing entries. [importDir] is injectable
+  /// for tests (defaults to the app documents dir). Per-file work is routed
+  /// through [_queueTail] so OCR never runs concurrently with the watcher
+  /// tick, the ingest pass, or manual processing.
+  Future<int> importImages(List<String> pickedPaths, {Directory? importDir}) async {
+    var added = 0;
+    final dir = importDir ??
+        Directory(
+          '${(await getApplicationDocumentsDirectory()).path}/sift_imports',
+        );
+    try {
+      await dir.create(recursive: true);
+    } catch (_) {}
+    for (final src in pickedPaths) {
+      final result = _queueTail.then((_) => _importOne(src, dir));
+      _queueTail = result.catchError((_) => null);
+      final id = await result;
+      if (id != null) added++;
+    }
+    flushBulkNotify();
+    notifyListeners();
+    return added;
+  }
+
+  /// Copy + OCR + label + index one picked file. Returns the new screenshot
+  /// id, or null when the file is skipped (missing, oversized, disallowed
+  /// name/extension, or already imported). Never throws — per-file failures
+  /// are logged and skipped so one bad file can't sink the batch.
+  Future<String?> _importOne(String src, Directory dir) async {
+    try {
+      final srcFile = File(src);
+      if (!await srcFile.exists()) return null;
+      final size = await srcFile.length();
+      if (size > _maxImportBytes) return null;
+      final name = p.basename(src);
+      if (!_acceptableImportName(name)) return null;
+      final alreadyImported = _screenshots.any((s) {
+        // Imported copies live as "{uuid}_<original name>"; match on the
+        // suffix plus an exact byte size so re-picking the same photo
+        // never creates a duplicate.
+        if (!s.fileName.endsWith(name)) return false;
+        final f = File(s.filePath);
+        try {
+          return f.existsSync() && f.lengthSync() == size;
+        } catch (_) {
+          return false;
+        }
+      });
+      if (alreadyImported) return null;
+      final destPath = '${dir.path}/${_uuid.v4()}_$name';
+      await srcFile.copy(destPath);
+      final ocrText = (await _ocr.extractText(destPath)).trim();
+      final labels =
+          shouldLabel(ocrText) ? await _labelsFor(destPath) : const <String>[];
+      return addFromBulkIngest(
+        path: destPath,
+        capturedAt: _capturedAtFor(srcFile),
+        ocrText: ocrText,
+        objects: labels,
+      );
+    } catch (e) {
+      debugPrint('Import failed for $src: $e');
+      return null;
+    }
+  }
+
+  bool _acceptableImportName(String name) {
+    if (name.isEmpty) return false;
+    if (name.contains('..')) return false;
+    if (name.contains('/') || name.contains('\\')) return false;
+    for (final code in name.codeUnits) {
+      if (code < 0x20 || code == 0x7f) return false;
+    }
+    final dot = name.lastIndexOf('.');
+    if (dot <= 0 || dot == name.length - 1) return false;
+    return _importExtensions.contains(name.substring(dot).toLowerCase());
+  }
+
+  DateTime _capturedAtFor(File f) {
+    try {
+      return f.statSync().modified;
+    } catch (_) {
+      return DateTime.now();
     }
   }
 
@@ -507,6 +644,9 @@ class ScreenshotProvider extends ChangeNotifier {
     if (Hive.isBoxOpen('hidden_paths')) await Hive.box('hidden_paths').clear();
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
+    // Prevent the first-launch auto-index from silently repopulating the
+    // library the user just wiped; re-indexing stays a manual choice.
+    await prefs.setBool('library_indexed', true);
     if (paths.isNotEmpty) {
       await prefs.setStringList('watcher_seen', paths);
     }

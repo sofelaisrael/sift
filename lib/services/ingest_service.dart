@@ -7,6 +7,7 @@ import 'package:hive/hive.dart';
 import '../providers/screenshot_provider.dart';
 import 'file_enumerator.dart';
 import 'ocr_service.dart';
+import 'image_labeler.dart';
 
 class _OcrExhausted implements Exception {
   const _OcrExhausted(this.message);
@@ -26,6 +27,7 @@ class IngestService extends ChangeNotifier {
   IngestService({
     required this.provider,
     required this.ocr,
+    this.labeler,
     FileEnumerator? enumerator,
     this.retryDelays = const [
       Duration(seconds: 2),
@@ -37,6 +39,7 @@ class IngestService extends ChangeNotifier {
 
   final ScreenshotProvider provider;
   final OCRService ocr;
+  final ImageLabeler? labeler;
   final FileEnumerator _enumerator;
   final List<Duration> retryDelays;
 
@@ -224,11 +227,17 @@ class IngestService extends ChangeNotifier {
 
     try {
       final ocrText = await _ocrWithRetry(path);
+      // Skip visual labeling when OCR already produced rich text — the text
+      // is the search surface there; labels mainly help text-less images.
+      final labels = ScreenshotProvider.shouldLabel(ocrText)
+          ? await _labelsFor(path)
+          : const <String>[];
       final capturedAt = _capturedAt(path);
       final id = await provider.addFromBulkIngest(
         path: path,
         capturedAt: capturedAt,
         ocrText: ocrText,
+        objects: labels,
       );
       await _box.put(path, {
         'status': id == null ? _statusSkipped : _statusDone,
@@ -265,6 +274,14 @@ class IngestService extends ChangeNotifier {
     _processed++;
     _progress.add(_processed);
     notifyListeners();
+  }
+
+  Future<List<String>> _labelsFor(String path) async {
+    try {
+      return await labeler?.labelsFor(path) ?? const [];
+    } catch (_) {
+      return const [];
+    }
   }
 
   Future<String> _ocrWithRetry(String path) async {

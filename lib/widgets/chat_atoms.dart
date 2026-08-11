@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/screenshot.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
@@ -539,6 +540,80 @@ class TypingRow extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// "Related links" card under an answer: web results found from the top
+/// matching screenshot (YouTube / DuckDuckGo). Tapping opens the link in
+/// the browser. Paper surface, hairline border, meta label header.
+class RelatedLinksStrip extends StatelessWidget {
+  final List<Map<String, String>> links;
+
+  const RelatedLinksStrip({super.key, required this.links});
+
+  Future<void> _openLink(String? raw) async {
+    if (raw == null || raw.trim().isEmpty) return;
+    final uri = Uri.tryParse(raw.trim());
+    if (uri == null) return;
+    if (uri.scheme != 'http' && uri.scheme != 'https') return;
+    if (uri.host.isEmpty) return;
+    try {
+      if (!await canLaunchUrl(uri)) return;
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      // A failed launch must never throw out of onTap.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppTheme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+      decoration: BoxDecoration(
+        color: s.paper,
+        borderRadius: BorderRadius.circular(SiftRadii.rField),
+        border: Border.all(color: s.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Related links',
+            style: SiftType.metaLabel.copyWith(
+              color: s.stone,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (final link in links) ...[
+            InkWell(
+              onTap: () => _openLink(link['url']),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    Icon(Icons.link_rounded, size: 16, color: s.accent),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        link['title'] ?? link['url'] ?? '',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: SiftType.bodySansMd.copyWith(color: s.ink),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 6),
+        ],
+      ),
     );
   }
 }

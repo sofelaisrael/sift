@@ -10,6 +10,10 @@ class WebResult {
 }
 
 class WebLookupService {
+  /// Cheap guard against pathological DuckDuckGo responses: anything larger
+  /// than 2 MB is dropped before its body is materialized.
+  static const int _ddgBodyCap = 2 * 1024 * 1024;
+
   /// Search for real links related to a screenshot's content. Extracted URLs
   /// from the text are returned first; otherwise the summary plus the first
   /// recognition become the web query against YouTube (when a key is given)
@@ -144,6 +148,9 @@ class WebLookupService {
         )
         .timeout(const Duration(seconds: 8));
     if (res.statusCode != 200) return const [];
+    if (res.contentLength != null && res.contentLength! > _ddgBodyCap) {
+      return const [];
+    }
 
     final body = res.body.toLowerCase();
     if (body.contains('anomaly') ||
@@ -180,16 +187,17 @@ class WebLookupService {
   String _realUrl(String href) {
     final unescaped = _htmlUnescape(href);
     final uri = Uri.tryParse(unescaped);
-    if (uri == null) return href;
+    if (uri == null) return '';
     final uddg = uri.queryParameters['uddg'];
-    if (uddg == null || uddg.isEmpty) return unescaped;
+    if (uddg == null || uddg.isEmpty) return _stripToCore(unescaped);
     return _stripToCore(uddg);
   }
 
   String _stripToCore(String raw) {
     final uri = Uri.tryParse(raw);
-    if (uri == null) return raw;
-    if (uri.scheme.isEmpty || uri.host.isEmpty) return raw;
+    if (uri == null) return '';
+    if (uri.scheme != 'http' && uri.scheme != 'https') return '';
+    if (uri.host.isEmpty) return '';
     return Uri(
       scheme: uri.scheme,
       host: uri.host,

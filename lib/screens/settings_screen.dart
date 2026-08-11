@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -189,6 +190,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     : null,
               );
             },
+          ),
+          _flatRow(
+            context,
+            icon: Icons.add_photo_alternate_outlined,
+            title: 'Add images',
+            subtitle: 'Pick screenshots or photos from your gallery',
+            onTap: () => _onAddImagesTap(context),
           ),
           const _SectionGap(),
           _sectionTitle(context, 'Get Sift ready'),
@@ -914,6 +922,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return await Permission.photos.request() == PermissionStatus.granted;
     }
     return true;
+  }
+
+  Future<void> _onAddImagesTap(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final provider = context.read<ScreenshotProvider>();
+    final granted = await _ensurePhotoAccess();
+    if (!mounted) return;
+    if (!granted) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Sift needs photo access to add images.'),
+        ),
+      );
+      return;
+    }
+    final picker = ImagePicker();
+    final picked = await picker.pickMultiImage(limit: 50);
+    if (picked.isEmpty || !mounted) return;
+    final paths = picked.map((x) => x.path).toList();
+    final count = await provider.importImages(paths);
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          count == 0
+              ? 'No new images to add.'
+              : 'Added $count ${count == 1 ? 'image' : 'images'} to your library.',
+        ),
+      ),
+    );
   }
 
   Widget _aboutRow(BuildContext context) {
