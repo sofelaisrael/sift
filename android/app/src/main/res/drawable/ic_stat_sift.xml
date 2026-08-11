@@ -1,61 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Sift status-bar notification icon: white monochrome 6-petal mark.
-     One petal drawn once, rotated 60deg x6 around the center (mirrors SiftMarkPainter). -->
+<!-- Sift status-bar notification icon: white hourglass silhouette. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <group
-        android:rotation="0"
-        android:pivotX="12"
-        android:pivotY="12">
-        <path
-            android:fillColor="#FFFFFFFF"
-            android:pathData="M10.92864 10.056 Q9.6192 7.14 12 1.2 Q14.3808 7.14 13.07136 9.34176 Z"/>
-    </group>
-    <group
-        android:rotation="60"
-        android:pivotX="12"
-        android:pivotY="12">
-        <path
-            android:fillColor="#FFFFFFFF"
-            android:pathData="M10.92864 10.056 Q9.6192 7.14 12 1.2 Q14.3808 7.14 13.07136 9.34176 Z"/>
-    </group>
-    <group
-        android:rotation="120"
-        android:pivotX="12"
-        android:pivotY="12">
-        <path
-            android:fillColor="#FFFFFFFF"
-            android:pathData="M10.92864 10.056 Q9.6192 7.14 12 1.2 Q14.3808 7.14 13.07136 9.34176 Z"/>
-    </group>
-    <group
-        android:rotation="180"
-        android:pivotX="12"
-        android:pivotY="12">
-        <path
-            android:fillColor="#FFFFFFFF"
-            android:pathData="M10.92864 10.056 Q9.6192 7.14 12 1.2 Q14.3808 7.14 13.07136 9.34176 Z"/>
-    </group>
-    <group
-        android:rotation="240"
-        android:pivotX="12"
-        android:pivotY="12">
-        <path
-            android:fillColor="#FFFFFFFF"
-            android:pathData="M10.92864 10.056 Q9.6192 7.14 12 1.2 Q14.3808 7.14 13.07136 9.34176 Z"/>
-    </group>
-    <group
-        android:rotation="300"
-        android:pivotX="12"
-        android:pivotY="12">
-        <path
-            android:fillColor="#FFFFFFFF"
-            android:pathData="M10.92864 10.056 Q9.6192 7.14 12 1.2 Q14.3808 7.14 13.07136 9.34176 Z"/>
-    </group>
-    <!-- hub circle, radius 0.09 * 24 = 2.16 -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M12 9.84 a2.16 2.16 0 1 0 0 4.32 a2.16 2.16 0 1 0 0 -4.32 z"/>
+        android:pathData="M7,6 L17,6 L12,12 L17,18 L7,18 L12,12 Z"/>
 </vector>

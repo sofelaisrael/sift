@@ -47,6 +47,10 @@ app.*.map.json
 # API keys (copy config.example.dart to config.dart)
 lib/config.dart
 
+# Release signing (secrets - never commit)
+android/key.properties
+*.jks
+
 # Logs
 *.log
 

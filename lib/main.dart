@@ -17,18 +17,27 @@ import 'theme/app_theme.dart';
 import 'theme/motion_tokens.dart';
 
 /// Registers the OFL licenses for the bundled fonts so they appear under
-/// Settings > About > Licenses.
+/// Settings > About > Licenses. Never fatal: a missing license file must not
+/// blank-screen the app at startup.
 Future<void> _registerFontLicenses() async {
-  final sourceSerif = await rootBundle.loadString(
-    'assets/fonts/OFL-SourceSerif4.txt',
-  );
-  final jetBrains = await rootBundle.loadString(
-    'assets/fonts/OFL-JetBrainsMono.txt',
-  );
-  LicenseRegistry.addLicense(() async* {
-    yield LicenseEntryWithLineBreaks(['Source Serif 4'], sourceSerif);
-    yield LicenseEntryWithLineBreaks(['JetBrains Mono'], jetBrains);
-  });
+  String? sourceSerif;
+  String? jetBrains;
+  try {
+    sourceSerif = await rootBundle.loadString('assets/fonts/OFL-SourceSerif4.txt');
+  } catch (_) {}
+  try {
+    jetBrains = await rootBundle.loadString('assets/fonts/OFL-JetBrainsMono.txt');
+  } catch (_) {}
+  if (sourceSerif != null || jetBrains != null) {
+    LicenseRegistry.addLicense(() async* {
+      if (sourceSerif != null) {
+        yield LicenseEntryWithLineBreaks(['Source Serif 4'], sourceSerif);
+      }
+      if (jetBrains != null) {
+        yield LicenseEntryWithLineBreaks(['JetBrains Mono'], jetBrains);
+      }
+    });
+  }
 }
 
 Future<void> main() async {
