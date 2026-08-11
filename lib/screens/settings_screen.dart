@@ -1,10 +1,14 @@
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/theme_controller.dart';
 import '../providers/screenshot_provider.dart';
+import '../services/ingest_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
 import '../widgets/sift_mark.dart';
@@ -145,6 +149,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
               context,
               MaterialPageRoute(builder: (_) => const ActionsHistoryScreen()),
             ),
+          ),
+          Builder(
+            builder: (context) {
+              final ingest = context.watch<IngestService>();
+              final running = ingest.isIngesting;
+              final subtitle = running
+                  ? 'Indexing on-device… ${ingest.processedCount} so far'
+                  : 'Remember screenshots already in your library. Runs entirely on your device.';
+              return _flatRow(
+                context,
+                icon: Icons.photo_library_rounded,
+                title: 'Index my library',
+                subtitle: subtitle,
+                iconColor: running ? s.accentDeep : null,
+                titleColor: running ? s.accentDeep : null,
+                onTap: () => _onLibraryIndexTap(context),
+                trailing: running
+                    ? IconButton(
+                        tooltip: ingest.paused ? 'Resume' : 'Pause',
+                        onPressed: () {
+                          if (ingest.paused) {
+                            ingest.resume();
+                          } else {
+                            ingest.pause();
+                          }
+                        },
+                        icon: Icon(
+                          ingest.paused
+                              ? Icons.play_arrow_rounded
+                              : Icons.pause_rounded,
+                          size: 20,
+                          color: s.ink,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints:
+                            const BoxConstraints(minWidth: 40, minHeight: 40),
+                      )
+                    : null,
+              );
+            },
           ),
           const _SectionGap(),
           _sectionTitle(context, 'Get Sift ready'),
@@ -799,6 +843,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
       const SnackBar(content: Text('Everything deleted')),
     );
     navigator.popUntil((route) => route.isFirst);
+  }
+
+  Future<void> _onLibraryIndexTap(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final ingest = context.read<IngestService>();
+
+    if (ingest.isIngesting) {
+      if (ingest.paused) {
+        ingest.resume();
+      } else {
+        ingest.pause();
+      }
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Index my library?'),
+        content: const Text(
+          'Sift will read every screenshot already in your screenshot folders '
+          'and remember it with on-device OCR. It runs entirely on this '
+          'device: nothing is uploaded, and no photo is ever modified or '
+          'deleted. You can pause or stop it anytime.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Index library'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final granted = await _ensurePhotoAccess();
+    if (!mounted) return;
+
+    if (!granted) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Sift needs photo access to read your screenshot folders',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
+    // Fire-and-forget: a full pass can take a while; progress is surfaced
+    // through the banner and this row's live subtitle.
+    ingest.start().catchError((Object e) {
+      debugPrint('Library index failed: $e');
+    });
+    if (!mounted) return;
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Indexing your library…')),
+    );
+  }
+
+  Future<bool> _ensurePhotoAccess() async {
+    if (!kIsWeb && Platform.isAndroid) {
+      if (await Permission.photos.isGranted) return true;
+      return await Permission.photos.request() == PermissionStatus.granted;
+    }
+    return true;
   }
 
   Widget _aboutRow(BuildContext context) {

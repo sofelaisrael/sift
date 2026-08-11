@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/screenshot_provider.dart';
 import 'action_service.dart';
+import 'file_enumerator.dart';
 
 /// POC screenshot watcher: polls known Android screenshot folders while the
 /// app is running, detects new images, analyzes them, and notifies the user.
@@ -14,20 +14,22 @@ import 'action_service.dart';
 class ScreenshotWatcher {
   final ScreenshotProvider provider;
   final ActionService actionService;
+  final bool Function()? isIngesting;
 
+  final FileEnumerator _enumerator;
   Timer? _timer;
   Set<String> _knownPaths = {};
   bool _initialized = false;
+  bool _checking = false;
 
   static const _pollInterval = Duration(seconds: 10);
 
-  static const List<String> _candidateFolders = [
-    '/storage/emulated/0/DCIM/Screenshots',
-    '/storage/emulated/0/Pictures/Screenshots',
-    '/storage/emulated/0/Pictures/Screenshot',
-  ];
-
-  ScreenshotWatcher({required this.provider, required this.actionService});
+  ScreenshotWatcher({
+    required this.provider,
+    required this.actionService,
+    this.isIngesting,
+    FileEnumerator? enumerator,
+  }) : _enumerator = enumerator ?? FileEnumerator();
 
   Future<void> start() async {
     _knownPaths = provider.screenshots.map((s) => s.filePath).toSet();
@@ -46,44 +48,34 @@ class ScreenshotWatcher {
     debugPrint('Screenshot watcher stopped');
   }
 
+  /// Run one check immediately (used at the end of a bulk ingest pass so
+  /// the post-pass delta lands without waiting for the next tick).
+  Future<void> scanNow() => _check();
+
   Future<void> _check() async {
-    if (!_initialized) return;
+    if (!_initialized || _checking) return;
+    if (isIngesting?.call() ?? false) return;
 
-    final files = await _findScreenshotFiles();
-    for (final file in files) {
-      if (_knownPaths.contains(file.path)) continue;
-      final processed = await _handleNew(file.path);
-      if (processed) {
-        _knownPaths.add(file.path);
-        await _remember(file.path);
-      }
-    }
-  }
-
-  Future<List<File>> _findScreenshotFiles() async {
-    final found = <File>[];
-    for (final dirPath in _candidateFolders) {
-      final dir = Directory(dirPath);
-      try {
-        if (!await dir.exists()) continue;
-        await for (final entity in dir.list()) {
-          if (entity is File && _isImage(entity.path)) {
-            found.add(entity);
-          }
+    _checking = true;
+    try {
+      // Merge provider records each tick so a finished ingest pass is
+      // never re-processed.
+      final known = <String>{
+        ..._knownPaths,
+        ...provider.screenshots.map((s) => s.filePath),
+      };
+      final files = await _enumerator.listMostRecentFirst();
+      for (final file in files) {
+        if (known.contains(file.path)) continue;
+        final processed = await _handleNew(file.path);
+        if (processed) {
+          _knownPaths.add(file.path);
+          await _remember(file.path);
         }
-      } catch (e) {
-        debugPrint('Watcher: could not scan $dirPath: $e');
       }
+    } finally {
+      _checking = false;
     }
-    return found;
-  }
-
-  bool _isImage(String path) {
-    final lower = path.toLowerCase();
-    return lower.endsWith('.png') ||
-        lower.endsWith('.jpg') ||
-        lower.endsWith('.jpeg') ||
-        lower.endsWith('.webp');
   }
 
   Future<void> _remember(String path) async {
@@ -98,9 +90,7 @@ class ScreenshotWatcher {
   Future<bool> _handleNew(String path) async {
     debugPrint('Watcher: new screenshot detected: $path');
 
-    if (await Permission.notification.isDenied) {
-      await Permission.notification.request();
-    }
+    await (ensureNotificationPermission ?? _ensureNotificationPermission)();
 
     final prefs = await SharedPreferences.getInstance();
     final localOnly = prefs.getBool('localOnly') ?? false;
@@ -125,6 +115,16 @@ class ScreenshotWatcher {
     } catch (e) {
       debugPrint('Watcher: analysis failed: $e');
       return false;
+    }
+  }
+
+  /// Overridable in tests so the notification permission plugin is never
+  /// reached. Production behavior is unchanged when unset.
+  Future<void> Function()? ensureNotificationPermission;
+
+  Future<void> _ensureNotificationPermission() async {
+    if (await Permission.notification.isDenied) {
+      await Permission.notification.request();
     }
   }
 }

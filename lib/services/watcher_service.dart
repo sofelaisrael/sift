@@ -10,12 +10,14 @@ import '../services/screenshot_watcher.dart';
 class WatcherService extends ChangeNotifier {
   final ScreenshotProvider provider;
   final ActionService actionService;
+  final bool Function()? isIngesting;
 
   ScreenshotWatcher? _watcher;
 
   WatcherService({
     required this.provider,
     required this.actionService,
+    this.isIngesting,
   }) {
     _startIfEnabled();
   }
@@ -28,8 +30,13 @@ class WatcherService extends ChangeNotifier {
     _watcher = ScreenshotWatcher(
       provider: provider,
       actionService: actionService,
+      isIngesting: isIngesting,
     );
     await _watcher!.start();
     debugPrint('WatcherService: watcher started');
+  }
+
+  Future<void> scanNow() async {
+    if (_watcher != null) await _watcher!.scanNow();
   }
 }

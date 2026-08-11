@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import '../services/ingest_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
 import 'home_screen.dart';
@@ -23,7 +25,7 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   late int _index;
   final GlobalKey _checklistKey = GlobalKey();
   final FocusNode _askFocusNode = FocusNode();
@@ -32,6 +34,7 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _index = widget.initialTab.clamp(0, 2);
     if (widget.scrollToChecklist) {
       _checklistRevealed = true;
@@ -41,8 +44,18 @@ class _AppShellState extends State<AppShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _askFocusNode.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // A long bulk pass shouldn't keep running while the app is backgrounded.
+    if (state == AppLifecycleState.paused) {
+      final ingest = context.read<IngestService>();
+      if (ingest.isIngesting && !ingest.paused) ingest.pause();
+    }
   }
 
   void _switchToAsk() {

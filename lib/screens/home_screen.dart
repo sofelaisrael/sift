@@ -5,9 +5,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../models/screenshot.dart';
 import '../providers/screenshot_provider.dart';
+import '../services/ingest_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
 import '../widgets/widgets.dart';
+import '../widgets/ingest_banner.dart';
 import '../widgets/bottom_sheet.dart';
 import '../widgets/privacy_gate.dart';
 import 'detail_screen.dart';
@@ -27,6 +29,11 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _scrolled = false;
+  String? _activeTag;
+  final Set<String> _selected = {};
+  bool _wasIngesting = false;
+
+  bool get _selecting => _selected.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
@@ -42,39 +49,85 @@ class _HomeScreenState extends State<HomeScreen> {
         },
         child: Consumer<ScreenshotProvider>(
           builder: (context, provider, _) {
-            return CustomScrollView(
-              slivers: [
-                _AskBarDelegateHeader(
-                  scrolled: _scrolled,
-                  onAsk: widget.onAsk,
-                  onCapture: () => _pickScreenshot(context),
-                ),
-                _buildBrandRow(context, provider),
-                if (provider.processingStatus.isNotEmpty)
-                  SliverToBoxAdapter(
-                    child: ProcessingBanner(
-                      message: provider.processingStatus,
-                      onDismiss: provider.clearStatus,
+            final ingest = context.watch<IngestService>();
+
+            // One "finished" toast per pass, fired on the running→done edge.
+            if (ingest.isIngesting) {
+              _wasIngesting = true;
+            } else if (_wasIngesting) {
+              _wasIngesting = false;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Library indexed — ${ingest.processedCount} screenshots remembered',
+                      ),
                     ),
+                  );
+                }
+              });
+            }
+
+            final filterHasNoHits =
+                _activeTag != null && provider.byTag(_activeTag!).isEmpty;
+
+            return Stack(
+              children: [
+                CustomScrollView(
+                  slivers: [
+                    _AskBarDelegateHeader(
+                      scrolled: _scrolled,
+                      onAsk: widget.onAsk,
+                      onCapture: () => _pickScreenshot(context),
+                    ),
+                    _buildBrandRow(context, provider),
+                    if (provider.tags.isNotEmpty)
+                      _buildTagChips(context, provider),
+                    if (ingest.isIngesting)
+                      SliverToBoxAdapter(child: IngestBanner(ingest: ingest)),
+                    if (provider.processingStatus.isNotEmpty)
+                      SliverToBoxAdapter(
+                        child: ProcessingBanner(
+                          message: provider.processingStatus,
+                          onDismiss: provider.clearStatus,
+                        ),
+                      ),
+                    if (provider.error != null)
+                      SliverToBoxAdapter(
+                        child: _buildErrorBanner(context, provider),
+                      ),
+                    if (filterHasNoHits)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: _TagFilterEmptyState(
+                          tag: _activeTag!,
+                          onClear: () => setState(() => _activeTag = null),
+                        ),
+                      )
+                    else if (provider.visibleScreenshots.isEmpty)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: provider.showFavoritesOnly &&
+                                provider.screenshots.isNotEmpty
+                            ? const _FavoritesEmptyState()
+                            : EmptyState(
+                                onScan: () => _pickScreenshot(context),
+                                onAsk: widget.onAsk,
+                              ),
+                      )
+                    else
+                      ..._buildGroupSlivers(context, provider),
+                    const SliverToBoxAdapter(child: SizedBox(height: 96)),
+                  ],
+                ),
+                if (_selecting)
+                  Positioned(
+                    left: 20,
+                    right: 20,
+                    bottom: 16,
+                    child: _buildBatchBar(context),
                   ),
-                if (provider.error != null)
-                  SliverToBoxAdapter(
-                    child: _buildErrorBanner(context, provider),
-                  ),
-                if (provider.visibleScreenshots.isEmpty)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: provider.showFavoritesOnly &&
-                            provider.screenshots.isNotEmpty
-                        ? const _FavoritesEmptyState()
-                        : EmptyState(
-                            onScan: () => _pickScreenshot(context),
-                            onAsk: widget.onAsk,
-                          ),
-                  )
-                else
-                  ..._buildGroupSlivers(context, provider),
-                const SliverToBoxAdapter(child: SizedBox(height: 96)),
               ],
             );
           },
@@ -91,8 +144,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
 
+    final source = _activeTag == null
+        ? provider.visibleScreenshots
+        : provider.byTag(_activeTag!);
+
     final groups = <String, List<Screenshot>>{};
-    for (final s in provider.visibleScreenshots) {
+    for (final s in source) {
       final day =
           DateTime(s.timestamp.year, s.timestamp.month, s.timestamp.day);
       String key;
@@ -129,7 +186,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: _SiftCard(
                       screenshot: screenshot,
-                      onTap: () => _openDetail(context, screenshot),
+                      selecting: _selecting,
+                      selected: _selected.contains(screenshot.id),
+                      onTap: () => _onCardTap(context, screenshot),
+                      onLongPress: _selecting
+                          ? null
+                          : () => _startSelection(screenshot),
                     ),
                   );
                 },
@@ -158,7 +220,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   final screenshot = items[index];
                   return _SiftCard(
                     screenshot: screenshot,
-                    onTap: () => _openDetail(context, screenshot),
+                    selecting: _selecting,
+                    selected: _selected.contains(screenshot.id),
+                    onTap: () => _onCardTap(context, screenshot),
+                    onLongPress: _selecting
+                        ? null
+                        : () => _startSelection(screenshot),
                   );
                 },
                 childCount: items.length,
@@ -321,6 +388,180 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  void _onCardTap(BuildContext context, Screenshot screenshot) {
+    if (_selecting) {
+      setState(() {
+        if (_selected.contains(screenshot.id)) {
+          _selected.remove(screenshot.id);
+        } else {
+          _selected.add(screenshot.id);
+        }
+      });
+      return;
+    }
+    _openDetail(context, screenshot);
+  }
+
+  void _startSelection(Screenshot screenshot) {
+    if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
+    setState(() => _selected.add(screenshot.id));
+  }
+
+  Widget _buildTagChips(
+    BuildContext context,
+    ScreenshotProvider provider,
+  ) {
+    final tags = provider.tags.toList()..sort();
+
+    return SliverToBoxAdapter(
+      child: SizedBox(
+        height: 40,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          children: [
+            _filterChip(
+              context,
+              label: 'All',
+              active: _activeTag == null,
+              onTap: () {
+                if (_activeTag != null) setState(() => _activeTag = null);
+              },
+            ),
+            for (final tag in tags) ...[
+              const SizedBox(width: 8),
+              _filterChip(
+                context,
+                label: tag,
+                active: _activeTag == tag,
+                onTap: () {
+                  setState(() {
+                    _activeTag = _activeTag == tag ? null : tag;
+                    _selected.clear();
+                  });
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _filterChip(
+    BuildContext context, {
+    required String label,
+    required bool active,
+    required VoidCallback onTap,
+  }) {
+    final s = AppTheme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            if (MotionTokens.canHaptic) HapticFeedback.selectionClick();
+            onTap();
+          },
+          borderRadius: BorderRadius.circular(999),
+          child: AnimatedContainer(
+            duration: MotionTokens.standard,
+            curve: MotionTokens.easeOutCubic,
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: active ? s.accentSoft : s.paper,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: active ? s.accent : s.divider,
+                width: active ? 1 : AppTheme.hairline(isDark),
+              ),
+            ),
+            child: Text(
+              label,
+              style: SiftType.chipLabel.copyWith(
+                fontWeight: FontWeight.w600,
+                color: active ? s.accentDeep : s.tagText,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBatchBar(BuildContext context) {
+    final s = AppTheme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: s.paper,
+        borderRadius: BorderRadius.circular(SiftRadii.rField),
+        border: Border.all(
+          color: s.divider,
+          width: AppTheme.hairline(isDark),
+        ),
+        boxShadow: isDark ? SiftElevation.l4Dark : SiftElevation.l3,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: Text(
+                _selected.length == 1
+                    ? '1 selected'
+                    : '${_selected.length} selected',
+                style: SiftType.bodySansMd.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: s.ink,
+                ),
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => setState(_selected.clear),
+            child: const Text('Clear'),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+            onPressed: () => _batchHide(context),
+            icon: const Icon(Icons.visibility_off_outlined, size: 18),
+            label: const Text('Hide'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _batchHide(BuildContext context) async {
+    final provider = context.read<ScreenshotProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final count = _selected.length;
+    for (final id in List.of(_selected)) {
+      final matches = provider.screenshots.where((s) => s.id == id);
+      if (matches.isNotEmpty) {
+        await provider.hideScreenshot(matches.first.filePath);
+      }
+    }
+    if (!mounted) return;
+    setState(_selected.clear);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          count == 1
+              ? 'Hidden 1 screenshot from Sift'
+              : 'Hidden $count screenshots from Sift',
+        ),
+      ),
+    );
+  }
 }
 
 class _FavoritesEmptyState extends StatelessWidget {
@@ -357,6 +598,51 @@ class _FavoritesEmptyState extends StatelessWidget {
               onPressed: () => context
                   .read<ScreenshotProvider>()
                   .setShowFavoritesOnly(false),
+              child: const Text('Show all screenshots'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Tag filter with no matches: quiet label-off state with a "Show all" exit.
+class _TagFilterEmptyState extends StatelessWidget {
+  final String tag;
+  final VoidCallback onClear;
+
+  const _TagFilterEmptyState({required this.tag, required this.onClear});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppTheme.of(context);
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.label_off_outlined, size: 40, color: s.stone),
+            const SizedBox(height: 28),
+            Text(
+              'Nothing tagged "$tag"',
+              textAlign: TextAlign.center,
+              style: SiftType.serifDisplay.copyWith(color: s.ink),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Screenshots carrying this tag will appear here.',
+              textAlign: TextAlign.center,
+              style: SiftType.bodySans.copyWith(
+                color: s.graphite,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 28),
+            FilledButton(
+              onPressed: onClear,
               child: const Text('Show all screenshots'),
             ),
           ],
@@ -558,8 +844,17 @@ class _TimeGroupHeader extends StatelessWidget {
 class _SiftCard extends StatelessWidget {
   final Screenshot screenshot;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final bool selecting;
+  final bool selected;
 
-  const _SiftCard({required this.screenshot, required this.onTap});
+  const _SiftCard({
+    required this.screenshot,
+    required this.onTap,
+    this.onLongPress,
+    this.selecting = false,
+    this.selected = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -572,13 +867,17 @@ class _SiftCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: s.paper,
         borderRadius: BorderRadius.circular(SiftRadii.rCard),
-        border: Border.all(color: s.divider),
+        border: Border.all(
+          color: selecting && selected ? s.accent : s.divider,
+          width: selecting && selected ? 1.5 : 1,
+        ),
         boxShadow: SiftElevation.card(isDark),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -609,6 +908,8 @@ class _SiftCard extends StatelessWidget {
                       },
                     ),
                     Container(color: s.scrimPhoto),
+                    if (selecting && !selected)
+                      Container(color: s.barrier),
                     Positioned(
                       top: 12,
                       left: 12,
@@ -630,40 +931,59 @@ class _SiftCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    Positioned(
-                      top: 6,
-                      right: 6,
-                      child: Material(
-                        color: Colors.transparent,
-                        shape: const CircleBorder(),
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: () {
-                            if (MotionTokens.canHaptic) {
-                              HapticFeedback.selectionClick();
-                            }
-                            context
-                                .read<ScreenshotProvider>()
-                                .toggleFavorite(screenshot.id);
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: s.scrimPhoto,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              screenshot.isFavorite
-                                  ? Icons.push_pin_rounded
-                                  : Icons.push_pin_outlined,
-                              size: 16,
-                              color:
-                                  screenshot.isFavorite ? s.accent : s.codeText,
+                    if (!selecting)
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Material(
+                          color: Colors.transparent,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () {
+                              if (MotionTokens.canHaptic) {
+                                HapticFeedback.selectionClick();
+                              }
+                              context
+                                  .read<ScreenshotProvider>()
+                                  .toggleFavorite(screenshot.id);
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: s.scrimPhoto,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                screenshot.isFavorite
+                                    ? Icons.push_pin_rounded
+                                    : Icons.push_pin_outlined,
+                                size: 16,
+                                color: screenshot.isFavorite
+                                    ? s.accent
+                                    : s.codeText,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
+                    if (selecting && selected)
+                      Positioned(
+                        bottom: 8,
+                        right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: s.accent,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.check_rounded,
+                            size: 16,
+                            color: s.onAccent,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),

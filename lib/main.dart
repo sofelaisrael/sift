@@ -8,6 +8,8 @@ import 'providers/screenshot_provider.dart';
 import 'services/lam_service.dart';
 import 'services/action_service.dart';
 import 'services/watcher_service.dart';
+import 'services/ocr_service.dart';
+import 'services/ingest_service.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/app_shell.dart';
 import 'widgets/sift_mark.dart';
@@ -36,15 +38,25 @@ Future<void> main() async {
   await Hive.openBox('screenshots');
   await Hive.openBox('actions');
   await Hive.openBox('chat');
+  await Hive.openBox('ingest');
+  await Hive.openBox('hidden_paths');
 
   final themeController = await ThemeController.load();
-  final screenshotProvider = ScreenshotProvider()..loadScreenshots();
+  final ocrService = OCRService();
+  final screenshotProvider = ScreenshotProvider(ocr: ocrService)
+    ..loadScreenshots();
   final lamService = LAMService();
   final actionService = ActionService();
+  final ingestService = IngestService(
+    provider: screenshotProvider,
+    ocr: ocrService,
+  );
   final watcherService = WatcherService(
     provider: screenshotProvider,
     actionService: actionService,
+    isIngesting: () => ingestService.isIngesting,
   );
+  ingestService.onPassComplete = watcherService.scanNow;
 
   runApp(
     SiftApp(
@@ -53,6 +65,7 @@ Future<void> main() async {
       lamService: lamService,
       actionService: actionService,
       watcherService: watcherService,
+      ingestService: ingestService,
     ),
   );
 }
@@ -63,6 +76,7 @@ class SiftApp extends StatelessWidget {
   final LAMService lamService;
   final ActionService actionService;
   final WatcherService watcherService;
+  final IngestService ingestService;
 
   const SiftApp({
     super.key,
@@ -71,6 +85,7 @@ class SiftApp extends StatelessWidget {
     required this.lamService,
     required this.actionService,
     required this.watcherService,
+    required this.ingestService,
   });
 
   @override
@@ -82,6 +97,7 @@ class SiftApp extends StatelessWidget {
         Provider.value(value: lamService),
         Provider.value(value: actionService),
         ChangeNotifierProvider.value(value: watcherService),
+        ChangeNotifierProvider.value(value: ingestService),
       ],
       child: Consumer<ThemeController>(
         builder: (context, controller, _) {
