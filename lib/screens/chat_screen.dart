@@ -27,6 +27,7 @@ class ChatScreen extends StatefulWidget {
     required String extractedText,
     required String summary,
     required List<String> recognitions,
+    required List<String> objects,
     required String? youTubeApiKey,
   })?
   lookupOverride;

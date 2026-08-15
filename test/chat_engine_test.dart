@@ -24,6 +24,7 @@ void main() {
     String? ocrText,
     String? summary,
     List<String> recognitions = const [],
+    List<String> objects = const [],
   }) =>
       Screenshot(
         id: 'shot1',
@@ -33,6 +34,7 @@ void main() {
         ocrText: ocrText,
         summary: summary,
         recognitions: recognitions,
+        objects: objects,
       );
 
   MockClient geminiMock() => MockClient((request) async {
@@ -114,6 +116,7 @@ void main() {
         required String extractedText,
         required String summary,
         required List<String> recognitions,
+        required List<String> objects,
         required String? youTubeApiKey,
       }) async {
         capturedExtractedText = extractedText;
@@ -153,6 +156,7 @@ void main() {
         required String extractedText,
         required String summary,
         required List<String> recognitions,
+        required List<String> objects,
         required String? youTubeApiKey,
       }) async {
         lookupCalled = true;
@@ -180,6 +184,7 @@ void main() {
         required String extractedText,
         required String summary,
         required List<String> recognitions,
+        required List<String> objects,
         required String? youTubeApiKey,
       }) async {
         capturedSummary = summary;
@@ -256,6 +261,7 @@ void main() {
         required String extractedText,
         required String summary,
         required List<String> recognitions,
+        required List<String> objects,
         required String? youTubeApiKey,
       }) async {
         throw Exception('lookup boom');
@@ -280,6 +286,7 @@ void main() {
         required String extractedText,
         required String summary,
         required List<String> recognitions,
+        required List<String> objects,
         required String? youTubeApiKey,
       }) async {
         return List.generate(
@@ -360,5 +367,207 @@ void main() {
 
     expect(called, isFalse);
     expect(reply.content, contains('Sorry, I could not reach any AI provider'));
+  });
+
+  test('links come from the second result when the top has no content',
+      () async {
+    var lookupCalled = false;
+    final engine = ChatEngine(
+      lam: LAMService(client: geminiMock()),
+      consentCheck: () async => true,
+      lookup: ({
+        required String extractedText,
+        required String summary,
+        required List<String> recognitions,
+        required List<String> objects,
+        required String? youTubeApiKey,
+      }) async {
+        lookupCalled = true;
+        return const <WebResult>[];
+      },
+    );
+
+    final reply = await engine.reply(
+      text: 'the video',
+      results: [
+        shot(ocrText: null, summary: null),
+        shot(ocrText: 'watch https://youtu.be/abc123 later'),
+      ],
+      localOnly: false,
+    );
+
+    // Phase B still runs (1 embedded link < 3) and mines the 2nd result.
+    expect(lookupCalled, isTrue);
+    expect(reply.relatedLinks, hasLength(1));
+    expect(reply.relatedLinks.single['url'], 'https://youtu.be/abc123');
+  });
+
+  test('local-only mode returns embedded links with zero network', () async {
+    final engine = ChatEngine(
+      lam: LAMService(client: geminiMock()),
+      consentCheck: () async =>
+          fail('consent must not be checked in local-only mode'),
+      lookup: ({
+        required String extractedText,
+        required String summary,
+        required List<String> recognitions,
+        required List<String> objects,
+        required String? youTubeApiKey,
+      }) async => fail('lookup must not run in local-only mode'),
+    );
+
+    final reply = await engine.reply(
+      text: 'video',
+      results: [shot(ocrText: 'https://youtu.be/abc123')],
+      localOnly: true,
+    );
+
+    expect(reply.blocked, isFalse);
+    expect(reply.relatedLinks, hasLength(1));
+    expect(reply.relatedLinks.single['url'], 'https://youtu.be/abc123');
+    // No thumbnails in local-only mode — nothing is fetched from the network.
+    expect(reply.relatedLinks.single.containsKey('thumb'), isFalse);
+  });
+
+  test('embedded links are de-duplicated and capped at three', () async {
+    final engine = ChatEngine(
+      lam: LAMService(client: geminiMock()),
+      consentCheck: () async => true,
+      lookup: ({
+        required String extractedText,
+        required String summary,
+        required List<String> recognitions,
+        required List<String> objects,
+        required String? youTubeApiKey,
+      }) async {
+        return const <WebResult>[];
+      },
+    );
+
+    final reply = await engine.reply(
+      text: 'links',
+      results: [
+        shot(ocrText: 'https://a.com/1 https://a.com/1 https://a.com/2'),
+        shot(ocrText: 'https://b.com/3 https://c.com/4'),
+      ],
+      localOnly: false,
+    );
+
+    expect(reply.relatedLinks, hasLength(3));
+    expect(reply.relatedLinks.map((l) => l['url']).toSet(), {
+      'https://a.com/1',
+      'https://a.com/2',
+      'https://b.com/3',
+    });
+  });
+
+  test('exactly one lookup call per reply', () async {
+    var lookupCalls = 0;
+    final engine = ChatEngine(
+      lam: LAMService(client: geminiMock()),
+      consentCheck: () async => true,
+      lookup: ({
+        required String extractedText,
+        required String summary,
+        required List<String> recognitions,
+        required List<String> objects,
+        required String? youTubeApiKey,
+      }) async {
+        lookupCalls++;
+        return const <WebResult>[];
+      },
+    );
+
+    final reply = await engine.reply(
+      text: 'recipes',
+      results: [
+        shot(ocrText: 'Chicken Tikka recipe', summary: 'dinner'),
+        shot(ocrText: 'Grilled cheese recipe', summary: 'snack'),
+      ],
+      localOnly: false,
+    );
+
+    expect(lookupCalls, 1);
+    expect(reply.relatedLinks, isEmpty);
+  });
+
+  test('enriched lookup results override bare embedded links with the same URL',
+      () async {
+    final engine = ChatEngine(
+      lam: LAMService(client: geminiMock()),
+      consentCheck: () async => true,
+      lookup: ({
+        required String extractedText,
+        required String summary,
+        required List<String> recognitions,
+        required List<String> objects,
+        required String? youTubeApiKey,
+      }) async {
+        return const [
+          WebResult(
+            title: 'The Real Video Title',
+            url: 'https://youtu.be/abc123',
+            thumbnail: 'https://i.ytimg.com/vi/abc123/hqdefault.jpg',
+          ),
+        ];
+      },
+    );
+
+    final reply = await engine.reply(
+      text: 'video',
+      results: [shot(ocrText: 'watch https://youtu.be/abc123')],
+      localOnly: false,
+    );
+
+    expect(reply.relatedLinks, hasLength(1));
+    expect(reply.relatedLinks.single['title'], 'The Real Video Title');
+    expect(
+      reply.relatedLinks.single['thumb'],
+      'https://i.ytimg.com/vi/abc123/hqdefault.jpg',
+    );
+  });
+
+  test('a text-less screenshot with visual labels still triggers one lookup',
+      () async {
+    var lookupCalled = false;
+    List<String>? capturedObjects;
+    final engine = ChatEngine(
+      lam: LAMService(client: geminiMock()),
+      consentCheck: () async => true,
+      lookup: ({
+        required String extractedText,
+        required String summary,
+        required List<String> recognitions,
+        required List<String> objects,
+        required String? youTubeApiKey,
+      }) async {
+        lookupCalled = true;
+        capturedObjects = objects;
+        return const [
+          WebResult(title: 'dog food guide', url: 'https://example.com/1'),
+        ];
+      },
+    );
+
+    final reply = await engine.reply(
+      text: 'dog',
+      results: [
+        shot(
+          ocrText: null,
+          summary: null,
+          recognitions: const [],
+          objects: const ['dog', 'food', 'bowl'],
+        ),
+      ],
+      localOnly: false,
+    );
+
+    // No text, no summary, no recognitions — but the labels are enough to
+    // run the search, and they become the lookup input.
+    expect(lookupCalled, isTrue);
+    expect(capturedObjects, ['dog', 'food', 'bowl']);
+    expect(reply.relatedLinks, [
+      {'title': 'dog food guide', 'url': 'https://example.com/1'},
+    ]);
   });
 }

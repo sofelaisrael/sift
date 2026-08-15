@@ -616,6 +616,7 @@ class ScreenshotProvider extends ChangeNotifier {
         extractedText: s.ocrText ?? '',
         summary: s.summary ?? '',
         recognitions: s.recognitions,
+        objects: s.objects,
         youTubeApiKey: youTubeKey,
       );
       s.webResults

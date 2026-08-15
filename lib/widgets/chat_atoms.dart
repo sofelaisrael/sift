@@ -544,9 +544,10 @@ class TypingRow extends StatelessWidget {
   }
 }
 
-/// "Related links" card under an answer: web results found from the top
-/// matching screenshot (YouTube / DuckDuckGo). Tapping opens the link in
-/// the browser. Paper surface, hairline border, meta label header.
+/// "Related links" card under an answer: web results found from the
+/// matched screenshots (YouTube / DuckDuckGo). Video links show a 16:9
+/// thumbnail + real title; everything else keeps the compact link row.
+/// Tapping opens the link in the browser.
 class RelatedLinksStrip extends StatelessWidget {
   final List<Map<String, String>> links;
 
@@ -596,7 +597,20 @@ class RelatedLinksStrip extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 child: Row(
                   children: [
-                    Icon(Icons.link_rounded, size: 16, color: s.accent),
+                    if (_thumb(link).isNotEmpty)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: Image.network(
+                          _thumb(link),
+                          width: 64,
+                          height: 36,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) =>
+                              _thumbFallback(s),
+                        ),
+                      )
+                    else
+                      Icon(Icons.link_rounded, size: 16, color: s.accent),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -616,4 +630,14 @@ class RelatedLinksStrip extends StatelessWidget {
       ),
     );
   }
+
+  String _thumb(Map<String, String> link) =>
+      (link['thumb'] ?? '').trim();
+
+  Widget _thumbFallback(SiftColors s) => Container(
+        width: 64,
+        height: 36,
+        color: s.surfaceWarm2,
+        child: Icon(Icons.link_rounded, size: 14, color: s.stone),
+      );
 }
