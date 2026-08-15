@@ -44,3 +44,7 @@
 - Type-specific colors for each category
 - Premium motion and micro-interactions
 - Dark/light mode support
+
+## Engineering Conventions (from 2026-08-15 session)
+- **Commits:** keep them short — concise message + brief body (no long essays).
+- **No co-author footers:** never append `Co-Authored-By` / `Generated with Codebuff` trailers to commit messages. Authored by the repo owner only.
