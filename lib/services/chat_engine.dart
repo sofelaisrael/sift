@@ -166,33 +166,52 @@ class ChatEngine {
     return merged.values.take(3).toList();
   }
 
+  /// Max characters of OCR text to include per screenshot. Keeps context
+  /// focused without losing the signal that matters.
+  static const int _ocrCharsPerScreenshot = 500;
+
+  /// Max total context characters sent to the LLM. Prevents token waste
+  /// and keeps responses fast and focused.
+  static const int _maxTotalContext = 4000;
+
   String buildContextText(List<Screenshot> results) {
     if (results.isEmpty) {
       return 'No saved screenshots matched the query. Answer honestly that nothing matches.';
     }
 
     final sb = StringBuffer();
+    var totalChars = 0;
     for (var i = 0; i < results.length; i++) {
       final s = results[i];
-      sb.writeln('[$i]');
-      sb.writeln('  Summary: ${s.summary ?? 'No summary'}');
+      final entry = StringBuffer();
+      entry.writeln('[$i]');
+      entry.writeln('  Summary: ${s.summary ?? 'No summary'}');
       if (s.description != null && s.description!.isNotEmpty) {
-        sb.writeln('  Description: ${s.description}');
+        entry.writeln('  Description: ${s.description}');
       }
       if (s.ocrText != null && s.ocrText!.isNotEmpty) {
-        sb.writeln('  Text: ${s.ocrText}');
+        final ocr = s.ocrText!;
+        final truncated = ocr.length > _ocrCharsPerScreenshot
+            ? '${ocr.substring(0, _ocrCharsPerScreenshot)}…'
+            : ocr;
+        entry.writeln('  Text: $truncated');
       }
       if (s.recognitions.isNotEmpty) {
-        sb.writeln('  Recognitions: ${s.recognitions.join(', ')}');
+        entry.writeln('  Recognitions: ${s.recognitions.join(', ')}');
       }
       if (s.objects.isNotEmpty) {
-        sb.writeln('  Objects: ${s.objects.join(', ')}');
+        entry.writeln('  Objects: ${s.objects.join(', ')}');
       }
       if (s.lamType != null) {
-        sb.writeln('  Type: ${s.lamType}');
+        entry.writeln('  Type: ${s.lamType}');
       }
-      sb.writeln('  Taken: ${s.timestamp.toIso8601String()}');
-      sb.writeln();
+      entry.writeln('  Taken: ${s.timestamp.toIso8601String()}');
+      entry.writeln();
+
+      // Skip this screenshot if adding it would exceed the total context cap.
+      if (totalChars + entry.length > _maxTotalContext && i > 0) break;
+      totalChars += entry.length;
+      sb.write(entry);
     }
     return sb.toString();
   }

@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image/image.dart' as img;
 
 /// Multi-provider free LLM service
 class LAMService {
@@ -10,6 +12,40 @@ class LAMService {
   String _lastError = '';
 
   LAMService({http.Client? client}) : _client = client ?? http.Client();
+
+  static const int _maxImageDimension = 1280;
+  static const int _jpegQuality = 80;
+
+  /// Resize image to [_maxImageDimension] on the long edge and re-encode as
+  /// JPEG at [_jpegQuality] quality. PNG screenshots (~3-5 MB) become ~100-200
+  /// KB JPEGs — a 20-30x reduction with no perceptible quality loss for LLM
+  /// analysis. On failure the raw bytes are returned unchanged so analysis
+  /// can still proceed.
+  static Uint8List _preprocessImage(Uint8List raw) {
+    try {
+      final decoded = img.decodeImage(raw);
+      if (decoded == null) return raw;
+
+      final longEdge = max(decoded.width, decoded.height);
+      if (longEdge <= _maxImageDimension) {
+        // Already small enough — just re-encode to JPEG (drops alpha, shrinks).
+        return Uint8List.fromList(img.encodeJpg(decoded, quality: _jpegQuality));
+      }
+
+      // Scale down proportionally.
+      final scale = _maxImageDimension / longEdge;
+      final resized = img.copyResize(
+        decoded,
+        width: (decoded.width * scale).round(),
+        height: (decoded.height * scale).round(),
+        interpolation: img.Interpolation.linear,
+      );
+      return Uint8List.fromList(img.encodeJpg(resized, quality: _jpegQuality));
+    } catch (e) {
+      debugPrint('Image preprocessing failed, using raw bytes: $e');
+      return raw;
+    }
+  }
 
   // Provider configs (OpenAI-compatible endpoints)
   static const List<ProviderConfig> _providers = [
@@ -43,9 +79,11 @@ class LAMService {
   /// Analyze screenshot by sending the image directly to a multimodal model
   /// Falls back to OCR + text for text-only providers like Groq
   Future<LAMResponse> analyzeImage(String imagePath, {String? apiKey, String? provider}) async {
-    final imageBytes = await File(imagePath).readAsBytes();
+    final rawBytes = await File(imagePath).readAsBytes();
+    final imageBytes = _preprocessImage(rawBytes);
     final base64Image = base64Encode(imageBytes);
-    final mimeType = _mimeFromPath(imagePath);
+    // Always send as JPEG after preprocessing (even if source was PNG/WebP).
+    final mimeType = 'image/jpeg';
     _lastError = '';
 
     // Try the selected provider first
@@ -254,6 +292,7 @@ MISSION (in order):
 3. READ — if there is visible text, extract ALL of it verbatim where possible, including buttons, labels, dates, times, prices, lists, and URLs.
 4. SUMMARIZE — write a short, natural-language summary of what the image shows and why it matters.
 5. DETERMINE ACTION — if the content implies a useful action (calendar, reminder, shopping list, task), suggest it; otherwise use "none".
+6. KEYWORDS — generate 5-10 search keywords that someone might use to find this screenshot later. Include semantic concepts (e.g. "restaurant", "travel", "food"), not just literal text. These should capture the gist even when the exact words aren't in the image.
 
 CONFIDENCE SCORING:
 - 0.9-1.0: You clearly recognize the content (a flight booking, a recipe, a product page, a portrait, a known landmark) with high confidence
@@ -274,6 +313,7 @@ RESPONSE FORMAT (JSON only — no explanation, no markdown, no code fences):
   "extracted_data": {
     "all relevant structured fields you can extract"
   },
+  "search_keywords": ["semantic keywords for finding this screenshot: e.g. 'restaurant', 'travel', 'Italy', 'booking', 'receipt'"],
   "suggested_action": {
     "type": "add_calendar|create_reminder|create_shopping_list|create_task|none",
     "data": {
@@ -502,7 +542,7 @@ Map<String, dynamic>? extractJsonObject(String content) {
       if (inString) {
         if (escaped) {
           escaped = false;
-        } else if (ch == r'\') {
+        } else if (ch == '\\') {
           escaped = true;
         } else if (ch == '"') {
           inString = false;
@@ -563,6 +603,7 @@ class LAMResponse {
   final List<String> recognitions;
   final String extractedText;
   final Map<String, dynamic> extractedData;
+  final List<String> searchKeywords;
   final LAMAction suggestedAction;
 
   LAMResponse({
@@ -574,6 +615,7 @@ class LAMResponse {
     this.recognitions = const [],
     this.extractedText = '',
     this.extractedData = const {},
+    this.searchKeywords = const [],
     required this.suggestedAction,
   });
 
@@ -587,6 +629,7 @@ class LAMResponse {
       recognitions: _toStringList(json['recognitions']),
       extractedText: json['extracted_text'] as String? ?? '',
       extractedData: json['extracted_data'] ?? {},
+      searchKeywords: _toStringList(json['search_keywords']),
       suggestedAction: LAMAction.fromJson(json['suggested_action'] ?? {}),
     );
   }

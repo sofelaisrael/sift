@@ -61,6 +61,9 @@ class Screenshot extends HiveObject {
   @HiveField(18)
   Map<String, dynamic>? extractedData;
 
+  @HiveField(19)
+  List<String> searchKeywords;
+
   Screenshot({
     required this.id,
     required this.fileName,
@@ -81,7 +84,9 @@ class Screenshot extends HiveObject {
     List<String>? tags,
     this.suggestedAction,
     this.extractedData,
-  }) : tags = tags ?? [];
+    List<String>? searchKeywords,
+  })  : tags = tags ?? [],
+        searchKeywords = searchKeywords ?? [];
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -105,6 +110,7 @@ class Screenshot extends HiveObject {
     'tags': tags,
     'suggestedAction': suggestedAction,
     'extractedData': extractedData,
+    'searchKeywords': searchKeywords,
   };
 
   factory Screenshot.fromJson(Map<String, dynamic> json) => Screenshot(
@@ -131,6 +137,7 @@ class Screenshot extends HiveObject {
     extractedData: json['extractedData'] is Map
         ? Map<String, dynamic>.from(json['extractedData'] as Map)
         : null,
+    searchKeywords: _stringList(json['searchKeywords']),
   );
 
   static List<String> _stringList(dynamic value) {

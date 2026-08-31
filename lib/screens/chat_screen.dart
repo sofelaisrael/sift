@@ -332,6 +332,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildHeader(BuildContext context) {
     final s = AppTheme.of(context);
+    final provider = context.watch<ScreenshotProvider>();
+    final isLocal = provider.localOnly;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 8, 4),
@@ -341,6 +343,32 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Text(
               'Ask',
               style: SiftType.serifTitle.copyWith(color: s.ink),
+            ),
+          ),
+          // Subtle privacy mode indicator
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: isLocal ? s.surfaceWarm1 : s.accentSoft,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isLocal ? Icons.phone_rounded : Icons.cloud_rounded,
+                  size: 12,
+                  color: isLocal ? s.graphite : s.accent,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  isLocal ? 'Local' : 'Cloud',
+                  style: SiftType.microLabel.copyWith(
+                    color: isLocal ? s.graphite : s.accent,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ),
           IconButton(

@@ -61,3 +61,6 @@ full-build.txt
 
 # Kotlin IDE metadata
 /android/.kotlin/
+
+# Ralph Loop state
+.opencode/ralph-loop.local.md

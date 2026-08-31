@@ -2,11 +2,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
-/// The Sift brand mark: a 6-petal asterisk-meets-star, hand-drawn with a
-/// CustomPainter — never Icons.auto_awesome or Icons.asterisk.
-///
-/// At large sizes (>= 56) the mark switches to a high-fidelity filled
-/// quadratic variant; smaller sizes render clean stroked petals.
+/// The Sift brand mark: a stylized funnel/filter shape — three stacked
+/// curved layers that taper downward, suggesting sifting through content.
+/// Replaces the previous 6-petal asterisk-star with a more distinctive mark
+/// that directly represents what the app does.
 class SiftMark extends StatelessWidget {
   final double size;
   final Color? color;
@@ -22,97 +21,112 @@ class SiftMark extends StatelessWidget {
         width: size,
         height: size,
         child: CustomPaint(
-          painter: SiftMarkPainter(
-            color: markColor,
-            filled: size >= 56,
-          ),
+          painter: SiftMarkPainter(color: markColor),
         ),
       ),
     );
   }
 }
 
-/// Paints the mark. Petals radiate at -90deg + k*60deg with tip radius
-/// 0.45s and stroke width 0.16s; a hub circle of 0.09s anchors the center.
+/// Paints the mark: three stacked curved layers tapering downward.
+///
+/// The shape evokes a sieve/filter — material enters wide at the top and
+/// is refined as it passes through each layer. The curves create an organic,
+/// warm feel consistent with the paper canvas design DNA.
+///
+/// At small sizes the curves render as clean strokes; at large sizes (>=56)
+/// they render as filled shapes with subtle depth.
 class SiftMarkPainter extends CustomPainter {
   final Color color;
-  final bool filled;
 
-  const SiftMarkPainter({required this.color, this.filled = false});
+  const SiftMarkPainter({required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
     final s = size.shortestSide;
-    final center = size.center(Offset.zero);
-    final tip = s * 0.45;
-    final hub = s * 0.09;
+    final cx = size.width / 2;
 
-    if (filled) {
-      _paintFilled(canvas, center, tip, hub, s);
-    } else {
-      _paintStroked(canvas, center, tip, hub, s);
+    // Three layers: top (widest), middle, bottom (narrowest).
+    // Each layer is a curved band that tapers inward.
+    final layers = [
+      _LayerConfig(
+        y: size.height * 0.18,
+        width: s * 0.82,
+        height: s * 0.22,
+        curveDepth: s * 0.06,
+      ),
+      _LayerConfig(
+        y: size.height * 0.42,
+        width: s * 0.62,
+        height: s * 0.22,
+        curveDepth: s * 0.05,
+      ),
+      _LayerConfig(
+        y: size.height * 0.64,
+        width: s * 0.42,
+        height: s * 0.20,
+        curveDepth: s * 0.04,
+      ),
+    ];
+
+    for (final layer in layers) {
+      _drawLayer(canvas, cx, layer, s);
     }
+
+    // Small hub circle at the bottom — the "sifted" result.
+    final hubRadius = s * 0.06;
+    final hubY = size.height * 0.88;
+    canvas.drawCircle(
+      Offset(cx, hubY),
+      hubRadius,
+      Paint()..color = color,
+    );
   }
 
-  void _paintStroked(Canvas canvas, Offset center, double tip, double hub, double s) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = s * 0.16
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
+  void _drawLayer(Canvas canvas, double cx, _LayerConfig layer, double s) {
+    final halfW = layer.width / 2;
+    final top = layer.y;
+    final mid = top + layer.height / 2;
+    final bottom = top + layer.height;
 
-    for (var k = 0; k < 6; k++) {
-      final angle = -math.pi / 2 + k * math.pi / 3;
-      final dir = Offset(math.cos(angle), math.sin(angle));
-      canvas.drawLine(center, center + dir * tip, paint);
-    }
-    canvas.drawCircle(center, hub, Paint()..color = color);
-  }
+    // Each layer is a rounded rectangle with curved top and bottom edges,
+    // creating the tapered sieve effect.
+    final path = Path()
+      ..moveTo(cx - halfW, top)
+      // Top edge curves inward slightly
+      ..quadraticBezierTo(cx, top - layer.curveDepth, cx + halfW, top)
+      // Right edge
+      ..lineTo(cx + halfW * 0.85, bottom)
+      // Bottom edge curves inward
+      ..quadraticBezierTo(cx, bottom + layer.curveDepth, cx - halfW * 0.85, bottom)
+      // Left edge
+      ..lineTo(cx - halfW, top)
+      ..close();
 
-  void _paintFilled(Canvas canvas, Offset center, double tip, double hub, double s) {
+    // Slight opacity gradient: top layer most opaque, bottom least.
+    final opacity = 1.0 - (layer.y / (s * 1.2)) * 0.3;
     final paint = Paint()
-      ..color = color
+      ..color = color.withOpacity(opacity.clamp(0.5, 1.0))
       ..style = PaintingStyle.fill;
 
-    final halfW = s * 0.16 * 0.62;
-    final inner = hub * 0.9;
-    final waist = tip * 0.45;
-
-    for (var k = 0; k < 6; k++) {
-      final angle = -math.pi / 2 + k * math.pi / 3;
-      final dir = Offset(math.cos(angle), math.sin(angle));
-      final perp = Offset(-dir.dy, dir.dx);
-
-      final baseIn = center + dir * inner;
-      final baseOut = center + dir * (inner + halfW * 0.3);
-      final tipPoint = center + dir * tip;
-      final cw = center + dir * waist;
-
-      final path = Path()
-        ..moveTo(
-          baseIn.dx - perp.dx * halfW * 0.45,
-          baseIn.dy - perp.dy * halfW * 0.45,
-        )
-        ..quadraticBezierTo(
-          cw.dx - perp.dx * halfW,
-          cw.dy - perp.dy * halfW,
-          tipPoint.dx,
-          tipPoint.dy,
-        )
-        ..quadraticBezierTo(
-          cw.dx + perp.dx * halfW,
-          cw.dy + perp.dy * halfW,
-          baseOut.dx + perp.dx * halfW * 0.45,
-          baseOut.dy + perp.dy * halfW * 0.45,
-        )
-        ..close();
-      canvas.drawPath(path, paint);
-    }
-    canvas.drawCircle(center, hub, paint);
+    canvas.drawPath(path, paint);
   }
 
   @override
   bool shouldRepaint(covariant SiftMarkPainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.filled != filled;
+      oldDelegate.color != color;
+}
+
+class _LayerConfig {
+  final double y;
+  final double width;
+  final double height;
+  final double curveDepth;
+
+  const _LayerConfig({
+    required this.y,
+    required this.width,
+    required this.height,
+    required this.curveDepth,
+  });
 }
