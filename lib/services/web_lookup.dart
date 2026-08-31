@@ -320,6 +320,76 @@ class WebLookupService {
     String query, {
     bool youtubeOnly = false,
   }) async {
+    // Tier 1: DuckDuckGo Instant Answer API (JSON, reliable).
+    try {
+      final iaResults = await _searchDuckDuckGoInstant(query, youtubeOnly: youtubeOnly);
+      if (iaResults.isNotEmpty) return iaResults;
+    } catch (_) {}
+
+    // Tier 2: HTML endpoint with robust link extraction (no CSS class dependency).
+    try {
+      return await _searchDuckDuckGoHtml(query, youtubeOnly: youtubeOnly);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// DuckDuckGo Instant Answer API — JSON endpoint that returns RelatedTopics.
+  /// Limited but never breaks when DDG changes their HTML.
+  Future<List<WebResult>> _searchDuckDuckGoInstant(
+    String query, {
+    bool youtubeOnly = false,
+  }) async {
+    final uri = Uri.parse('https://api.duckduckgo.com/').replace(
+      queryParameters: {'q': query, 'format': 'json', 'no_redirect': '1'},
+    );
+    final res = await _client.get(uri).timeout(_timeout);
+    if (res.statusCode != 200) return const [];
+
+    final body = jsonDecode(res.body);
+    if (body is! Map<String, dynamic>) return const [];
+
+    final results = <WebResult>[];
+    final seen = <String>{};
+
+    // Extract from RelatedTopics (array of maps with Text + FirstURL).
+    final topics = body['RelatedTopics'];
+    if (topics is List) {
+      for (final topic in topics) {
+        if (topic is! Map<String, dynamic>) continue;
+        // Flat topic
+        if (topic.containsKey('FirstURL')) {
+          final url = _stripToCore(topic['FirstURL'] as String? ?? '');
+          if (url.isEmpty || !seen.add(url)) continue;
+          if (youtubeOnly && !_isWatchableYouTube(url)) continue;
+          final title = topic['Text'] as String? ?? url;
+          results.add(WebResult(title: title, url: url));
+          if (results.length >= _maxLinks) break;
+        }
+        // Grouped topic — may contain sub-topics
+        final subTopics = topic['Topics'];
+        if (subTopics is List) {
+          for (final sub in subTopics) {
+            if (sub is! Map<String, dynamic>) continue;
+            final url = _stripToCore(sub['FirstURL'] as String? ?? '');
+            if (url.isEmpty || !seen.add(url)) continue;
+            if (youtubeOnly && !_isWatchableYouTube(url)) continue;
+            final title = sub['Text'] as String? ?? url;
+            results.add(WebResult(title: title, url: url));
+            if (results.length >= _maxLinks) break;
+          }
+        }
+        if (results.length >= _maxLinks) break;
+      }
+    }
+    return results;
+  }
+
+  /// DuckDuckGo HTML endpoint — extract links by href pattern, not CSS classes.
+  Future<List<WebResult>> _searchDuckDuckGoHtml(
+    String query, {
+    bool youtubeOnly = false,
+  }) async {
     final res = await _client
         .post(
           Uri.parse('https://html.duckduckgo.com/html/'),
@@ -348,28 +418,25 @@ class WebLookupService {
       return const [];
     }
 
+    // Robust extraction: find all <a> tags with href, extract URLs that look
+    // like real external links (not DDG navigation, not internal anchors).
     final linkRegex = RegExp(
-      r'<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
-      caseSensitive: false,
-      dotAll: true,
-    );
-    final linkRegexAlt = RegExp(
-      r'<a[^>]*href="([^"]+)"[^>]*class="[^"]*result__a[^"]*"[^>]*>(.*?)</a>',
+      r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
       caseSensitive: false,
       dotAll: true,
     );
     final seen = <String>{};
     final results = <WebResult>[];
-    for (final regex in [linkRegex, linkRegexAlt]) {
-      for (final m in regex.allMatches(res.body)) {
-        final url = _realUrl(m.group(1) ?? '');
-        if (url.isEmpty) continue;
-        if (youtubeOnly && !_isWatchableYouTube(url)) continue;
-        if (!seen.add(url)) continue;
-        final title = _cleanTitle(m.group(2) ?? '');
-        results.add(WebResult(title: title.isEmpty ? url : title, url: url));
-        if (results.length >= _maxLinks) break;
-      }
+    for (final m in linkRegex.allMatches(res.body)) {
+      final url = _realUrl(m.group(1) ?? '');
+      if (url.isEmpty) continue;
+      // Skip DDG internal links, navigation, and non-http(s) URLs.
+      if (url.contains('duckduckgo.com')) continue;
+      if (!url.startsWith('http')) continue;
+      if (youtubeOnly && !_isWatchableYouTube(url)) continue;
+      if (!seen.add(url)) continue;
+      final title = _cleanTitle(m.group(2) ?? '');
+      results.add(WebResult(title: title.isEmpty ? url : title, url: url));
       if (results.length >= _maxLinks) break;
     }
     return results;

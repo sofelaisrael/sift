@@ -40,7 +40,6 @@ class ScreenshotProvider extends ChangeNotifier {
   List<Screenshot> _screenshots = [];
   Map<String, Screenshot> _byPath = {};
   Set<String> _hiddenPaths = {};
-  Map<String, String> _searchBlobs = {};
   Map<String, Set<String>> _tagIndex = {};
   bool _isLoading = false;
   String? _error;
@@ -50,6 +49,23 @@ class ScreenshotProvider extends ChangeNotifier {
   Future<void> _queueTail = Future.value();
   Future<void> _writeTail = Future.value();
   int _pendingNotifies = 0;
+
+  // Inverted index: word → {screenshotId: fieldWeightScore}
+  // Built at load time and updated incrementally on add/delete.
+  // Field weights: summary=5, description=4, tags=3, objects/recognitions/lamType=2, ocrText/fileName/extractedData=1.
+  static const int _wSummary = 5;
+  static const int _wDescription = 4;
+  static const int _wTags = 3;
+  static const int _wObjects = 2;
+  static const int _wRecognitions = 2;
+  static const int _wLamType = 2;
+  static const int _wOcr = 1;
+  static const int _wFileName = 1;
+  static const int _wExtractedData = 1;
+  static const int _wSearchKeywords = 4;
+  static const int _maxWordLength = 64;
+  static final RegExp _wordSplitter = RegExp(r'[^\w\u4e00-\u9fff]+');
+  Map<String, Map<String, int>> _invertedIndex = {};
 
   List<Screenshot> get screenshots => _screenshots;
   bool get isLoading => _isLoading;
@@ -275,6 +291,7 @@ class ScreenshotProvider extends ChangeNotifier {
         extractedData: lamResponse.extractedData.isEmpty
             ? null
             : lamResponse.extractedData,
+        searchKeywords: lamResponse.searchKeywords,
         webResults: const [],
       );
 
@@ -324,36 +341,82 @@ class ScreenshotProvider extends ChangeNotifier {
     _screenshots.insert(lo, screenshot);
   }
 
-  String _searchBlobFor(Screenshot s) {
-    final ocr = s.ocrText ?? '';
-    final ocrCapped = ocr.length > _ocrBlobCap
-        ? ocr.substring(0, _ocrBlobCap)
-        : ocr;
-    return [
-      s.fileName,
-      s.summary,
-      s.description,
-      s.lamType,
-      ...s.recognitions,
-      ...s.objects,
-      ...s.tags,
-      ...?s.extractedData?.entries.map((e) => '${e.key} ${e.value}'),
-      ocrCapped,
-    ].whereType<String>().join(' ').toLowerCase();
+  /// Tokenize a text into lowercase words, capped at [_maxWordLength] chars.
+  static List<String> _tokenize(String text) {
+    return text
+        .toLowerCase()
+        .split(_wordSplitter)
+        .where((w) => w.isNotEmpty && w.length <= _maxWordLength)
+        .toList();
   }
 
+  /// Add [id] with [weight] for every word in [text] to the inverted index.
+  void _addTerms(String? text, String id, int weight, {Map<String, Map<String, int>>? index}) {
+    if (text == null || text.isEmpty) return;
+    final idx = index ?? _invertedIndex;
+    for (final word in _tokenize(text)) {
+      idx.putIfAbsent(word, () => <String, int>{});
+      idx[word]![id] = (idx[word]![id] ?? 0) + weight;
+    }
+  }
+
+  /// Remove [id] from every posting in the inverted index.
+  void _removeId(String id) {
+    final toDelete = <String>[];
+    for (final entry in _invertedIndex.entries) {
+      entry.value.remove(id);
+      if (entry.value.isEmpty) toDelete.add(entry.key);
+    }
+    for (final key in toDelete) {
+      _invertedIndex.remove(key);
+    }
+  }
+
+  /// Build the inverted index for a single screenshot.
   void _indexScreenshot(Screenshot s) {
+    // Remove old tags from tag index
     for (final ids in _tagIndex.values) {
       ids.remove(s.id);
     }
-    _searchBlobs[s.id] = _searchBlobFor(s);
+    // Remove old inverted index entries
+    _removeId(s.id);
+
+    // Build fresh inverted index with field weights
+    _addTerms(s.summary, s.id, _wSummary);
+    _addTerms(s.description, s.id, _wDescription);
+    _addTerms(s.fileName, s.id, _wFileName);
+    _addTerms(s.lamType, s.id, _wLamType);
+    for (final tag in s.tags) {
+      _addTerms(tag, s.id, _wTags);
+    }
+    for (final obj in s.objects) {
+      _addTerms(obj, s.id, _wObjects);
+    }
+    for (final rec in s.recognitions) {
+      _addTerms(rec, s.id, _wRecognitions);
+    }
+    for (final kw in s.searchKeywords) {
+      _addTerms(kw, s.id, _wSearchKeywords);
+    }
+    if (s.extractedData != null) {
+      for (final e in s.extractedData!.entries) {
+        _addTerms('${e.key} ${e.value}', s.id, _wExtractedData);
+      }
+    }
+    // OCR text gets weight 1 but is capped to avoid bloating the index
+    final ocr = s.ocrText ?? '';
+    if (ocr.isNotEmpty) {
+      _addTerms(ocr.length > _ocrBlobCap ? ocr.substring(0, _ocrBlobCap) : ocr, s.id, _wOcr);
+    }
+
+    // Rebuild tag index
     for (final t in s.tags) {
       _tagIndex.putIfAbsent(t.toLowerCase(), () => <String>{}).add(s.id);
     }
   }
 
   void _rebuildIndexes() {
-    _searchBlobs = {};
+    _invertedIndex = {};
     _tagIndex = {};
     for (final s in _screenshots) {
       _indexScreenshot(s);
@@ -654,7 +717,7 @@ class ScreenshotProvider extends ChangeNotifier {
     _screenshots = [];
     _byPath = {};
     _hiddenPaths = {};
-    _searchBlobs = {};
+    _invertedIndex = {};
     _tagIndex = {};
     _error = null;
     _processingStatus = '';
@@ -662,8 +725,9 @@ class ScreenshotProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Local keyword search across summaries, descriptions, text, tags, and
-  /// file names. Returns most relevant visible screenshots first.
+  /// Local keyword search using inverted index with field weighting.
+  /// Returns most relevant visible screenshots first. O(t × avg_postings)
+  /// instead of O(n × t) for the old linear scan.
   List<Screenshot> search(String query, {int limit = 5}) {
     // Min-query gate: 2 chars for non-CJK, 1 char for CJK (single kanji
     // queries are legitimate).
@@ -671,7 +735,7 @@ class ScreenshotProvider extends ChangeNotifier {
 
     var terms = query
         .toLowerCase()
-        .split(RegExp(r'[^\w\u4e00-\u9fff]+'))
+        .split(_wordSplitter)
         .where((t) => t.isNotEmpty)
         .toList();
     if (terms.isEmpty) return [];
@@ -679,15 +743,28 @@ class ScreenshotProvider extends ChangeNotifier {
       terms = terms.sublist(0, _maxQueryTerms);
     }
 
-    final scored = <({Screenshot screenshot, int score})>[];
-    for (final s in _visible) {
-      final blob = _searchBlobs[s.id];
-      if (blob == null) continue;
-      var score = 0;
-      for (final term in terms) {
-        if (blob.contains(term)) score++;
+    // Collect candidate screenshot IDs and sum their weighted scores.
+    final scores = <String, int>{};
+    for (final term in terms) {
+      final postings = _invertedIndex[term];
+      if (postings == null) continue;
+      for (final entry in postings.entries) {
+        // Only count hidden-path-free screenshots (checked later).
+        scores[entry.key] = (scores[entry.key] ?? 0) + entry.value;
       }
-      if (score > 0) scored.add((screenshot: s, score: score));
+    }
+
+    if (scores.isEmpty) return [];
+
+    // Build scored list, filtering hidden screenshots.
+    final scored = <({Screenshot screenshot, int score})>[];
+    for (final entry in scores.entries) {
+      final s = _byPath.values.cast<Screenshot?>().firstWhere(
+            (ss) => ss!.id == entry.key,
+            orElse: () => null,
+          );
+      if (s == null || _hiddenPaths.contains(s.filePath)) continue;
+      scored.add((screenshot: s, score: entry.value));
     }
 
     scored.sort((a, b) => b.score.compareTo(a.score));
@@ -698,7 +775,7 @@ class ScreenshotProvider extends ChangeNotifier {
     final matches = _screenshots.where((s) => s.id == id).toList();
     if (matches.isNotEmpty) {
       _byPath.remove(matches.first.filePath);
-      _searchBlobs.remove(id);
+      _removeId(id);
       for (final ids in _tagIndex.values) {
         ids.remove(id);
       }

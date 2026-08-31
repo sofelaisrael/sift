@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -33,7 +34,58 @@ class _HomeScreenState extends State<HomeScreen> {
   final Set<String> _selected = {};
   bool _wasIngesting = false;
 
+  // Search state with debounce
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  String _searchQuery = '';
+  List<Screenshot> _searchResults = [];
+  bool _isSearching = false;
+
   bool get _selecting => _selected.isNotEmpty;
+
+  Timer? _searchDebounce;
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String query) {
+    _searchDebounce?.cancel();
+    if (query.trim().length < 2 && !_cjk.hasMatch(query)) {
+      setState(() {
+        _searchQuery = '';
+        _searchResults = [];
+        _isSearching = false;
+      });
+      return;
+    }
+    setState(() => _isSearching = true);
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      final provider = context.read<ScreenshotProvider>();
+      final results = provider.search(query, limit: 50);
+      setState(() {
+        _searchQuery = query;
+        _searchResults = results;
+        _isSearching = false;
+      });
+    });
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() {
+      _searchQuery = '';
+      _searchResults = [];
+      _isSearching = false;
+    });
+  }
+
+  static final RegExp _cjk = RegExp(r'[\u4e00-\u9fff]');
 
   @override
   Widget build(BuildContext context) {
@@ -82,6 +134,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       onCapture: () => _pickScreenshot(context),
                     ),
                     _buildBrandRow(context, provider),
+                    _buildSearchBar(context),
                     if (provider.tags.isNotEmpty)
                       _buildTagChips(context, provider),
                     if (ingest.isIngesting)
@@ -140,9 +193,59 @@ class _HomeScreenState extends State<HomeScreen> {
     BuildContext context,
     ScreenshotProvider provider,
   ) {
+    final s = AppTheme.of(context);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final yesterday = today.subtract(const Duration(days: 1));
+
+    // When searching, show flat search results instead of time groups.
+    if (_searchQuery.isNotEmpty) {
+      if (_searchResults.isEmpty) {
+        return [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: _SearchEmptyState(query: _searchQuery),
+          ),
+        ];
+      }
+      return [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+            child: Text(
+              '${_searchResults.length} result${_searchResults.length == 1 ? '' : 's'}',
+              style: SiftType.metaLabel.copyWith(color: s.stone),
+            ),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                final screenshot = _searchResults[index];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _SiftCard(
+                    screenshot: screenshot,
+                    selecting: _selecting,
+                    selected: _selected.contains(screenshot.id),
+                    onTap: () => _onCardTap(context, screenshot),
+                    onLongPress: _selecting
+                        ? null
+                        : () => _startSelection(screenshot),
+                    onToggleSelect: _selecting
+                        ? () => _toggleSelection(screenshot.id)
+                        : null,
+                  ),
+                );
+              },
+              childCount: _searchResults.length,
+            ),
+          ),
+        ),
+      ];
+    }
 
     final source = _activeTag == null
         ? provider.visibleScreenshots
@@ -289,6 +392,59 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icon(Icons.history_rounded, color: s.stone),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchBar(BuildContext context) {
+    final s = AppTheme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: MotionTokens.easeOutCubic,
+          decoration: BoxDecoration(
+            color: s.paper,
+            borderRadius: BorderRadius.circular(SiftRadii.rField),
+            border: Border.all(
+              color: _searchFocusNode.hasFocus ? s.accent : s.divider,
+              width: _searchFocusNode.hasFocus ? 1.5 : AppTheme.hairline(isDark),
+            ),
+          ),
+          child: Row(
+            children: [
+              const SizedBox(width: 14),
+              Icon(Icons.search_rounded, size: 20, color: s.stone),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  onChanged: _onSearchChanged,
+                  style: SiftType.bodySansMd.copyWith(color: s.ink),
+                  decoration: InputDecoration(
+                    hintText: 'Search your screenshots…',
+                    hintStyle: SiftType.bodySansMd.copyWith(color: s.stone),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              if (_searchQuery.isNotEmpty || _isSearching)
+                IconButton(
+                  icon: Icon(Icons.close_rounded, size: 18, color: s.stone),
+                  onPressed: _clearSearch,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                ),
+              const SizedBox(width: 8),
+            ],
+          ),
         ),
       ),
     );
@@ -644,6 +800,44 @@ class _TagFilterEmptyState extends StatelessWidget {
             FilledButton(
               onPressed: onClear,
               child: const Text('Show all screenshots'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchEmptyState extends StatelessWidget {
+  final String query;
+
+  const _SearchEmptyState({required this.query});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppTheme.of(context);
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.search_off_rounded, size: 40, color: s.stone),
+            const SizedBox(height: 28),
+            Text(
+              'No matches for "$query"',
+              textAlign: TextAlign.center,
+              style: SiftType.serifDisplay.copyWith(color: s.ink),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Try different words, or check your tags.',
+              textAlign: TextAlign.center,
+              style: SiftType.bodySans.copyWith(
+                color: s.graphite,
+                height: 1.5,
+              ),
             ),
           ],
         ),
