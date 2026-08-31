@@ -234,9 +234,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     onLongPress: _selecting
                         ? null
                         : () => _startSelection(screenshot),
-                    onToggleSelect: _selecting
-                        ? () => _toggleSelection(screenshot.id)
-                        : null,
                   ),
                 );
               },
