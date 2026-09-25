@@ -49,8 +49,6 @@ void main() {
     final provider = ScreenshotProvider(ocr: ocr, labeler: labeler);
     final svc = IngestService(
       provider: provider,
-      ocr: ocr,
-      labeler: labeler,
       enumerator: FileEnumerator(folders: [shotDir.path]),
       retryDelays: const [],
     );
@@ -93,8 +91,6 @@ void main() {
     final provider = ScreenshotProvider(ocr: ocr, labeler: labeler);
     final svc = IngestService(
       provider: provider,
-      ocr: ocr,
-      labeler: labeler,
       enumerator: FileEnumerator(folders: [shotDir.path]),
       retryDelays: const [],
     );

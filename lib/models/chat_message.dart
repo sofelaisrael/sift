@@ -37,6 +37,14 @@ class ChatMessage {
 
   bool get isUser => role == 'user';
 
+  List<Map<String, String>> relatedLinksForDisplay({required bool localOnly}) {
+    if (!localOnly) return relatedLinks;
+    return [
+      for (final link in relatedLinks)
+        Map<String, String>.from(link)..remove('thumb'),
+    ];
+  }
+
   static List<String> _stringList(dynamic value) {
     if (value is List) {
       return value.whereType<String>().toList();

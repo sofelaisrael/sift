@@ -48,6 +48,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final Set<String> _streamingIds = {};
   bool _sending = false;
   List<String> _recentQueries = [];
+  ScreenshotProvider? _screenshotProvider;
+  int _deletionRevision = 0;
 
   static const List<String> _examplePrompts = [
     'What recipes did I save?',
@@ -65,7 +67,43 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = context.read<ScreenshotProvider>();
+    if (!identical(_screenshotProvider, provider)) {
+      _screenshotProvider?.removeListener(_onProviderChanged);
+      _screenshotProvider = provider;
+      provider.addListener(_onProviderChanged);
+    }
+    _syncDeletionRevision(provider);
+  }
+
+  void _onProviderChanged() {
+    final provider = _screenshotProvider;
+    if (provider == null || !mounted) return;
+    final revision = provider.deletionRevision;
+    if (revision == _deletionRevision) return;
+    _deletionRevision = revision;
+    setState(_clearInMemoryTranscript);
+  }
+
+  void _syncDeletionRevision(ScreenshotProvider provider) {
+    if (provider.deletionRevision == _deletionRevision) return;
+    _deletionRevision = provider.deletionRevision;
+    _clearInMemoryTranscript();
+  }
+
+  void _clearInMemoryTranscript() {
+    _messages = [];
+    _sources.clear();
+    _streamingIds.clear();
+    _recentQueries = [];
+    _sending = false;
+  }
+
+  @override
   void dispose() {
+    _screenshotProvider?.removeListener(_onProviderChanged);
     _controller.removeListener(_onTextChanged);
     _controller.dispose();
     _scrollController.dispose();
@@ -77,10 +115,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _loadMessages() async {
+    final provider = context.read<ScreenshotProvider>();
+    final revision = provider.deletionRevision;
     final box = Hive.box('chat');
     final history = box.get('history');
-    if (history != null && mounted) {
-      final provider = context.read<ScreenshotProvider>();
+    if (history != null &&
+        mounted &&
+        !provider.isDeleting &&
+        provider.deletionRevision == revision &&
+        _deletionRevision == revision) {
       final byId = {for (final s in provider.screenshots) s.id: s};
       final messages = (history as List)
           .map((m) => ChatMessage.fromJson(Map<String, dynamic>.from(m)))
@@ -101,19 +144,33 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _saveMessages() async {
+    final provider = _screenshotProvider ?? context.read<ScreenshotProvider>();
+    final revision = provider.deletionRevision;
+    if (provider.isDeleting || revision != _deletionRevision) return;
     final box = Hive.box('chat');
     await box.put('history', _messages.map((m) => m.toJson()).toList());
+    if (provider.isDeleting || provider.deletionRevision != revision) {
+      await box.delete('history');
+    }
   }
 
   Future<void> _loadRecentQueries() async {
+    final provider = context.read<ScreenshotProvider>();
+    final revision = provider.deletionRevision;
     final prefs = await SharedPreferences.getInstance();
     final history = prefs.getStringList('chat_history') ?? const [];
-    if (mounted) {
+    if (mounted &&
+        !provider.isDeleting &&
+        provider.deletionRevision == revision &&
+        _deletionRevision == revision) {
       setState(() => _recentQueries = history);
     }
   }
 
   Future<void> _recordQuery(String text) async {
+    final provider = _screenshotProvider ?? context.read<ScreenshotProvider>();
+    final revision = provider.deletionRevision;
+    if (provider.isDeleting || revision != _deletionRevision) return;
     final capped = text.length > 120 ? text.substring(0, 120) : text;
     final prefs = await SharedPreferences.getInstance();
     final history = prefs.getStringList('chat_history') ?? <String>[];
@@ -124,7 +181,11 @@ class _ChatScreenState extends State<ChatScreen> {
       history.removeRange(20, history.length);
     }
     await prefs.setStringList('chat_history', history);
-    if (mounted) {
+    if (provider.isDeleting || provider.deletionRevision != revision) {
+      await prefs.remove('chat_history');
+      return;
+    }
+    if (mounted && _deletionRevision == revision) {
       setState(() => _recentQueries = history);
     }
   }
@@ -134,8 +195,17 @@ class _ChatScreenState extends State<ChatScreen> {
     await _runQuery(text, addUser: true);
   }
 
+  bool _queryIsCurrent(ScreenshotProvider provider, int revision) {
+    return !provider.isDeleting &&
+        provider.deletionRevision == revision &&
+        _deletionRevision == revision;
+  }
+
   Future<void> _runQuery(String text, {required bool addUser}) async {
     if (text.isEmpty || _sending) return;
+    final provider = _screenshotProvider ?? context.read<ScreenshotProvider>();
+    final queryRevision = provider.deletionRevision;
+    if (!_queryIsCurrent(provider, queryRevision)) return;
     _controller.clear();
 
     final startedAt = DateTime.now();
@@ -153,14 +223,20 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       await _saveMessages();
       await _recordQuery(text);
+      if (!_queryIsCurrent(provider, queryRevision)) {
+        if (mounted) setState(() => _sending = false);
+        return;
+      }
     } else {
       setState(() => _sending = true);
     }
-    if (!mounted) return;
+    if (!mounted || !_queryIsCurrent(provider, queryRevision)) {
+      if (mounted) setState(() => _sending = false);
+      return;
+    }
     _scrollToBottom();
 
     try {
-      final provider = context.read<ScreenshotProvider>();
       final results = provider.search(text);
 
       final engine = ChatEngine(
@@ -173,11 +249,12 @@ class _ChatScreenState extends State<ChatScreen> {
         results: results,
         localOnly: provider.localOnly,
       );
+      if (!_queryIsCurrent(provider, queryRevision)) return;
       final reply = replyResult.content;
       final relatedLinks = replyResult.relatedLinks;
 
       if (replyResult.blocked) {
-        if (!mounted) return;
+        if (!mounted || !_queryIsCurrent(provider, queryRevision)) return;
         final blockedMsg = ChatMessage(
           id: _uuid.v4(),
           role: 'assistant',
@@ -195,7 +272,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
 
       await _ensureMinTyping(startedAt);
-      if (!mounted) return;
+      if (!mounted || !_queryIsCurrent(provider, queryRevision)) return;
 
       final asstMsg = ChatMessage(
         id: _uuid.v4(),
@@ -214,7 +291,7 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) {
       debugPrint('Chat error: ${e.toString()}');
       await _ensureMinTyping(startedAt);
-      if (!mounted) return;
+      if (!mounted || !_queryIsCurrent(provider, queryRevision)) return;
       final errMsg = ChatMessage(
         id: _uuid.v4(),
         role: 'assistant',
@@ -309,6 +386,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final localOnly = context.watch<ScreenshotProvider>().localOnly;
     return SafeArea(
       bottom: false,
       child: Column(
@@ -321,7 +399,7 @@ class _ChatScreenState extends State<ChatScreen> {
               switchOutCurve: MotionTokens.easeInCubic,
               child: _messages.isEmpty
                   ? _buildHero(context)
-                  : _buildConversation(context),
+                  : _buildConversation(context, localOnly: localOnly),
             ),
           ),
           if (_messages.isNotEmpty) _buildComposer(context),
@@ -440,7 +518,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
           const SizedBox(height: 32),
           Text(
-            'Your screenshots stay on this device. AI analysis sends images to the provider you choose — or turn on Local-only mode in More.',
+            'Screenshot images and OCR text stay on this device. Google Play services may download the small image-labeling model on first use. Cloud chat sends screenshot-derived text and context to your chosen provider, and optional source lookup can query the web. Local-only mode prevents cloud chat and source lookup.',
             style: SiftType.bodySansMd.copyWith(
               fontSize: 13,
               height: 1.45,
@@ -452,7 +530,10 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildConversation(BuildContext context) {
+  Widget _buildConversation(
+    BuildContext context, {
+    required bool localOnly,
+  }) {
     return ListView.builder(
       key: const ValueKey('conversation'),
       controller: _scrollController,
@@ -465,13 +546,17 @@ class _ChatScreenState extends State<ChatScreen> {
             child: TypingRow(),
           );
         }
-        return _buildTurn(_messages[index]);
+        return _buildTurn(_messages[index], localOnly: localOnly);
       },
     );
   }
 
-  Widget _buildTurn(ChatMessage message) {
+  Widget _buildTurn(
+    ChatMessage message, {
+    required bool localOnly,
+  }) {
     final sources = _sources[message.id];
+    final relatedLinks = message.relatedLinksForDisplay(localOnly: localOnly);
 
     if (message.isUser) {
       return Padding(
@@ -502,9 +587,9 @@ class _ChatScreenState extends State<ChatScreen> {
             onRegenerate:
                 message.id == _messages.lastOrNull?.id ? _regenerate : null,
           ),
-          if (message.relatedLinks.isNotEmpty) ...[
+          if (relatedLinks.isNotEmpty) ...[
             const SizedBox(height: 16),
-            RelatedLinksStrip(links: message.relatedLinks),
+            RelatedLinksStrip(links: relatedLinks),
           ],
         ],
       ),

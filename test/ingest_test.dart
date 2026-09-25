@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,6 +9,25 @@ import 'package:screensort_lam/providers/screenshot_provider.dart';
 import 'package:screensort_lam/services/file_enumerator.dart';
 import 'package:screensort_lam/services/ingest_service.dart';
 import 'package:screensort_lam/services/ocr_service.dart';
+import 'package:screensort_lam/services/screenshot_analyzer.dart';
+
+class _GatedAnalyzer implements ScreenshotAnalyzer {
+  final entered = Completer<void>();
+  final release = Completer<ScreenshotAnalysisResult>();
+  int calls = 0;
+
+  @override
+  Future<ScreenshotAnalysisResult> analyze(String imagePath) {
+    calls++;
+    if (calls == 1) {
+      entered.complete();
+      return release.future;
+    }
+    return Future<ScreenshotAnalysisResult>.value(
+      ScreenshotAnalysisResult(ocrText: 'restarted text'),
+    );
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -46,7 +67,6 @@ void main() {
     final provider = ScreenshotProvider(ocr: ocr);
     return IngestService(
       provider: provider,
-      ocr: ocr,
       enumerator: FileEnumerator(folders: [shotDir.path]),
       retryDelays: const [],
     );
@@ -88,7 +108,7 @@ void main() {
     final p1 = await makeShot('a', DateTime(2026, 1, 1, 8));
     final p2 = await makeShot('b', DateTime(2026, 1, 2, 9));
 
-    // Simulate a pass that died mid-OCR: one entry stuck in processing.
+    // Simulate a pass that died mid-analysis: one entry stuck in processing.
     final box = Hive.box('ingest');
     await box.put(p1, {
       'status': 'processing',
@@ -109,7 +129,7 @@ void main() {
     expect(entries[p2]!['status'], 'done');
   });
 
-  test('OCR failure is retried then marked failed; missing file is skipped',
+  test('OCR failure is retried then marked failed',
       () async {
     await Hive.openBox('screenshots');
     await Hive.openBox('ingest');
@@ -129,7 +149,6 @@ void main() {
     final provider = ScreenshotProvider(ocr: ocr);
     final svc = IngestService(
       provider: provider,
-      ocr: ocr,
       enumerator: FileEnumerator(folders: [shotDir.path]),
       retryDelays: const [Duration.zero, Duration.zero],
     );
@@ -142,13 +161,15 @@ void main() {
     expect(provider.screenshots.length, 1);
   });
 
-  test('a file deleted mid-pass is marked skipped', () async {
+  test('a production FileSystemException skips without retry', () async {
     await Hive.openBox('screenshots');
     await Hive.openBox('ingest');
     await Hive.openBox('hidden_paths');
 
     final doomed = await makeShot('doomed', DateTime(2026, 1, 1));
+    var attempts = 0;
     final ocr = OCRService(extractOverride: (p) async {
+      attempts++;
       // Simulate the file disappearing between enumeration and OCR.
       await File(p).delete();
       return File(p).readAsString(); // throws FileSystemException
@@ -156,14 +177,205 @@ void main() {
     final provider = ScreenshotProvider(ocr: ocr);
     final svc = IngestService(
       provider: provider,
-      ocr: ocr,
       enumerator: FileEnumerator(folders: [shotDir.path]),
-      retryDelays: const [],
+      retryDelays: const [Duration.zero, Duration.zero],
     );
     await svc.start();
 
     final entries = Hive.box('ingest').toMap().cast<String, Map<dynamic, dynamic>>();
     expect(entries[doomed]!['status'], 'skipped');
+    expect(attempts, 1);
     expect(provider.screenshots, isEmpty);
+  });
+
+  test('a production PlatformException after deletion skips without retry',
+      () async {
+    await Hive.openBox('screenshots');
+    await Hive.openBox('ingest');
+    await Hive.openBox('hidden_paths');
+
+    final doomed = await makeShot('platform', DateTime(2026, 1, 1));
+    var attempts = 0;
+    final ocr = OCRService(extractOverride: (p) async {
+      attempts++;
+      await File(p).delete();
+      throw PlatformException(
+        code: 'OCR_FILE_ERROR',
+        message: 'The native OCR file was removed',
+      );
+    });
+    final provider = ScreenshotProvider(ocr: ocr);
+    final svc = IngestService(
+      provider: provider,
+      enumerator: FileEnumerator(folders: [shotDir.path]),
+      retryDelays: const [Duration.zero, Duration.zero],
+    );
+    await svc.start();
+
+    final entries = Hive.box('ingest').toMap().cast<String, Map<dynamic, dynamic>>();
+    expect(entries[doomed]!['status'], 'skipped');
+    expect(entries[doomed]!['lastError'], contains('Unable to access file'));
+    expect(attempts, 1);
+    expect(provider.screenshots, isEmpty);
+  });
+
+  test('an existing-file FileSystemException is retried and failed', () async {
+    await Hive.openBox('screenshots');
+    await Hive.openBox('ingest');
+    await Hive.openBox('hidden_paths');
+
+    final existing = await makeShot('io-error', DateTime(2026, 1, 1));
+    var attempts = 0;
+    final ocr = OCRService(extractOverride: (_) async {
+      attempts++;
+      throw FileSystemException('permission denied', existing);
+    });
+    final provider = ScreenshotProvider(ocr: ocr);
+    final svc = IngestService(
+      provider: provider,
+      enumerator: FileEnumerator(folders: [shotDir.path]),
+      retryDelays: const [Duration.zero, Duration.zero],
+    );
+    await svc.start();
+
+    final entries = Hive.box('ingest').toMap().cast<String, Map<dynamic, dynamic>>();
+    expect(entries[existing]!['status'], 'failed');
+    expect(entries[existing]!['lastError'], contains('OCR failed'));
+    expect(attempts, 3);
+    expect(provider.screenshots, isEmpty);
+  });
+
+  test('an existing-file PlatformException is sanitized and retried', () async {
+    await Hive.openBox('screenshots');
+    await Hive.openBox('ingest');
+    await Hive.openBox('hidden_paths');
+
+    final existing = await makeShot('native-error', DateTime(2026, 1, 1));
+    var attempts = 0;
+    final ocr = OCRService(
+      extractOverride: (_) async {
+        attempts++;
+        throw PlatformException(
+          code: 'OCR_NATIVE_ERROR',
+          message: 'native detail',
+        );
+      },
+    );
+    final provider = ScreenshotProvider(ocr: ocr);
+    final svc = IngestService(
+      provider: provider,
+      enumerator: FileEnumerator(folders: [shotDir.path]),
+      retryDelays: const [Duration.zero, Duration.zero],
+    );
+    await svc.start();
+
+    final entries = Hive.box('ingest').toMap().cast<String, Map<dynamic, dynamic>>();
+    expect(entries[existing]!['status'], 'failed');
+    expect(entries[existing]!['lastError'], contains('OCR failed'));
+    expect(entries[existing]!['lastError'], isNot(contains('OCR_NATIVE_ERROR')));
+    expect(attempts, 3);
+  });
+
+  test('an async StateError is sanitized and retried', () async {
+    await Hive.openBox('screenshots');
+    await Hive.openBox('ingest');
+    await Hive.openBox('hidden_paths');
+
+    final existing = await makeShot('state-error', DateTime(2026, 1, 1));
+    var attempts = 0;
+    final ocr = OCRService(extractOverride: (_) async {
+      attempts++;
+      await Future<void>.delayed(Duration.zero);
+      throw StateError('state detail');
+    });
+    final provider = ScreenshotProvider(ocr: ocr);
+    final svc = IngestService(
+      provider: provider,
+      enumerator: FileEnumerator(folders: [shotDir.path]),
+      retryDelays: const [Duration.zero, Duration.zero],
+    );
+    await svc.start();
+
+    final entries = Hive.box('ingest').toMap().cast<String, Map<dynamic, dynamic>>();
+    expect(entries[existing]!['status'], 'failed');
+    expect(entries[existing]!['lastError'], contains('OCR failed'));
+    expect(attempts, 3);
+    expect(provider.screenshots, isEmpty);
+  });
+
+  test('stop drains no new work, records stopped metadata, and can restart',
+      () async {
+    await Hive.openBox('screenshots');
+    await Hive.openBox('ingest');
+    await Hive.openBox('hidden_paths');
+
+    final path = await makeShot('stoppable', DateTime(2026, 1, 1));
+    final analyzer = _GatedAnalyzer();
+    final provider = ScreenshotProvider(analyzer: analyzer);
+    final service = IngestService(
+      provider: provider,
+      enumerator: FileEnumerator(folders: [shotDir.path]),
+      retryDelays: const [],
+    );
+
+    final firstStart = service.start();
+    await analyzer.entered.future;
+    final stop = service.stop();
+    expect(service.isStopped, isTrue);
+    expect(service.remaining, 0);
+
+    analyzer.release.complete(
+      ScreenshotAnalysisResult(ocrText: 'discarded after stop'),
+    );
+    await stop;
+    await firstStart;
+
+    final meta = Hive.box('ingest').get('__meta') as Map;
+    expect(meta['running'], isFalse);
+    expect(meta['status'], 'stopped');
+    expect(provider.screenshots, isEmpty);
+
+    await service.start();
+    expect(provider.screenshots, hasLength(1));
+    expect(provider.screenshots.single.filePath, path);
+  });
+
+  test('crash recovery skips a processing entry whose file disappeared',
+      () async {
+    await Hive.openBox('screenshots');
+    await Hive.openBox('ingest');
+    await Hive.openBox('hidden_paths');
+
+    final missing = '${shotDir.path}/gone.png'.replaceAll('\\', '/');
+    await Hive.box('ingest').put(missing, {
+      'status': 'processing',
+      'attempts': 0,
+      'lastError': null,
+      'enqueuedAt': DateTime.now().toIso8601String(),
+      'processedAt': null,
+      'screenshotId': null,
+    });
+    var analyzerCalls = 0;
+    final provider = ScreenshotProvider(
+      ocr: OCRService(
+        extractOverride: (_) async {
+          analyzerCalls++;
+          return '';
+        },
+      ),
+    );
+    final svc = IngestService(
+      provider: provider,
+      enumerator: FileEnumerator(folders: [shotDir.path]),
+      retryDelays: const [],
+    );
+
+    await svc.start();
+
+    final entry = Hive.box('ingest').get(missing) as Map;
+    expect(entry['status'], 'skipped');
+    expect(entry['attempts'], 0);
+    expect(svc.processedCount, 0);
+    expect(analyzerCalls, 0);
   });
 }

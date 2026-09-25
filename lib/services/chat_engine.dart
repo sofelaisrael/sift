@@ -61,21 +61,29 @@ class ChatEngine {
       );
     }
 
+    // Resolve no key until the persisted name is known to be supported.
+    final prefs = await SharedPreferences.getInstance();
+    final providerName =
+        prefs.getString('provider') ?? AppConfig.defaultProvider;
+    if (!lam.availableProviders.any((p) => p.name == providerName)) {
+      return const ChatReply(
+        content: LAMService.unsupportedProviderReply,
+      );
+    }
+
     final ok = await consentCheck();
     if (!ok) {
       return const ChatReply(
         content:
-            'Privacy consent is required before Sift sends anything to an AI provider. You can grant it the next time you analyze a screenshot, or enable Local-only mode in More.',
+            'Cloud chat needs your consent before it sends screenshot-derived text and context to the selected provider. Optional source lookup can also query the web. Local-only mode keeps both on-device. Screenshot images and OCR text stay on this device; Google Play services may download the small image-labeling model on first use.',
         blocked: true,
       );
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    final providerName =
-        prefs.getString('provider') ?? AppConfig.defaultProvider;
-    final savedKey = prefs.getString('key_$providerName') ?? '';
-    final apiKey =
-        savedKey.isNotEmpty ? savedKey : AppConfig.apiKeyFor(providerName);
+    // Only a key the user saved counts. There is no bundled or CI-injected
+    // fallback, so no saved key means no hosted request.
+    final savedKey = (prefs.getString('key_$providerName') ?? '').trim();
+    final apiKey = savedKey.isEmpty ? null : savedKey;
     // LLM answer and the link hunt run in parallel. Future.wait joins both
     // so neither future can be orphaned if the other completes with an error
     // (each already swallows its own failures).
@@ -140,10 +148,8 @@ class ChatEngine {
       }
       try {
         final prefs = await SharedPreferences.getInstance();
-        final savedYouTubeKey = prefs.getString('key_youtube') ?? '';
-        final youTubeKey = savedYouTubeKey.isNotEmpty
-            ? savedYouTubeKey
-            : AppConfig.youTubeApiKey;
+        final savedYouTubeKey = (prefs.getString('key_youtube') ?? '').trim();
+        final youTubeKey = savedYouTubeKey.isEmpty ? null : savedYouTubeKey;
         final found = await lookup(
           extractedText: text,
           summary: summary == 'No text found' ? '' : summary,
@@ -219,7 +225,7 @@ class ChatEngine {
   String buildLocalReply(List<Screenshot> results) {
     if (results.isEmpty) {
       return 'Nothing found in your saved screenshots. '
-          'Local-only mode searches on-device text only — no AI.';
+          'Local-only chat stays on-device; cloud chat and source lookup are disabled.';
     }
     final capped = results.take(5).toList();
     final sb = StringBuffer('Found ${results.length} matching screenshots:');

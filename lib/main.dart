@@ -13,6 +13,7 @@ import 'services/watcher_service.dart';
 import 'services/ocr_service.dart';
 import 'services/ingest_service.dart';
 import 'services/image_labeler.dart';
+import 'services/screenshot_analyzer.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/app_shell.dart';
 import 'widgets/sift_mark.dart';
@@ -56,15 +57,15 @@ Future<void> main() async {
   final themeController = await ThemeController.load();
   final ocrService = OCRService();
   final labeler = ImageLabeler();
-  final screenshotProvider = ScreenshotProvider(ocr: ocrService, labeler: labeler)
-    ..loadScreenshots();
+  // The app lifetime owns the shared analyzer; consumers do not dispose it.
+  final screenshotAnalyzer =
+      MLKitScreenshotAnalyzer(ocr: ocrService, labeler: labeler);
+  final screenshotProvider = ScreenshotProvider(analyzer: screenshotAnalyzer);
+  await screenshotProvider.loadScreenshots();
   final lamService = LAMService();
   final actionService = ActionService();
-  final ingestService = IngestService(
-    provider: screenshotProvider,
-    ocr: ocrService,
-    labeler: labeler,
-  );
+  final ingestService = IngestService(provider: screenshotProvider);
+  screenshotProvider.setIngestStopHook(ingestService.stop);
   final watcherService = WatcherService(
     provider: screenshotProvider,
     actionService: actionService,

@@ -62,8 +62,7 @@ void main() {
     );
 
     final provider = ScreenshotProvider();
-    provider.loadScreenshots();
-    await Future<void>.delayed(Duration.zero);
+    await provider.loadScreenshots();
 
     final lisbon = provider.search('lisbon');
     expect(lisbon, isNotEmpty);
@@ -88,8 +87,7 @@ void main() {
     );
 
     final provider = ScreenshotProvider();
-    provider.loadScreenshots();
-    await Future<void>.delayed(Duration.zero);
+    await provider.loadScreenshots();
 
     final deadline = provider.search('deadline');
     expect(deadline, isNotEmpty);
@@ -105,8 +103,7 @@ void main() {
     );
 
     final provider = ScreenshotProvider();
-    provider.loadScreenshots();
-    await Future<void>.delayed(Duration.zero);
+    await provider.loadScreenshots();
 
     expect(provider.search('zzz'), isEmpty);
     expect(provider.search(''), isEmpty);

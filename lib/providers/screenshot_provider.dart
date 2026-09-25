@@ -7,12 +7,44 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/screenshot.dart';
-import '../services/lam_service.dart';
+import '../services/action_model.dart';
 import '../services/action_service.dart';
-import '../services/web_lookup.dart';
-import '../services/ocr_service.dart';
 import '../services/image_labeler.dart';
-import '../config.dart';
+import '../services/ocr_service.dart';
+import '../services/screenshot_analyzer.dart';
+import '../services/web_lookup.dart';
+
+/// Reads the persisted local-only preference during provider startup.
+typedef LocalOnlyPreferenceLoader = Future<bool?> Function();
+
+/// Persists a local-only preference value.
+typedef LocalOnlyPreferenceWriter = Future<bool> Function(bool value);
+
+/// Resolves the app documents directory for the private import folder.
+typedef DocumentsDirectoryLoader = Future<Directory> Function();
+
+/// Removes the private import folder from disk. Injectable for tests; the
+/// default deletes the whole tree recursively.
+typedef ImportDirectoryCleaner = Future<void> Function(Directory directory);
+
+/// Drops every stored preference and reports whether the platform accepted the
+/// write. Injectable for tests; the default is [SharedPreferences.clear].
+typedef PreferencesClearer = Future<bool> Function(SharedPreferences prefs);
+
+/// Raised when "delete everything" cannot guarantee the private import folder
+/// is gone. The message is a fixed string: no path, no platform error text.
+class DataDeletionException implements Exception {
+  const DataDeletionException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class _ProviderOperationRejected implements Exception {
+  const _ProviderOperationRejected();
+}
 
 class ScreenshotProvider extends ChangeNotifier {
   static const _uuid = Uuid();
@@ -30,12 +62,40 @@ class ScreenshotProvider extends ChangeNotifier {
   };
   static final RegExp _cjk = RegExp(r'[\u4e00-\u9fff]');
 
-  late final OCRService _ocr;
-  final ImageLabeler? _labeler;
+  final ScreenshotAnalyzer _analyzer;
+  final LocalOnlyPreferenceLoader? _localOnlyPreferenceLoader;
+  final LocalOnlyPreferenceWriter? _localOnlyPreferenceWriter;
+  final DocumentsDirectoryLoader? _documentsDirectoryLoader;
+  final ImportDirectoryCleaner _importDirectoryCleaner;
+  final PreferencesClearer _preferencesClearer;
+  Directory? _importDirectoryOverride;
+  Future<void> Function()? _ingestStopHook;
 
-  ScreenshotProvider({OCRService? ocr, ImageLabeler? labeler})
-      : _ocr = ocr ?? OCRService(),
-        _labeler = labeler;
+  ScreenshotProvider({
+    ScreenshotAnalyzer? analyzer,
+    OCRService? ocr,
+    ImageLabeler? labeler,
+    LocalOnlyPreferenceLoader? localOnlyPreferenceLoader,
+    LocalOnlyPreferenceWriter? localOnlyPreferenceWriter,
+    DocumentsDirectoryLoader? documentsDirectoryLoader,
+    ImportDirectoryCleaner? importDirectoryCleaner,
+    PreferencesClearer? preferencesClearer,
+  }) : _analyzer = analyzer ??
+            MLKitScreenshotAnalyzer(ocr: ocr, labeler: labeler),
+        _localOnlyPreferenceLoader = localOnlyPreferenceLoader,
+        _localOnlyPreferenceWriter = localOnlyPreferenceWriter,
+        _documentsDirectoryLoader = documentsDirectoryLoader,
+        _importDirectoryCleaner = importDirectoryCleaner ??
+            ((directory) => directory.delete(recursive: true)),
+        _preferencesClearer = preferencesClearer ?? ((prefs) => prefs.clear());
+
+  ScreenshotAnalyzer get analyzer => _analyzer;
+  bool get isDeleting => _deletionInProgress;
+  int get deletionRevision => _deletionRevision;
+
+  void setIngestStopHook(Future<void> Function()? stop) {
+    _ingestStopHook = stop;
+  }
 
   List<Screenshot> _screenshots = [];
   Map<String, Screenshot> _byPath = {};
@@ -45,10 +105,32 @@ class ScreenshotProvider extends ChangeNotifier {
   String? _error;
   String _processingStatus = '';
   bool _showFavoritesOnly = false;
-  bool _localOnly = false;
+  bool _localOnly = true;
+  int _localOnlyRevision = 0;
+  bool _deletionInProgress = false;
+  int _deletionRevision = 0;
+  Future<void>? _deletionFuture;
   Future<void> _queueTail = Future.value();
   Future<void> _writeTail = Future.value();
   int _pendingNotifies = 0;
+
+  Future<T> _enqueue<T>(Future<T> Function() operation) {
+    if (_deletionInProgress) {
+      return Future<T>.error(const _ProviderOperationRejected());
+    }
+    final result = _queueTail.then<T>((_) {
+      if (_deletionInProgress) {
+        throw const _ProviderOperationRejected();
+      }
+      return operation();
+    });
+    // Return errors to the caller without leaving the queue blocked.
+    _queueTail = result.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {},
+    );
+    return result;
+  }
 
   // Inverted index: word → {screenshotId: fieldWeightScore}
   // Built at load time and updated incrementally on add/delete.
@@ -114,16 +196,29 @@ class ScreenshotProvider extends ChangeNotifier {
       .where((t) => t.isNotEmpty)
       .toSet();
 
-  void loadScreenshots() {
+  Future<void> loadScreenshots() async {
+    if (_deletionInProgress) return;
+    final deletionRevision = _deletionRevision;
     _isLoading = true;
     notifyListeners();
-    _loadSettings();
+    await _loadSettings();
+    if (_deletionInProgress || deletionRevision != _deletionRevision) {
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
 
     try {
       final box = Hive.box('screenshots');
-      _screenshots = box.values
+      final loaded = box.values
           .map((json) => Screenshot.fromJson(Map<String, dynamic>.from(json)))
           .toList();
+      if (_deletionInProgress || deletionRevision != _deletionRevision) {
+        _isLoading = false;
+        notifyListeners();
+        return;
+      }
+      _screenshots = loaded;
       _screenshots.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       _byPath = {for (final s in _screenshots) s.filePath: s};
       _rebuildIndexes();
@@ -131,6 +226,11 @@ class ScreenshotProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     } catch (e) {
+      if (_deletionInProgress || deletionRevision != _deletionRevision) {
+        _isLoading = false;
+        notifyListeners();
+        return;
+      }
       _error = e.toString();
       _isLoading = false;
       notifyListeners();
@@ -144,187 +244,155 @@ class ScreenshotProvider extends ChangeNotifier {
   }
 
   Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    _localOnly = prefs.getBool('localOnly') ?? false;
+    final revision = _localOnlyRevision;
+    try {
+      final value = _localOnlyPreferenceLoader != null
+          ? await _localOnlyPreferenceLoader!()
+          : (await SharedPreferences.getInstance()).getBool('localOnly');
+      if (revision == _localOnlyRevision) {
+        _localOnly = value != false;
+      }
+    } catch (_) {
+      if (revision == _localOnlyRevision) {
+        _localOnly = true;
+      }
+    }
   }
 
-  /// Keep the in-memory local-only flag in sync with the Settings toggle.
-  void setLocalOnly(bool value) {
+  Future<bool> _persistLocalOnlyPreference(bool value) async {
+    final persisted = _localOnlyPreferenceWriter != null
+        ? await _localOnlyPreferenceWriter!(value)
+        : (await SharedPreferences.getInstance()).setBool('localOnly', value);
+    if (!persisted) throw Exception('local-only preference write failed');
+    return persisted;
+  }
+
+  /// Persist the local-only choice before publishing the in-memory change.
+  Future<void> setLocalOnly(bool value) async {
+    if (_deletionInProgress && !value) {
+      throw Exception('Local-only mode cannot be disabled during deletion.');
+    }
+    if (_deletionInProgress) value = true;
+    final localOnlyRevision = _localOnlyRevision;
+    final deletionRevision = _deletionRevision;
+    try {
+      await _persistLocalOnlyPreference(value);
+    } catch (_) {
+      throw Exception('Could not save local-only preference.');
+    }
+
+    if (_deletionInProgress || localOnlyRevision != _localOnlyRevision) {
+      if (deletionRevision != _deletionRevision && _localOnly) {
+        try {
+          await _persistLocalOnlyPreference(true);
+        } catch (_) {}
+        _localOnly = true;
+      }
+      return;
+    }
+    _localOnlyRevision++;
     _localOnly = value;
     notifyListeners();
   }
 
-  Future<List<String>> _labelsFor(String path) async {
-    try {
-      return await _labeler?.labelsFor(path) ?? const [];
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  /// True when [ocrText] is short enough that on-device visual labels add a
-  /// search surface beyond the extracted text.
+  /// Kept for callers that used the old provider-level label rule.
   static bool shouldLabel(String? ocrText) =>
-      (ocrText ?? '').trim().length <= 200;
+      MLKitScreenshotAnalyzer.shouldLabel(ocrText);
 
-  /// Process a screenshot — local OCR when local-only mode is on, otherwise
-  /// the image goes directly to the chosen multimodal AI provider.
-  Future<void> _processScreenshotInternal(String imagePath) async {
+  /// Process a screenshot through the shared local analyzer.
+  Future<bool> _processScreenshotInternal(String imagePath) async {
+    if (_deletionInProgress) return false;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final localOnly = prefs.getBool('localOnly') ?? false;
-      _localOnly = localOnly;
-
-      if (localOnly) {
-        _processingStatus = 'Analyzing locally…';
-        _error = null;
-        notifyListeners();
-        try {
-          final ocrText = (await _ocr.extractText(imagePath)).trim();
-          final labels = shouldLabel(ocrText)
-              ? await _labelsFor(imagePath)
-              : const <String>[];
-          final firstLine = ocrText.split('\n').firstWhere(
-                (line) => line.trim().isNotEmpty,
-                orElse: () => '',
-              );
-          final screenshot = Screenshot(
-            id: _uuid.v4(),
-            fileName: imagePath.split('/').last,
-            filePath: imagePath,
-            timestamp: DateTime.now(),
-            ocrText: ocrText.isEmpty ? null : ocrText,
-            lamType: 'document',
-            summary: ocrText.isEmpty
-                ? 'No text found'
-                : (firstLine.isNotEmpty
-                    ? (firstLine.length > 80
-                        ? firstLine.substring(0, 80)
-                        : firstLine)
-                    : (ocrText.length > 80
-                        ? ocrText.substring(0, 80)
-                        : ocrText)),
-            description: null,
-            objects: _mergeObjects(labels),
-            recognitions: const [],
-            actionType: null,
-            actionCompleted: false,
-            actionResult: null,
-            suggestedAction: null,
-            webResults: const [],
-            isFavorite: false,
-            tags: const [],
-          );
-          await _saveScreenshot(screenshot);
-          _processingStatus = 'Local analysis complete';
-          notifyListeners();
-          return;
-        } catch (e) {
-          _error = 'Local analysis failed: ${e.toString()}';
-          _processingStatus = '';
-          notifyListeners();
-          return;
-        }
-      }
-
-      _processingStatus = 'Analyzing screenshot…';
+      await _loadSettings();
+      if (_deletionInProgress) return false;
+      _processingStatus = 'Analyzing locally…';
       _error = null;
       notifyListeners();
 
-      final lamService = LAMService();
-
-      // Load settings
-      var providerName =
-          prefs.getString('provider') ?? AppConfig.defaultProvider;
-      if (!lamService.availableProviders.any((p) => p.name == providerName)) {
-        providerName = AppConfig.defaultProvider;
-      }
-      final savedKey = prefs.getString('key_$providerName') ?? '';
-      final apiKey =
-          savedKey.isNotEmpty ? savedKey : AppConfig.apiKeyFor(providerName);
-
-      // Fail fast with a clear, actionable message when the selected
-      // provider needs a key that isn't configured yet.
-      final cfg =
-          lamService.availableProviders.where((p) => p.name == providerName);
-      final needsKey = cfg.isNotEmpty ? cfg.first.requiresKey : true;
-      if (needsKey && (apiKey == null || apiKey.isEmpty)) {
-        _error = 'No API key set for $providerName. '
-            'Open Settings, choose a provider, and paste its free API key.';
-        _processingStatus = '';
-        notifyListeners();
-        return;
-      }
-
-      // Step 1: Send image directly to AI
-      final lamResponse = await lamService.analyzeImage(
-        imagePath,
-        apiKey: apiKey,
-        provider: providerName,
-      );
-
-      // Step 2: Save to database
+      final analysis = await _analyzer.analyze(imagePath);
+      if (_deletionInProgress) return false;
+      final ocrText = analysis.ocrText.trim();
+      final firstLine = ocrText.split('\n').firstWhere(
+            (line) => line.trim().isNotEmpty,
+            orElse: () => '',
+          );
       final screenshot = Screenshot(
         id: _uuid.v4(),
         fileName: imagePath.split('/').last,
         filePath: imagePath,
         timestamp: DateTime.now(),
-        ocrText: lamResponse.extractedText.isNotEmpty
-            ? lamResponse.extractedText
-            : lamResponse.summary,
-        lamType: lamResponse.type,
-        confidence: lamResponse.confidence,
-        summary: lamResponse.summary,
-        description:
-            lamResponse.description.isNotEmpty ? lamResponse.description : null,
-        objects: lamResponse.objects,
-        recognitions: lamResponse.recognitions,
-        actionType: lamResponse.suggestedAction.type,
+        ocrText: ocrText.isEmpty ? null : ocrText,
+        lamType: 'document',
+        summary: ocrText.isEmpty
+            ? 'No text found'
+            : (firstLine.isNotEmpty
+                ? (firstLine.length > 80
+                    ? firstLine.substring(0, 80)
+                    : firstLine)
+                : (ocrText.length > 80
+                    ? ocrText.substring(0, 80)
+                    : ocrText)),
+        description: null,
+        objects: _mergeObjects(analysis.objects),
+        recognitions: const [],
+        actionType: null,
         actionCompleted: false,
         actionResult: null,
-        suggestedAction: lamResponse.suggestedAction.type != 'none'
-            ? {
-                'type': lamResponse.suggestedAction.type,
-                'data': lamResponse.suggestedAction.data,
-              }
-            : null,
-        extractedData: lamResponse.extractedData.isEmpty
-            ? null
-            : lamResponse.extractedData,
-        searchKeywords: lamResponse.searchKeywords,
+        suggestedAction: null,
         webResults: const [],
+        isFavorite: false,
+        tags: const [],
       );
-
       await _saveScreenshot(screenshot);
-
-      _processingStatus = lamResponse.summary;
+      if (_deletionInProgress) return false;
+      _processingStatus = 'Local analysis complete';
       notifyListeners();
+      return true;
     } catch (e) {
-      debugPrint('Screenshot processing failed: ${e.toString()}');
-      _error =
-          "Couldn't analyze this screenshot. Check your API key and try again.";
+      if (_deletionInProgress) return false;
+      _error = 'Local analysis failed: ${e.toString()}';
       _processingStatus = '';
       notifyListeners();
+      return false;
     }
   }
 
   /// Serializes analysis so concurrent calls (watcher poll + manual pick)
-  /// never run two AI/OCR jobs at once.
-  Future<void> processScreenshot(String imagePath) {
-    final result =
-        _queueTail.then((_) => _processScreenshotInternal(imagePath));
-    _queueTail = result.catchError((_) {});
-    return result;
+  /// never run two local analysis jobs at once. Returns true only after the
+  /// screenshot is persisted.
+  Future<bool> processScreenshot(String imagePath) async {
+    try {
+      return await _enqueue<bool>(
+        () => _processScreenshotInternal(imagePath),
+      );
+    } on _ProviderOperationRejected {
+      return false;
+    }
+  }
+
+  /// Analyze one bulk-ingest image through the provider's shared queue.
+  /// The native analyzer is not cancellable, so the deletion check is repeated
+  /// after it returns and the caller must still use [addFromBulkIngest].
+  Future<ScreenshotAnalysisResult> analyzeForBulkIngest(String imagePath) {
+    return _enqueue<ScreenshotAnalysisResult>(() async {
+      final analysis = await _analyzer.analyze(imagePath);
+      if (_deletionInProgress) {
+        throw const _ProviderOperationRejected();
+      }
+      return analysis;
+    });
   }
 
   Future<void> _saveScreenshot(Screenshot screenshot, {bool notify = true}) async {
+    if (_deletionInProgress) throw const _ProviderOperationRejected();
+    await _writeSerialized(
+      () => Hive.box('screenshots').put(screenshot.id, screenshot.toJson()),
+    );
+    if (_deletionInProgress) throw const _ProviderOperationRejected();
     _byPath[screenshot.filePath] = screenshot;
     _insertSorted(screenshot);
     _indexScreenshot(screenshot);
     if (notify) notifyListeners();
-    await _writeSerialized(
-      () => Hive.box('screenshots').put(screenshot.id, screenshot.toJson()),
-    );
   }
 
   void _insertSorted(Screenshot screenshot) {
@@ -424,7 +492,15 @@ class ScreenshotProvider extends ChangeNotifier {
   }
 
   Future<void> _writeSerialized(Future<void> Function() op) {
-    final result = _writeTail.then((_) => op());
+    if (_deletionInProgress) {
+      return Future<void>.error(const _ProviderOperationRejected());
+    }
+    final result = _writeTail.then((_) {
+      if (_deletionInProgress) {
+        throw const _ProviderOperationRejected();
+      }
+      return op();
+    });
     _writeTail = result.catchError((_) {});
     return result;
   }
@@ -438,7 +514,27 @@ class ScreenshotProvider extends ChangeNotifier {
     required String ocrText,
     List<String>? objects,
   }) async {
-    if (_byPath.containsKey(path)) return null;
+    try {
+      return await _enqueue<String?>(
+        () => _addFromBulkIngestInternal(
+          path: path,
+          capturedAt: capturedAt,
+          ocrText: ocrText,
+          objects: objects,
+        ),
+      );
+    } on _ProviderOperationRejected {
+      return null;
+    }
+  }
+
+  Future<String?> _addFromBulkIngestInternal({
+    required String path,
+    required DateTime capturedAt,
+    required String ocrText,
+    List<String>? objects,
+  }) async {
+    if (_deletionInProgress || _byPath.containsKey(path)) return null;
     final ocr = ocrText.trim();
     final firstLine = ocr.split('\n').firstWhere(
           (line) => line.trim().isNotEmpty,
@@ -469,6 +565,10 @@ class ScreenshotProvider extends ChangeNotifier {
       isFavorite: false,
       tags: const [],
     );
+    await _writeSerialized(
+      () => Hive.box('screenshots').put(screenshot.id, screenshot.toJson()),
+    );
+    if (_deletionInProgress) return null;
     _byPath[path] = screenshot;
     _insertSorted(screenshot);
     _indexScreenshot(screenshot);
@@ -477,9 +577,6 @@ class ScreenshotProvider extends ChangeNotifier {
       _pendingNotifies = 0;
       notifyListeners();
     }
-    await _writeSerialized(
-      () => Hive.box('screenshots').put(screenshot.id, screenshot.toJson()),
-    );
     return screenshot.id;
   }
 
@@ -505,25 +602,46 @@ class ScreenshotProvider extends ChangeNotifier {
     return out;
   }
 
+  Future<Directory> _defaultImportDirectory() async {
+    final documents = _documentsDirectoryLoader != null
+        ? await _documentsDirectoryLoader!()
+        : await getApplicationDocumentsDirectory();
+    return Directory(p.join(documents.path, 'sift_imports'));
+  }
+
   /// Add user-picked images to the library: each file is copied into Sift's
-  /// private folder, OCR'd + labeled on-device, then indexed. Dedupes by
-  /// (file name + size) against existing entries. [importDir] is injectable
-  /// for tests (defaults to the app documents dir). Per-file work is routed
-  /// through [_queueTail] so OCR never runs concurrently with the watcher
-  /// tick, the ingest pass, or manual processing.
-  Future<int> importImages(List<String> pickedPaths, {Directory? importDir}) async {
+  /// private folder, analyzed on-device, then indexed. Dedupes by (file name
+  /// + size) against existing entries. [importDir] is injectable for tests
+  /// (defaults to the app documents dir). Per-file work is routed through
+  /// [_queueTail] so analysis never runs concurrently with the watcher tick,
+  /// the ingest pass, or manual processing.
+  Future<int> importImages(
+    List<String> pickedPaths, {
+    Directory? importDir,
+  }) async {
+    if (_deletionInProgress) return 0;
     var added = 0;
-    final dir = importDir ??
-        Directory(
-          '${(await getApplicationDocumentsDirectory()).path}/sift_imports',
-        );
+    if (importDir != null) _importDirectoryOverride = importDir;
+    final dir = importDir ?? await _defaultImportDirectory();
+    if (_deletionInProgress) return 0;
     try {
       await dir.create(recursive: true);
     } catch (_) {}
+    if (_deletionInProgress) {
+      try {
+        if (await dir.exists()) await dir.delete(recursive: true);
+      } catch (_) {}
+      return 0;
+    }
     for (final src in pickedPaths) {
-      final result = _queueTail.then((_) => _importOne(src, dir));
-      _queueTail = result.catchError((_) => null);
-      final id = await result;
+      if (_deletionInProgress) break;
+      final result = _enqueue<String?>(() => _importOne(src, dir));
+      String? id;
+      try {
+        id = await result;
+      } on _ProviderOperationRejected {
+        break;
+      }
       if (id != null) added++;
     }
     flushBulkNotify();
@@ -531,12 +649,22 @@ class ScreenshotProvider extends ChangeNotifier {
     return added;
   }
 
-  /// Copy + OCR + label + index one picked file. Returns the new screenshot
-  /// id, or null when the file is skipped (missing, oversized, disallowed
-  /// name/extension, or already imported). Never throws — per-file failures
+  Future<void> _deleteImportedFile(String path, Directory dir) async {
+    final root = p.normalize(p.absolute(dir.path));
+    final candidate = p.normalize(p.absolute(path));
+    if (candidate == root || !p.isWithin(root, candidate)) return;
+    final file = File(candidate);
+    if (await file.exists()) await file.delete();
+  }
+
+  /// Copy, analyze, and index one picked file. Returns the new screenshot id,
+  /// or null when the file is skipped (missing, oversized, disallowed
+  /// name/extension, or already imported). Never throws; per-file failures
   /// are logged and skipped so one bad file can't sink the batch.
   Future<String?> _importOne(String src, Directory dir) async {
+    String? destPath;
     try {
+      if (_deletionInProgress) return null;
       final srcFile = File(src);
       if (!await srcFile.exists()) return null;
       final size = await srcFile.length();
@@ -556,18 +684,32 @@ class ScreenshotProvider extends ChangeNotifier {
         }
       });
       if (alreadyImported) return null;
-      final destPath = '${dir.path}/${_uuid.v4()}_$name';
-      await srcFile.copy(destPath);
-      final ocrText = (await _ocr.extractText(destPath)).trim();
-      final labels =
-          shouldLabel(ocrText) ? await _labelsFor(destPath) : const <String>[];
-      return addFromBulkIngest(
-        path: destPath,
+      if (_deletionInProgress) return null;
+      final copiedPath = '${dir.path}/${_uuid.v4()}_$name';
+      destPath = copiedPath;
+      await srcFile.copy(copiedPath);
+      if (_deletionInProgress) {
+        await _deleteImportedFile(copiedPath, dir);
+        return null;
+      }
+      final analysis = await _analyzer.analyze(copiedPath);
+      if (_deletionInProgress) {
+        await _deleteImportedFile(copiedPath, dir);
+        return null;
+      }
+      // This import already occupies the provider queue slot.
+      final id = await _addFromBulkIngestInternal(
+        path: copiedPath,
         capturedAt: _capturedAtFor(srcFile),
-        ocrText: ocrText,
-        objects: labels,
+        ocrText: analysis.ocrText,
+        objects: analysis.objects,
       );
+      if (id == null && _deletionInProgress) {
+        await _deleteImportedFile(copiedPath, dir);
+      }
+      return id;
     } catch (e) {
+      if (destPath != null) await _deleteImportedFile(destPath, dir);
       debugPrint('Import failed for $src: $e');
       return null;
     }
@@ -594,58 +736,85 @@ class ScreenshotProvider extends ChangeNotifier {
   }
 
   Future<void> hideScreenshot(String path) async {
+    if (_deletionInProgress) return;
     _hiddenPaths.add(path);
     if (Hive.isBoxOpen('hidden_paths')) {
-      await Hive.box('hidden_paths').put(path, DateTime.now().toIso8601String());
+      if (_deletionInProgress) return;
+      try {
+        await _writeSerialized(
+          () => Hive.box('hidden_paths').put(
+            path,
+            DateTime.now().toIso8601String(),
+          ),
+        );
+      } on _ProviderOperationRejected {
+        return;
+      }
     }
+    if (_deletionInProgress) return;
     final prefs = await SharedPreferences.getInstance();
     final seen = prefs.getStringList('watcher_seen') ?? <String>[];
     if (!seen.contains(path)) {
       seen.add(path);
       await prefs.setStringList('watcher_seen', seen);
     }
+    if (_deletionInProgress) return;
     notifyListeners();
   }
 
   Future<void> unhideScreenshot(String path) async {
+    if (_deletionInProgress) return;
     _hiddenPaths.remove(path);
     if (Hive.isBoxOpen('hidden_paths')) {
-      await Hive.box('hidden_paths').delete(path);
+      try {
+        await _writeSerialized(() => Hive.box('hidden_paths').delete(path));
+      } on _ProviderOperationRejected {
+        return;
+      }
     }
+    if (_deletionInProgress) return;
     notifyListeners();
   }
 
   /// Manually run the suggested action stored on a screenshot.
   Future<ActionResult?> runSuggestedAction(Screenshot s) async {
-    final prefs = await SharedPreferences.getInstance();
-    if ((prefs.getBool('localOnly') ?? false) ||
-        !(prefs.getBool('privacy_consent') ?? false)) {
-      _error = 'Privacy consent is required before running actions.';
-      _processingStatus = '';
-      notifyListeners();
+    try {
+      return await _enqueue<ActionResult?>(
+        () => _runSuggestedActionInternal(s),
+      );
+    } on _ProviderOperationRejected {
       return null;
     }
+  }
 
+  Future<ActionResult?> _runSuggestedActionInternal(Screenshot s) async {
+    if (_deletionInProgress) return null;
     final suggested = s.suggestedAction;
     if (suggested == null || suggested.isEmpty) return null;
 
-    try {
-      final action = LAMAction(
-        type: suggested['type'] as String? ?? 'none',
-        data: suggested['data'] is Map
-            ? Map<String, dynamic>.from(suggested['data'] as Map)
-            : const {},
-      );
-      if (action.type == 'none') return null;
+    // Records persisted by the old cloud analyzer can hold model-generated
+    // maps, so the type and every field it needs are validated before any
+    // calendar/reminder/list write. Rejection is a sanitized, fixed message:
+    // no untrusted value is ever echoed into the UI.
+    final validation = LAMAction.validate(suggested);
+    if (!validation.isValid) {
+      return _rejectSuggestedAction(s, validation.reason!);
+    }
+    final action = validation.action!;
+    if (action.type == 'none') return null;
 
+    try {
       _processingStatus = 'Running action…';
       notifyListeners();
 
       final result = await ActionService().executeAction(action, s.id);
+      if (_deletionInProgress) return null;
       s.actionCompleted = result.success;
       s.actionResult = result.message;
-      final box = Hive.box('screenshots');
-      await box.put(s.id, s.toJson());
+      await _writeSerialized(
+        () => Hive.box('screenshots').put(s.id, s.toJson()),
+      );
+      if (_deletionInProgress) return null;
       notifyListeners();
       return result;
     } catch (e) {
@@ -657,11 +826,33 @@ class ScreenshotProvider extends ChangeNotifier {
     }
   }
 
+  /// Record a rejected suggested action: fixed copy only, no platform call.
+  Future<ActionResult?> _rejectSuggestedAction(
+    Screenshot s,
+    String reason,
+  ) async {
+    debugPrint('Rejected suggested action on ${s.id}: $reason');
+    s.actionCompleted = false;
+    s.actionResult = reason;
+    _error = reason;
+    try {
+      await _writeSerialized(
+        () => Hive.box('screenshots').put(s.id, s.toJson()),
+      );
+    } on _ProviderOperationRejected {
+      return null;
+    }
+    if (_deletionInProgress) return null;
+    notifyListeners();
+    return null;
+  }
+
   /// Manually look up matching web links for a screenshot.
   Future<void> findOnline(Screenshot s) async {
+    if (_deletionInProgress) return;
     final prefs = await SharedPreferences.getInstance();
-    if ((prefs.getBool('localOnly') ?? false) ||
-        !(prefs.getBool('privacy_consent') ?? false)) {
+    if (_deletionInProgress) return;
+    if (_localOnly || !(prefs.getBool('privacy_consent') ?? false)) {
       _error = 'Privacy consent is required before searching the web.';
       _processingStatus = '';
       notifyListeners();
@@ -671,10 +862,10 @@ class ScreenshotProvider extends ChangeNotifier {
     _processingStatus = 'Searching the web…';
     notifyListeners();
     try {
-      final savedYouTubeKey = prefs.getString('key_youtube') ?? '';
-      final youTubeKey = savedYouTubeKey.isNotEmpty
-          ? savedYouTubeKey
-          : AppConfig.youTubeApiKey;
+      final savedYouTubeKey = (prefs.getString('key_youtube') ?? '').trim();
+      // Only a key the user saved counts: no bundled or CI-injected fallback,
+      // so an unsaved key means the lookup runs keyless.
+      final youTubeKey = savedYouTubeKey.isEmpty ? null : savedYouTubeKey;
       final results = await WebLookupService().lookup(
         extractedText: s.ocrText ?? '',
         summary: s.summary ?? '',
@@ -682,11 +873,18 @@ class ScreenshotProvider extends ChangeNotifier {
         objects: s.objects,
         youTubeApiKey: youTubeKey,
       );
+      if (_deletionInProgress) return;
       s.webResults
         ..clear()
         ..addAll(results.map((r) => {'title': r.title, 'url': r.url}));
-      final box = Hive.box('screenshots');
-      await box.put(s.id, s.toJson());
+      try {
+        await _writeSerialized(
+          () => Hive.box('screenshots').put(s.id, s.toJson()),
+        );
+      } on _ProviderOperationRejected {
+        return;
+      }
+      if (_deletionInProgress) return;
       notifyListeners();
     } catch (e) {
       debugPrint('Web lookup failed: $e');
@@ -697,32 +895,139 @@ class ScreenshotProvider extends ChangeNotifier {
     }
   }
 
-  /// Wipe everything Sift owns. Image files are never touched — Sift only
-  /// references gallery originals and must never delete them.
-  Future<void> deleteEverything() async {
-    final paths = _screenshots.map((s) => s.filePath).toList();
-    await Hive.box('screenshots').clear();
-    await Hive.box('actions').clear();
-    await Hive.box('chat').clear();
-    if (Hive.isBoxOpen('ingest')) await Hive.box('ingest').clear();
-    if (Hive.isBoxOpen('hidden_paths')) await Hive.box('hidden_paths').clear();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
-    // Prevent the first-launch auto-index from silently repopulating the
-    // library the user just wiped; re-indexing stays a manual choice.
-    await prefs.setBool('library_indexed', true);
-    if (paths.isNotEmpty) {
-      await prefs.setStringList('watcher_seen', paths);
+  /// Wipe everything Sift owns. Gallery originals are never touched. Only
+  /// files in the app-private `sift_imports` directory are removed from disk.
+  /// [importDir] is an injectable test seam for that private directory.
+  ///
+  /// The private folder is resolved and removed *before* any box or preference
+  /// is cleared. A folder that cannot be deleted throws a sanitized
+  /// [DataDeletionException] with nothing destroyed. Past that point the wipe is
+  /// under way, so a failed box or preference write throws a sanitized
+  /// [StateError] instead of reporting success — the caller must surface that
+  /// even though some data may already be gone.
+  Future<void> deleteEverything({Directory? importDir}) {
+    final active = _deletionFuture;
+    if (active != null) return active;
+    final operation = _deleteEverything(importDir: importDir);
+    _deletionFuture = operation;
+    return operation.whenComplete(() {
+      if (identical(_deletionFuture, operation)) _deletionFuture = null;
+    });
+  }
+
+  Future<void> _deleteEverything({Directory? importDir}) async {
+    _deletionInProgress = true;
+    _deletionRevision++;
+    _localOnlyRevision++;
+    _localOnly = true;
+
+    try {
+      notifyListeners();
+      final stopHook = _ingestStopHook;
+      if (stopHook != null) {
+        try {
+          await stopHook();
+        } catch (e) {
+          debugPrint('Ingest stop during deletion failed: $e');
+        }
+      }
+
+      final paths = <String>{for (final s in _screenshots) s.filePath};
+      await _queueTail;
+      await _writeTail;
+      if (Hive.isBoxOpen('screenshots')) {
+        for (final value in Hive.box('screenshots').values) {
+          if (value is Map && value['filePath'] is String) {
+            paths.add(value['filePath'] as String);
+          }
+        }
+      }
+
+      // Resolve and remove the private folder first: if it cannot be deleted,
+      // nothing else is touched, so the caller can report an honest failure.
+      await _deleteImportedDirectory(importDir);
+      await _clearBoxIfOpen('screenshots');
+      await _clearBoxIfOpen('actions');
+      await _clearBoxIfOpen('chat');
+      await _clearBoxIfOpen('ingest');
+      await _clearBoxIfOpen('hidden_paths');
+
+      final prefs = await SharedPreferences.getInstance();
+      // A false here means provider/API keys or consent flags may still be on
+      // disk, so the wipe cannot be reported as complete.
+      if (!await _preferencesClearer(prefs)) {
+        throw StateError('preference clear failed');
+      }
+      if (_localOnlyPreferenceWriter != null) {
+        final writerSaved = await _localOnlyPreferenceWriter!(true);
+        if (!writerSaved) throw StateError('local-only preference write failed');
+      }
+      if (!await prefs.setBool('localOnly', true)) {
+        throw StateError('local-only preference write failed');
+      }
+      if (!await prefs.setBool('library_indexed', true)) {
+        throw StateError('library index preference write failed');
+      }
+      if (paths.isNotEmpty) {
+        final seenSaved = await prefs.setStringList(
+          'watcher_seen',
+          paths.toList(),
+        );
+        if (!seenSaved) throw StateError('watcher seen preference write failed');
+      }
+
+      _screenshots = [];
+      _byPath = {};
+      _hiddenPaths = {};
+      _invertedIndex = {};
+      _tagIndex = {};
+      _error = null;
+      _processingStatus = '';
+      _pendingNotifies = 0;
+      _localOnlyRevision++;
+      _localOnly = true;
+    } finally {
+      _deletionInProgress = false;
+      _queueTail = Future.value();
+      _writeTail = Future.value();
+      notifyListeners();
     }
-    _screenshots = [];
-    _byPath = {};
-    _hiddenPaths = {};
-    _invertedIndex = {};
-    _tagIndex = {};
-    _error = null;
-    _processingStatus = '';
-    _localOnly = false;
-    notifyListeners();
+  }
+
+  Future<void> _clearBoxIfOpen(String name) async {
+    if (Hive.isBoxOpen(name)) await Hive.box(name).clear();
+  }
+
+  /// Resolve the app-private import folder and remove it. Throws a sanitized
+  /// [DataDeletionException] when the folder cannot be located or deleted —
+  /// the caller must not treat that as a completed wipe. Nothing is logged with
+  /// the raw platform error, which can contain paths.
+  Future<void> _deleteImportedDirectory(Directory? importDir) async {
+    final Directory directory;
+    try {
+      final resolved = importDir ??
+          _importDirectoryOverride ??
+          await _defaultImportDirectory();
+      directory = resolved;
+    } catch (e) {
+      debugPrint('Could not resolve the import directory for deletion: $e');
+      throw const DataDeletionException(
+        "Could not delete everything: Sift could not locate its private "
+        "import folder, so nothing was deleted.",
+      );
+    }
+
+    try {
+      if (await directory.exists()) {
+        await _importDirectoryCleaner(directory);
+      }
+    } catch (e) {
+      debugPrint('Could not delete the import directory: $e');
+      throw const DataDeletionException(
+        "Could not delete everything: Sift could not remove its private "
+        "import folder, so nothing was deleted.",
+      );
+    }
   }
 
   /// Local keyword search using inverted index with field weighting.
@@ -772,6 +1077,7 @@ class ScreenshotProvider extends ChangeNotifier {
   }
 
   Future<void> deleteScreenshot(String id) async {
+    if (_deletionInProgress) return;
     final matches = _screenshots.where((s) => s.id == id).toList();
     if (matches.isNotEmpty) {
       _byPath.remove(matches.first.filePath);
@@ -780,7 +1086,12 @@ class ScreenshotProvider extends ChangeNotifier {
         ids.remove(id);
       }
     }
-    await _writeSerialized(() => Hive.box('screenshots').delete(id));
+    try {
+      await _writeSerialized(() => Hive.box('screenshots').delete(id));
+    } on _ProviderOperationRejected {
+      return;
+    }
+    if (_deletionInProgress) return;
     _screenshots.removeWhere((s) => s.id == id);
     notifyListeners();
   }
@@ -791,14 +1102,16 @@ class ScreenshotProvider extends ChangeNotifier {
   }
 
   Future<void> toggleFavorite(String id) async {
+    if (_deletionInProgress) return;
     final matches = _screenshots.where((s) => s.id == id);
     if (matches.isEmpty) return;
     final screenshot = matches.first;
     screenshot.isFavorite = !screenshot.isFavorite;
     notifyListeners();
     try {
-      final box = Hive.box('screenshots');
-      await box.put(id, screenshot.toJson());
+      await _writeSerialized(
+        () => Hive.box('screenshots').put(id, screenshot.toJson()),
+      );
     } catch (e) {
       screenshot.isFavorite = !screenshot.isFavorite;
       notifyListeners();
@@ -807,6 +1120,7 @@ class ScreenshotProvider extends ChangeNotifier {
   }
 
   Future<bool> addTag(String id, String tag) async {
+    if (_deletionInProgress) return false;
     var trimmed = tag.trim();
     if (trimmed.isEmpty) return false;
     if (trimmed.length > 50) trimmed = trimmed.substring(0, 50);
@@ -822,10 +1136,13 @@ class ScreenshotProvider extends ChangeNotifier {
     _indexScreenshot(screenshot);
     notifyListeners();
     try {
-      final box = Hive.box('screenshots');
-      await box.put(id, screenshot.toJson());
+      await _writeSerialized(
+        () => Hive.box('screenshots').put(id, screenshot.toJson()),
+      );
+      if (_deletionInProgress) return false;
       return true;
     } catch (e) {
+      if (_deletionInProgress) return false;
       screenshot.tags = [...screenshot.tags]..remove(trimmed);
       _indexScreenshot(screenshot);
       notifyListeners();
@@ -835,6 +1152,7 @@ class ScreenshotProvider extends ChangeNotifier {
   }
 
   Future<bool> removeTag(String id, String tag) async {
+    if (_deletionInProgress) return false;
     final matches = _screenshots.where((s) => s.id == id);
     if (matches.isEmpty) return false;
     final screenshot = matches.first;
@@ -844,10 +1162,13 @@ class ScreenshotProvider extends ChangeNotifier {
     _indexScreenshot(screenshot);
     notifyListeners();
     try {
-      final box = Hive.box('screenshots');
-      await box.put(id, screenshot.toJson());
+      await _writeSerialized(
+        () => Hive.box('screenshots').put(id, screenshot.toJson()),
+      );
+      if (_deletionInProgress) return false;
       return true;
     } catch (e) {
+      if (_deletionInProgress) return false;
       screenshot.tags = [...screenshot.tags]..insert(i, tag);
       _indexScreenshot(screenshot);
       notifyListeners();

@@ -5,7 +5,7 @@ import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz_data;
-import '../services/lam_service.dart';
+import 'action_model.dart';
 
 class ActionService {
   static const _uuid = Uuid();
@@ -42,7 +42,14 @@ class ActionService {
           return ActionResult(success: false, message: 'Unknown action');
       }
     } catch (e) {
-      return ActionResult(success: false, message: 'Action failed: $e');
+      // The message is surfaced in the UI, so it must never carry the raw
+      // exception: a malformed date or item from a persisted record would
+      // otherwise put untrusted text on screen.
+      debugPrint('Action failed: $e');
+      return const ActionResult(
+        success: false,
+        message: 'This action could not be completed. Check its details and try again.',
+      );
     }
   }
 
@@ -176,7 +183,7 @@ class ActionResult {
   final bool success;
   final String message;
 
-  ActionResult({
+  const ActionResult({
     required this.success,
     required this.message,
   });

@@ -1,25 +1,18 @@
+/// Non-secret app metadata for builds.
+///
+/// Sift ships no provider or YouTube API key, in any build. Cloud chat and
+/// source lookup run only against a key the user saved in Settings; without
+/// one, no hosted request is made. `lib/config.dart` is gitignored — copy this
+/// file there for a local build, or have CI copy it (see `codemagic.yaml` and
+/// `.github/workflows/release.yml`).
+///
+/// Do not add credential fields or CI-injected secrets here: anything in this
+/// file ends up inside the release binary.
 class AppConfig {
-  // API keys - set these locally or inject via CI env vars (see codemagic.yaml)
-  static const String groqApiKey = '';
-  static const String geminiApiKey = '';
-  static const String youTubeApiKey = '';
-
-  // Default provider - Gemini for images
+  /// Provider selected for hosted text chat until the user picks one.
+  /// Non-secret: it is a name, resolved against a key the user saved.
   static const String defaultProvider = 'Google Gemini';
 
-  // App info
+  /// Display name for the app. Non-secret.
   static const String appName = 'Sift';
-
-  /// Resolve a configured API key for a provider, or null if none is set.
-  /// Used as a fallback when the user has not entered a key in Settings.
-  static String? apiKeyFor(String provider) {
-    switch (provider) {
-      case 'Google Gemini':
-        return geminiApiKey.isEmpty ? null : geminiApiKey;
-      case 'Groq':
-        return groqApiKey.isEmpty ? null : groqApiKey;
-      default:
-        return null;
-    }
-  }
 }

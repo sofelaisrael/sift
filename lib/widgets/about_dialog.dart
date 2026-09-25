@@ -47,13 +47,23 @@ class PremiumAboutDialog extends StatelessWidget {
             const _FeatureRow(
               icon: Icons.visibility_rounded,
               title: 'Understand',
-              description: 'Reads and remembers what you save',
+              description: 'On-device OCR, labels, indexing, and grounded chat',
             ),
             const _Hairline(),
             const _FeatureRow(
               icon: Icons.task_alt_rounded,
               title: 'Act',
-              description: 'Calendar, reminders, shopping lists',
+              description: 'Only for records with a suggested action',
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'Screenshot images and OCR text stay on this device. Google Play '
+              'services may download the small image-labeling model on first use.',
+              textAlign: TextAlign.center,
+              style: SiftType.bodySansMd.copyWith(
+                color: s.stone,
+                height: 1.45,
+              ),
             ),
             const _Hairline(),
             _licenseRow(context, s),

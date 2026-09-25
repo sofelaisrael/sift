@@ -1,61 +1,28 @@
 import 'dart:convert';
-import 'dart:io';
-import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:image/image.dart' as img;
 
-/// Multi-provider free LLM service
+import 'action_model.dart';
+
+export 'action_model.dart';
+
+/// Hosted text chat service. Screenshot analysis stays on-device.
 class LAMService {
+  static const String unsupportedProviderReply =
+      'Choose a supported provider in More to continue.';
+
   final http.Client _client;
-  String _lastError = '';
 
   LAMService({http.Client? client}) : _client = client ?? http.Client();
 
-  static const int _maxImageDimension = 1280;
-  static const int _jpegQuality = 80;
-
-  /// Resize image to [_maxImageDimension] on the long edge and re-encode as
-  /// JPEG at [_jpegQuality] quality. PNG screenshots (~3-5 MB) become ~100-200
-  /// KB JPEGs — a 20-30x reduction with no perceptible quality loss for LLM
-  /// analysis. On failure the raw bytes are returned unchanged so analysis
-  /// can still proceed.
-  static Uint8List _preprocessImage(Uint8List raw) {
-    try {
-      final decoded = img.decodeImage(raw);
-      if (decoded == null) return raw;
-
-      final longEdge = max(decoded.width, decoded.height);
-      if (longEdge <= _maxImageDimension) {
-        // Already small enough — just re-encode to JPEG (drops alpha, shrinks).
-        return Uint8List.fromList(img.encodeJpg(decoded, quality: _jpegQuality));
-      }
-
-      // Scale down proportionally.
-      final scale = _maxImageDimension / longEdge;
-      final resized = img.copyResize(
-        decoded,
-        width: (decoded.width * scale).round(),
-        height: (decoded.height * scale).round(),
-        interpolation: img.Interpolation.linear,
-      );
-      return Uint8List.fromList(img.encodeJpg(resized, quality: _jpegQuality));
-    } catch (e) {
-      debugPrint('Image preprocessing failed, using raw bytes: $e');
-      return raw;
-    }
-  }
-
   // Provider configs (OpenAI-compatible endpoints)
   static const List<ProviderConfig> _providers = [
-    // Free multimodal providers (support image input)
     ProviderConfig(
       name: 'Google Gemini',
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
       model: 'gemini-3.5-flash',
       requiresKey: true,
-      supportsImage: true,
       format: ProviderFormat.gemini,
     ),
     ProviderConfig(
@@ -63,7 +30,6 @@ class LAMService {
       baseUrl: 'https://integrate.api.nvidia.com/v1',
       model: 'meta/llama-3.2-90b-vision-instruct',
       requiresKey: true,
-      supportsImage: true,
       format: ProviderFormat.openai,
     ),
     ProviderConfig(
@@ -71,301 +37,9 @@ class LAMService {
       baseUrl: 'https://api.groq.com/openai/v1',
       model: 'llama-3.3-70b-versatile',
       requiresKey: true,
-      supportsImage: false,
       format: ProviderFormat.openai,
     ),
   ];
-
-  /// Analyze screenshot by sending the image directly to a multimodal model
-  /// Falls back to OCR + text for text-only providers like Groq
-  Future<LAMResponse> analyzeImage(String imagePath, {String? apiKey, String? provider}) async {
-    final rawBytes = await File(imagePath).readAsBytes();
-    final imageBytes = _preprocessImage(rawBytes);
-    final base64Image = base64Encode(imageBytes);
-    // Always send as JPEG after preprocessing (even if source was PNG/WebP).
-    final mimeType = 'image/jpeg';
-    _lastError = '';
-
-    // Try the selected provider first
-    if (provider != null) {
-      final p = _providers.firstWhere(
-        (p) => p.name == provider,
-        orElse: () => _providers.first,
-      );
-
-      if (p.requiresKey && (apiKey == null || apiKey.isEmpty)) {
-        debugPrint('${p.name} needs API key');
-      } else if (p.supportsImage) {
-        // Multimodal - send image directly
-        debugPrint('Trying ${p.name} with image...');
-        try {
-          final response = await _callProvider(p, base64Image: base64Image, mimeType: mimeType, apiKey: apiKey);
-          if (response != null) return response;
-        } catch (e) {
-          debugPrint('${p.name} failed: $e');
-        }
-      } else {
-        // Text-only provider (like Groq) - need OCR first
-        debugPrint('${p.name} is text-only, doing OCR first...');
-        try {
-          final ocrText = await _extractTextFromImage(imagePath);
-          if (ocrText.isNotEmpty) {
-            final response = await _callProvider(p, text: ocrText, apiKey: apiKey);
-            if (response != null) return response;
-          }
-        } catch (e) {
-          debugPrint('OCR + ${p.name} failed: $e');
-        }
-      }
-    }
-
-    return _fallbackResponse('No available provider');
-  }
-
-  /// Simple OCR using ML Kit
-  Future<String> _extractTextFromImage(String imagePath) async {
-    try {
-      final inputImage = InputImage.fromFilePath(imagePath);
-      final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
-      final result = await recognizer.processImage(inputImage);
-      await recognizer.close();
-      
-      return result.text;
-    } catch (e) {
-      debugPrint('OCR failed: $e');
-      return '';
-    }
-  }
-
-  Future<LAMResponse?> _callProvider(
-    ProviderConfig provider, {
-    String? base64Image,
-    String? text,
-    String? apiKey,
-    String? mimeType,
-  }) async {
-    if (provider.format == ProviderFormat.gemini) {
-      return _callGemini(provider, base64Image: base64Image, text: text, apiKey: apiKey!, mimeType: mimeType);
-    } else {
-      return _callOpenAI(provider, base64Image: base64Image, text: text, apiKey: apiKey, mimeType: mimeType);
-    }
-  }
-
-  Future<LAMResponse?> _callGemini(
-    ProviderConfig provider, {
-    String? base64Image,
-    String? text,
-    required String apiKey,
-    String? mimeType,
-  }) async {
-    final parts = <Map<String, dynamic>>[];
-
-    if (text != null) {
-      parts.add({'text': 'Screenshot text:\n$text'});
-    }
-
-    if (base64Image != null) {
-      parts.add({
-        'inlineData': {
-          'mimeType': mimeType ?? 'image/png',
-          'data': base64Image,
-        },
-      });
-    }
-
-    parts.add({'text': '\n\nAnalyze this. Return ONLY valid JSON, no explanation.'});
-
-    final response = await _retry429(() => _client.post(
-          Uri.parse('${provider.baseUrl}/models/${provider.model}:generateContent'),
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey,
-          },
-          body: jsonEncode({
-            'contents': [{'parts': parts}],
-            'systemInstruction': {'parts': [{'text': _buildSystemPrompt()}]},
-            'generationConfig': {
-              'temperature': 0.1,
-              'maxOutputTokens': 4096,
-            },
-          }),
-        ));
-
-    if (response.statusCode != 200) {
-      _lastError = '${provider.name} returned HTTP ${response.statusCode}';
-      debugPrint('Gemini error: ${response.body}');
-      return null;
-    }
-
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    // Thinking models can stream the answer across multiple parts; join them
-    // all instead of reading only parts[0].
-    final partsList = body['candidates']?[0]?['content']?['parts'] as List? ?? const [];
-    final content = partsList
-        .map((p) => (p is Map && p['text'] is String) ? p['text'] as String : '')
-        .where((t) => t.isNotEmpty)
-        .join('\n');
-    if (content.isEmpty) {
-      _lastError = '${provider.name} returned an empty response';
-      return null;
-    }
-
-    return _parseResponse(content);
-  }
-
-  Future<LAMResponse?> _callOpenAI(
-    ProviderConfig provider, {
-    String? base64Image,
-    String? text,
-    String? apiKey,
-    String? mimeType,
-  }) async {
-    final messages = <Map<String, dynamic>>[
-      {'role': 'system', 'content': _buildSystemPrompt()},
-    ];
-
-    if (base64Image != null) {
-      messages.add({
-        'role': 'user',
-        'content': [
-          {'type': 'text', 'text': 'Describe what you see in this screenshot — the scene, objects, and context — and extract all visible text. Return ONLY valid JSON.'},
-          {'type': 'image_url', 'image_url': {'url': 'data:${mimeType ?? 'image/png'};base64,$base64Image'}},
-        ],
-      });
-    } else if (text != null) {
-      messages.add({'role': 'user', 'content': 'Screenshot text:\n$text'});
-    }
-
-    final headers = <String, String>{
-      'Content-Type': 'application/json',
-    };
-
-    if (apiKey != null && apiKey.isNotEmpty) {
-      headers['Authorization'] = 'Bearer $apiKey';
-    }
-
-    final response = await _retry429(() => _client.post(
-          Uri.parse('${provider.baseUrl}/chat/completions'),
-          headers: headers,
-          body: jsonEncode({
-            'model': provider.model,
-            'messages': messages,
-            'temperature': 0.1,
-            'max_tokens': 1024,
-          }),
-        ));
-
-    if (response.statusCode != 200) {
-      _lastError = '${provider.name} returned HTTP ${response.statusCode}';
-      debugPrint('${provider.name} error ${response.statusCode}: ${response.body}');
-      return null;
-    }
-
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final content = body['choices']?[0]?['message']?['content'] as String?;
-    if (content == null) return null;
-
-    return _parseResponse(content);
-  }
-
-  LAMResponse _parseResponse(String content) {
-    final json = extractJsonObject(content);
-    if (json == null) {
-      debugPrint('JSON parse failed. Raw content: ${content.substring(0, content.length > 400 ? 400 : content.length)}');
-      return _fallbackResponse('JSON parse error');
-    }
-
-    try {
-      return LAMResponse.fromJson(json);
-    } catch (e) {
-      debugPrint('JSON parse failed: $e');
-      return _fallbackResponse('JSON parse error');
-    }
-  }
-
-  String _buildSystemPrompt() {
-    return '''You are SIFT, a screenshot intelligence engine. You deeply understand screenshots — the scene, the context, and the objects — not just the text.
-
-MISSION (in order):
-1. DESCRIBE WHAT YOU SEE — open-ended visual understanding, whatever the image is: a photo, a screenshot, a poster, a receipt, a diagram. Describe the subjects, people, animals, objects, setting, composition, colors, and mood.
-2. RECOGNIZE — identify anything recognizable: people, animals, places, landmarks, products, brands, artwork, movies/TV shows, or — if it's a screen — the app or website.
-3. READ — if there is visible text, extract ALL of it verbatim where possible, including buttons, labels, dates, times, prices, lists, and URLs.
-4. SUMMARIZE — write a short, natural-language summary of what the image shows and why it matters.
-5. DETERMINE ACTION — if the content implies a useful action (calendar, reminder, shopping list, task), suggest it; otherwise use "none".
-6. KEYWORDS — generate 5-10 search keywords that someone might use to find this screenshot later. Include semantic concepts (e.g. "restaurant", "travel", "food"), not just literal text. These should capture the gist even when the exact words aren't in the image.
-
-CONFIDENCE SCORING:
-- 0.9-1.0: You clearly recognize the content (a flight booking, a recipe, a product page, a portrait, a known landmark) with high confidence
-- 0.7-0.89: You see recognizable content but some details are unclear
-- 0.5-0.69: You see content but aren't sure of the context
-- 0.3-0.49: Very little recognizable content, mostly guessing
-- 0.0-0.29: Cannot meaningfully analyze the image
-
-RESPONSE FORMAT (JSON only — no explanation, no markdown, no code fences):
-{
-  "type": "flight|recipe|deadline|product|meeting|shopping|document|other",
-  "confidence": 0.0-1.0,
-  "summary": "One or two sentences: what this image is, in plain natural language",
-  "description": "2-4 sentences describing the image in detail: subjects, objects, setting, composition, mood",
-  "objects": ["visible objects or visual elements, e.g. 'dog', 'skyline', 'grocery cart', 'airplane seat map', 'movie poster'"],
-  "recognitions": ["anything you recognize, e.g. 'Golden Retriever', 'Eiffel Tower', 'Starbucks', 'TikTok', 'Google Flights'"],
-  "extracted_text": "All visible text from the image, kept verbatim where possible (empty string if none)",
-  "extracted_data": {
-    "all relevant structured fields you can extract"
-  },
-  "search_keywords": ["semantic keywords for finding this screenshot: e.g. 'restaurant', 'travel', 'Italy', 'booking', 'receipt'"],
-  "suggested_action": {
-    "type": "add_calendar|create_reminder|create_shopping_list|create_task|none",
-    "data": {
-      "fields needed for the action"
-    }
-  }
-}
-
-If you cannot determine the content well, still return valid JSON with low confidence and your best guess. Never return non-JSON text.''';
-  }
-
-  LAMResponse _fallbackResponse(String reason) {
-    final msg = _lastError.isNotEmpty ? '$_lastError.' : reason;
-    debugPrint('LAM fallback triggered: $msg');
-    return LAMResponse(
-      type: 'other',
-      confidence: 0.0,
-      summary: 'Could not analyze screenshot: $msg',
-      description: 'Analysis failed. $msg',
-      extractedData: {},
-      suggestedAction: LAMAction(type: 'none', data: {}),
-    );
-  }
-
-  /// Detect the real image MIME type from the file extension, so we don't
-  /// send JPEG/WebP bytes mismarked as PNG (which providers reject).
-  String _mimeFromPath(String path) {
-    final ext = path.toLowerCase().split('.').last;
-    switch (ext) {
-      case 'jpg':
-      case 'jpeg':
-        return 'image/jpeg';
-      case 'webp':
-        return 'image/webp';
-      case 'gif':
-        return 'image/gif';
-      case 'bmp':
-        return 'image/bmp';
-      default:
-        return 'image/png';
-    }
-  }
-
-  /// Retry once after a short delay when a provider rate-limits us (429).
-  Future<http.Response> _retry429(Future<http.Response> Function() post) async {
-    var response = await post();
-    if (response.statusCode == 429) {
-      await Future.delayed(const Duration(seconds: 3));
-      response = await post();
-    }
-    return response;
-  }
 
   /// Get list of available providers
   List<ProviderConfig> get availableProviders => _providers;
@@ -379,14 +53,15 @@ If you cannot determine the content well, still return valid JSON with low confi
     String? apiKey,
     String? provider,
   }) async {
-    final providers = provider != null
-        ? [
-            _providers.firstWhere(
-              (p) => p.name == provider,
-              orElse: () => _providers.first,
-            ),
-          ]
-        : _providers;
+    // Never route an unknown name to the first configured provider.
+    final List<ProviderConfig> providers;
+    if (provider != null) {
+      final selected = _providers.where((p) => p.name == provider).toList();
+      if (selected.isEmpty) return unsupportedProviderReply;
+      providers = selected;
+    } else {
+      providers = _providers;
+    }
 
     for (final p in providers) {
       if (p.requiresKey && (apiKey == null || apiKey.isEmpty)) continue;
@@ -581,7 +256,6 @@ class ProviderConfig {
   final String baseUrl;
   final String model;
   final bool requiresKey;
-  final bool supportsImage;
   final ProviderFormat format;
 
   const ProviderConfig({
@@ -589,7 +263,6 @@ class ProviderConfig {
     required this.baseUrl,
     required this.model,
     required this.requiresKey,
-    required this.supportsImage,
     required this.format,
   });
 }
@@ -645,32 +318,4 @@ class LAMResponse {
   }
 
   bool get isHighConfidence => confidence >= 0.7;
-}
-
-class LAMAction {
-  final String type;
-  final Map<String, dynamic> data;
-
-  LAMAction({
-    required this.type,
-    required this.data,
-  });
-
-  factory LAMAction.fromJson(Map<String, dynamic> json) {
-    return LAMAction(
-      type: json['type'] ?? 'none',
-      data: json['data'] ?? {},
-    );
-  }
-
-  String get displayName {
-    switch (type) {
-      case 'add_calendar': return 'Add to Calendar';
-      case 'create_reminder': return 'Create Reminder';
-      case 'create_shopping_list': return 'Create Shopping List';
-      case 'create_task': return 'Create Task';
-      case 'none': return 'No Action';
-      default: return 'Unknown';
-    }
-  }
 }

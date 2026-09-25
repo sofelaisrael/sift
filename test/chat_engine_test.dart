@@ -101,7 +101,8 @@ void main() {
     );
 
     expect(reply.blocked, isTrue);
-    expect(reply.content, contains('Privacy consent is required'));
+    expect(reply.content, contains('Cloud chat needs your consent'));
+    expect(reply.content, contains('screenshot-derived text and context'));
     expect(reply.relatedLinks, isEmpty);
   });
 
@@ -213,7 +214,7 @@ void main() {
     expect(
       engine.buildLocalReply(const []),
       'Nothing found in your saved screenshots. '
-          'Local-only mode searches on-device text only — no AI.',
+          'Local-only chat stays on-device; cloud chat and source lookup are disabled.',
     );
     expect(
       engine.buildLocalReply([
@@ -305,8 +306,7 @@ void main() {
     expect(reply.relatedLinks, hasLength(3));
   });
 
-  test('the provider key comes from prefs (not the AppConfig fallback)',
-      () async {
+  test('the provider key comes from the user-saved prefs key', () async {
     String? capturedKey;
     final mock = MockClient((request) async {
       capturedKey = request.headers['x-goog-api-key'];
@@ -342,21 +342,34 @@ void main() {
     expect(reply.content, 'Keyed answer.');
   });
 
-  test('no prefs key falls back to the AppConfig key and skips the provider',
+  test('unknown persisted provider does not use its key or call a provider',
       () async {
     SharedPreferences.setMockInitialValues({
-      'provider': 'Google Gemini',
+      'provider': 'UnknownProvider',
+      'key_UnknownProvider': 'secret-do-not-leak',
       'key_youtube': 'test-youtube-key',
     });
-    var called = false;
-    final mock = MockClient((request) async {
-      called = true;
-      fail('LAM must not be called without a key for a requiresKey provider');
-    });
+    var requests = 0;
+    var lookups = 0;
 
     final engine = ChatEngine(
-      lam: LAMService(client: mock),
+      lam: LAMService(
+        client: MockClient((request) async {
+          requests++;
+          return http.Response('{}', 500);
+        }),
+      ),
       consentCheck: () async => true,
+      lookup: ({
+        required String extractedText,
+        required String summary,
+        required List<String> recognitions,
+        required List<String> objects,
+        required String? youTubeApiKey,
+      }) async {
+        lookups++;
+        return const <WebResult>[];
+      },
     );
 
     final reply = await engine.reply(
@@ -365,8 +378,120 @@ void main() {
       localOnly: false,
     );
 
-    expect(called, isFalse);
+    expect(reply.content, contains('supported provider'));
+    expect(reply.content, contains('More'));
+    expect(reply.content, isNot(contains('secret-do-not-leak')));
+    expect(reply.relatedLinks, isEmpty);
+    expect(requests, 0);
+    expect(lookups, 0);
+  });
+
+  test('no user-saved key means zero hosted requests', () async {
+    SharedPreferences.setMockInitialValues({
+      'provider': 'Google Gemini',
+      'key_youtube': 'test-youtube-key',
+    });
+    var requests = 0;
+    var lookups = 0;
+    final mock = MockClient((request) async {
+      requests++;
+      fail('no hosted request may be made without a user-saved key');
+    });
+
+    final engine = ChatEngine(
+      lam: LAMService(client: mock),
+      consentCheck: () async => true,
+      lookup: ({
+        required String extractedText,
+        required String summary,
+        required List<String> recognitions,
+        required List<String> objects,
+        required String? youTubeApiKey,
+      }) async {
+        lookups++;
+        return const <WebResult>[];
+      },
+    );
+
+    final reply = await engine.reply(
+      text: 'flight',
+      results: [shot(ocrText: 'Flight BA123 to Lisbon')],
+      localOnly: false,
+    );
+
+    expect(requests, 0);
+    expect(lookups, 1);
     expect(reply.content, contains('Sorry, I could not reach any AI provider'));
+  });
+
+  test('a blank saved key is treated as no key (zero hosted requests)',
+      () async {
+    SharedPreferences.setMockInitialValues({
+      'provider': 'Google Gemini',
+      'key_Google Gemini': '   ',
+    });
+    var requests = 0;
+    var lookups = 0;
+    final mock = MockClient((request) async {
+      requests++;
+      fail('a whitespace-only key must not authorize a hosted request');
+    });
+
+    final engine = ChatEngine(
+      lam: LAMService(client: mock),
+      consentCheck: () async => true,
+      lookup: ({
+        required String extractedText,
+        required String summary,
+        required List<String> recognitions,
+        required List<String> objects,
+        required String? youTubeApiKey,
+      }) async {
+        lookups++;
+        return const <WebResult>[];
+      },
+    );
+
+    final reply = await engine.reply(
+      text: 'flight',
+      results: [shot(ocrText: 'Flight BA123 to Lisbon')],
+      localOnly: false,
+    );
+
+    expect(requests, 0);
+    expect(lookups, 1);
+    expect(reply.content, contains('Sorry, I could not reach any AI provider'));
+  });
+
+  test('a missing YouTube key means the lookup gets a null key', () async {
+    SharedPreferences.setMockInitialValues({
+      'provider': 'Google Gemini',
+      'key_Google Gemini': 'test-key',
+    });
+    String? capturedYouTubeKey;
+
+    final engine = ChatEngine(
+      lam: LAMService(client: geminiMock()),
+      consentCheck: () async => true,
+      lookup: ({
+        required String extractedText,
+        required String summary,
+        required List<String> recognitions,
+        required List<String> objects,
+        required String? youTubeApiKey,
+      }) async {
+        capturedYouTubeKey = youTubeApiKey;
+        return <WebResult>[];
+      },
+    );
+
+    await engine.reply(
+      text: 'flight',
+      results: [shot(ocrText: 'Flight BA123 to Lisbon', summary: 'Flight')],
+      localOnly: false,
+    );
+
+    expect(capturedYouTubeKey, isNull);
   });
 
   test('links come from the second result when the top has no content',

@@ -32,9 +32,10 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String _selectedProvider = 'Google Gemini';
   bool _hapticFeedback = true;
-  bool _localOnly = false;
+  bool _localOnly = true;
   bool _autoDetect = true;
   int _expandedStep = 0;
+  int _localOnlyRevision = 0;
 
   final Map<String, TextEditingController> _keyControllers = {};
   final TextEditingController _youtubeKeyController = TextEditingController();
@@ -42,21 +43,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final List<Map<String, dynamic>> _providers = [
     {
       'name': 'Google Gemini',
-      'desc': 'Free tier, 15 requests per minute, multimodal',
+      'desc': 'Cloud chat: free tier, 15 requests per minute',
       'needsKey': true,
       'keyUrl': 'https://aistudio.google.com/app/apikey',
       'recommended': true,
     },
     {
       'name': 'NVIDIA',
-      'desc': 'Free tier, 40 requests per minute, multimodal',
+      'desc': 'Cloud chat: free tier, 40 requests per minute',
       'needsKey': true,
       'keyUrl': 'https://build.nvidia.com',
       'recommended': false,
     },
     {
       'name': 'Groq',
-      'desc': 'Free tier, 30 requests per minute, text only',
+      'desc': 'Cloud chat: free tier, 30 requests per minute, text only',
       'needsKey': true,
       'keyUrl': 'https://console.groq.com/keys',
       'recommended': false,
@@ -79,6 +80,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
+    final localOnlyRevision = _localOnlyRevision;
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
@@ -87,7 +89,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _selectedProvider = 'Google Gemini';
       }
       _hapticFeedback = prefs.getBool('hapticFeedback') ?? true;
-      _localOnly = prefs.getBool('localOnly') ?? false;
+      if (localOnlyRevision == _localOnlyRevision) {
+        _localOnly = prefs.getBool('localOnly') ?? true;
+      }
       _autoDetect = prefs.getBool('autoDetect') ?? true;
     });
     MotionTokens.hapticsEnabled = _hapticFeedback;
@@ -105,7 +109,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('provider', _selectedProvider);
     await prefs.setBool('hapticFeedback', _hapticFeedback);
-    await prefs.setBool('localOnly', _localOnly);
     await prefs.setBool('autoDetect', _autoDetect);
 
     for (final p in _providers) {
@@ -119,6 +122,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await prefs.setString('key_youtube', _youtubeKeyController.text);
   }
 
+  Future<void> _onLocalOnlyChanged(bool value) async {
+    final provider = context.read<ScreenshotProvider>();
+    try {
+      await provider.setLocalOnly(value);
+      _localOnlyRevision++;
+      if (!mounted) return;
+      setState(() => _localOnly = value);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not save local-only mode.')),
+      );
+    }
+  }
+
   bool get _hasKey {
     final controller = _keyControllers[_selectedProvider];
     return controller != null && controller.text.trim().isNotEmpty;
@@ -127,6 +145,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final s = AppTheme.of(context);
+    final providerLocalOnly = context.watch<ScreenshotProvider>().localOnly;
 
     return SafeArea(
       bottom: false,
@@ -145,7 +164,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             context,
             icon: Icons.history_rounded,
             title: 'Actions history',
-            subtitle: 'Everything Sift has done for you',
+            subtitle: 'Actions you have run',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const ActionsHistoryScreen()),
@@ -157,7 +176,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               final running = ingest.isIngesting;
               final subtitle = running
                   ? 'Indexing on-device… ${ingest.processedCount} so far'
-                  : 'Remember screenshots already in your library. Runs entirely on your device.';
+                  : 'Remember screenshots already in your library. Runs on this device.';
               return _flatRow(
                 context,
                 icon: Icons.photo_library_rounded,
@@ -204,8 +223,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _checklistStep(
             context,
             number: 1,
-            title: 'Choose a provider',
-            caption: 'Pick the AI you trust',
+            title: 'Choose a cloud chat provider',
+            caption: 'Pick a provider for cloud chat',
             done: true,
             expanded: _expandedStep == 0,
             onTap: () =>
@@ -218,8 +237,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _checklistStep(
             context,
             number: 2,
-            title: 'Add your API key',
-            caption: _hasKey ? 'Saved' : 'Needed for $_selectedProvider',
+            title: 'Add a cloud chat key',
+            caption: _hasKey ? 'Saved' : 'Needed for cloud chat',
             done: _hasKey,
             expanded: _expandedStep == 1,
             onTap: () =>
@@ -283,14 +302,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             icon: Icons.offline_bolt_rounded,
             title: 'Local-only mode',
             subtitle:
-                'Analyze on-device with OCR. Nothing is sent to AI providers; AI chat and web lookups are disabled.',
+                'Analyze screenshots on-device with OCR and visual labels. Local-only mode prevents cloud chat and source lookup.',
             trailing: _flatSwitch(
-              value: _localOnly,
-              onChanged: (v) {
-                setState(() => _localOnly = v);
-                context.read<ScreenshotProvider>().setLocalOnly(v);
-                _saveSettings();
-              },
+              value: providerLocalOnly,
+              onChanged: _onLocalOnlyChanged,
             ),
           ),
           _infoRow(
@@ -298,7 +313,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             icon: Icons.lock_outline_rounded,
             title: 'What leaves your device',
             subtitle:
-                'Screenshots go to your chosen AI provider for analysis; optional link lookups query DuckDuckGo and YouTube.',
+                'Screenshot images and OCR text stay on this device. Google Play '
+                'services may download the small image-labeling model on first use. '
+                'Cloud chat sends screenshot-derived text and context to your '
+                'chosen provider; optional source lookup can query the web.',
           ),
           _infoRow(
             context,
@@ -832,12 +850,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed != true) return;
 
     if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
-    await provider.deleteEverything();
+    _localOnlyRevision++;
+    try {
+      await provider.deleteEverything();
+    } catch (e) {
+      // A partial wipe must never be reported as a success, and the UI state
+      // (selected provider, keys, toggles) is left exactly as it was.
+      debugPrint('Delete everything failed: $e');
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Could not delete everything. Some data may already be removed '
+            '— please try again.',
+          ),
+        ),
+      );
+      return;
+    }
+    _localOnlyRevision++;
     if (!mounted) return;
 
     setState(() {
       _selectedProvider = 'Google Gemini';
-      _localOnly = false;
+      _localOnly = true;
       _autoDetect = true;
       _hapticFeedback = true;
     });
@@ -872,9 +908,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('Index my library?'),
         content: const Text(
           'Sift will read every screenshot already in your screenshot folders '
-          'and remember it with on-device OCR. It runs entirely on this '
-          'device: nothing is uploaded, and no photo is ever modified or '
-          'deleted. You can pause or stop it anytime.',
+          'and remember it with on-device OCR. No photo is ever uploaded, '
+          'modified, or deleted, and you can pause or stop it anytime. Google '
+          'Play services may download the small image-labeling model on first use.',
         ),
         actions: [
           TextButton(

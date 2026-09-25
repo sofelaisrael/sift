@@ -14,34 +14,15 @@ workflows:
         - pattern: 'master'
           include: true
     scripts:
-      - name: Generate config
+      - name: Prepare build config
         script: |
-          cat > lib/config.dart << ENDCONFIG
-          class AppConfig {
-            static const String groqApiKey = '$GROQ_API_KEY';
-            static const String geminiApiKey = '$GEMINI_API_KEY';
-            static const String cerebrasApiKey = '$CEREBRAS_API_KEY';
-            static const String openRouterApiKey = '$OPENROUTER_API_KEY';
-            static const String youTubeApiKey = '$YOUTUBE_API_KEY';
-            static const String defaultProvider = 'Google Gemini';
-            static const String appName = 'Sift';
-
-            static String? apiKeyFor(String provider) {
-              switch (provider) {
-                case 'Google Gemini':
-                  return geminiApiKey.isEmpty ? null : geminiApiKey;
-                case 'Groq':
-                  return groqApiKey.isEmpty ? null : groqApiKey;
-                case 'Cerebras':
-                  return cerebrasApiKey.isEmpty ? null : cerebrasApiKey;
-                case 'OpenRouter':
-                  return openRouterApiKey.isEmpty ? null : openRouterApiKey;
-                default:
-                  return null;
-              }
-            }
-          }
-          ENDCONFIG
+          # lib/config.dart is gitignored and must never carry release secrets.
+          # The committed template holds non-secret metadata only (app name and
+          # the default chat provider), so CI copies it verbatim. Provider and
+          # YouTube keys are never read here and never reach the APK: cloud
+          # chat and source lookup run only against a key the user saves in
+          # Settings.
+          cp lib/config.example.dart lib/config.dart
       - name: Install dependencies
         script: flutter pub get
       - name: Clean Gradle cache

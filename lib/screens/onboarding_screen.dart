@@ -160,7 +160,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 48),
           Text(
-            'Your screenshots live on this device. AI analysis sends images to the provider you pick — Local-only mode keeps everything on-device.',
+            'Screenshot images and OCR text stay on this device. Google Play services may download the small image-labeling model on first use. Cloud chat sends screenshot-derived text and context to your chosen provider; optional source lookup can query the web. Local-only mode prevents cloud chat and source lookup.',
             style: SiftType.bodySansMd.copyWith(
               fontSize: 13,
               height: 1.45,
@@ -274,7 +274,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            'Everything lives on this device. Nothing leaves unless you decide it does.',
+            'Screenshot images and OCR text stay on this device. Google Play services may download the small image-labeling model on first use. Cloud chat and source lookup are optional; Local-only mode prevents both.',
             style: SiftType.bodySans.copyWith(
               color: s.graphite,
               height: 1.5,

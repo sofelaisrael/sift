@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:screensort_lam/providers/screenshot_provider.dart';
 import 'package:screensort_lam/services/image_labeler.dart';
 import 'package:screensort_lam/services/ocr_service.dart';
+import 'package:screensort_lam/services/screenshot_analyzer.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -42,7 +43,8 @@ void main() {
     final ocr = OCRService(extractOverride: (_) async => 'Imported text here');
     final labeler =
         ImageLabeler(labelOverride: (_) async => ['photo', 'landscape']);
-    final provider = ScreenshotProvider(ocr: ocr, labeler: labeler);
+    final analyzer = MLKitScreenshotAnalyzer(ocr: ocr, labeler: labeler);
+    final provider = ScreenshotProvider(analyzer: analyzer);
 
     final added1 = await provider.importImages([a, b], importDir: importDir);
     expect(added1, 2);

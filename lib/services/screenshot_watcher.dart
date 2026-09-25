@@ -53,7 +53,7 @@ class ScreenshotWatcher {
   Future<void> scanNow() => _check();
 
   Future<void> _check() async {
-    if (!_initialized || _checking) return;
+    if (!_initialized || _checking || provider.isDeleting) return;
     if (isIngesting?.call() ?? false) return;
 
     _checking = true;
@@ -66,6 +66,7 @@ class ScreenshotWatcher {
       };
       final files = await _enumerator.listMostRecentFirst();
       for (final file in files) {
+        if (provider.isDeleting) return;
         if (known.contains(file.path)) continue;
         final processed = await _handleNew(file.path);
         if (processed) {
@@ -88,21 +89,10 @@ class ScreenshotWatcher {
   }
 
   Future<bool> _handleNew(String path) async {
+    if (provider.isDeleting) return false;
     debugPrint('Watcher: new screenshot detected: $path');
 
     await (ensureNotificationPermission ?? _ensureNotificationPermission)();
-
-    final prefs = await SharedPreferences.getInstance();
-    final localOnly = prefs.getBool('localOnly') ?? false;
-    final consented = prefs.getBool('privacy_consent') ?? false;
-
-    if (!localOnly && !consented) {
-      await actionService.notify(
-        'Sift needs permission',
-        'Open Sift and allow screenshot analysis',
-      );
-      return false;
-    }
 
     await actionService.notify(
       'New screenshot detected',
@@ -110,8 +100,9 @@ class ScreenshotWatcher {
     );
 
     try {
-      await provider.processScreenshot(path);
-      return true;
+      final success = await provider.processScreenshot(path);
+      if (!success) debugPrint('Watcher: analysis failed');
+      return success;
     } catch (e) {
       debugPrint('Watcher: analysis failed: $e');
       return false;

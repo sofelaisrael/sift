@@ -33,8 +33,7 @@ void main() {
     await Hive.openBox('hidden_paths');
     final ocr = OCRService(extractOverride: (_) async => '');
     final provider = ScreenshotProvider(ocr: ocr);
-    provider.loadScreenshots();
-    await Future<void>.delayed(Duration.zero);
+    await provider.loadScreenshots();
     return provider;
   }
 
@@ -96,7 +95,9 @@ void main() {
 
     // Full wipe clears ingest + hidden boxes and reseeds watcher_seen.
     await provider.hideScreenshot(p1);
-    await provider.deleteEverything();
+    await provider.deleteEverything(
+      importDir: Directory('${tempDir.path}/sift_imports'),
+    );
     expect(Hive.box('ingest').keys, isEmpty);
     expect(Hive.box('hidden_paths').keys, isEmpty);
     expect(provider.screenshots, isEmpty);

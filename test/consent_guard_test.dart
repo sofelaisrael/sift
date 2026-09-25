@@ -7,22 +7,26 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'localOnly': true,
+      'privacy_consent': false,
+    });
   });
 
-  test('runSuggestedAction is blocked without consent', () async {
+  test('local action path is not blocked by cloud consent settings', () async {
     final provider = ScreenshotProvider();
+    // `none` reaches the local path without invoking a platform action.
     final s = Screenshot(
       id: 's1',
       fileName: 'reminder.png',
       filePath: '/gallery/reminder.png',
       timestamp: DateTime(2026, 1, 1),
-      suggestedAction: {'type': 'create_reminder', 'data': <String, dynamic>{}},
+      suggestedAction: {'type': 'none', 'data': <String, dynamic>{}},
     );
 
     final result = await provider.runSuggestedAction(s);
 
     expect(result, isNull);
-    expect(provider.error, contains('consent'));
+    expect(provider.error, isNull);
   });
 }

@@ -8,6 +8,7 @@ import 'package:screensort_lam/services/action_service.dart';
 import 'package:screensort_lam/services/file_enumerator.dart';
 import 'package:screensort_lam/services/ingest_service.dart';
 import 'package:screensort_lam/services/ocr_service.dart';
+import 'package:screensort_lam/services/screenshot_analyzer.dart';
 import 'package:screensort_lam/services/screenshot_watcher.dart';
 
 class _FakeActionService extends ActionService {
@@ -57,14 +58,14 @@ void main() {
     final ocr = OCRService(
       extractOverride: (p) async => 'OCR of $p',
     );
-    final provider = ScreenshotProvider(ocr: ocr);
+    final analyzer = MLKitScreenshotAnalyzer(ocr: ocr);
+    final provider = ScreenshotProvider(analyzer: analyzer);
 
     // Index two files through the ingest pass.
     await makeShot('a', DateTime(2026, 1, 1));
     await makeShot('b', DateTime(2026, 1, 2));
     final ingest = IngestService(
       provider: provider,
-      ocr: ocr,
       enumerator: FileEnumerator(folders: [shotDir.path]),
       retryDelays: const [],
     );
@@ -100,4 +101,84 @@ void main() {
       watcher.stop();
     }
   });
+
+  test(
+    'watcher analyzes locally without local-only or cloud consent',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'localOnly': false,
+        'privacy_consent': false,
+      });
+      await Hive.openBox('screenshots');
+      await makeShot('local', DateTime(2026, 1, 3));
+
+      final analyzer = MLKitScreenshotAnalyzer(
+        ocr: OCRService(extractOverride: (_) async => 'local text'),
+      );
+      final provider = ScreenshotProvider(analyzer: analyzer);
+      final watcher = ScreenshotWatcher(
+        provider: provider,
+        actionService: _FakeActionService(),
+        enumerator: FileEnumerator(folders: [shotDir.path]),
+      )..ensureNotificationPermission = () async {};
+
+      await watcher.start();
+      try {
+        await watcher.scanNow();
+        expect(provider.screenshots, hasLength(1));
+        expect(provider.screenshots.single.ocrText, 'local text');
+      } finally {
+        watcher.stop();
+      }
+    },
+  );
+
+  test(
+    'watcher retries a path after local analysis fails',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'localOnly': false,
+        'privacy_consent': false,
+      });
+      await Hive.openBox('screenshots');
+      final path = (await makeShot('retry', DateTime(2026, 1, 4)))
+          .replaceAll('\\', '/');
+      var attempts = 0;
+      final analyzer = MLKitScreenshotAnalyzer(
+        ocr: OCRService(
+          extractOverride: (_) async {
+            attempts++;
+            if (attempts == 1) throw StateError('first failure');
+            return 'recovered text';
+          },
+        ),
+      );
+      final provider = ScreenshotProvider(analyzer: analyzer);
+      final watcher = ScreenshotWatcher(
+        provider: provider,
+        actionService: _FakeActionService(),
+        enumerator: FileEnumerator(folders: [shotDir.path]),
+      )..ensureNotificationPermission = () async {};
+
+      await watcher.start();
+      try {
+        await watcher.scanNow();
+        final prefs = await SharedPreferences.getInstance();
+        expect(attempts, 1);
+        expect(provider.screenshots, isEmpty);
+        expect(
+          prefs.getStringList('watcher_seen') ?? const <String>[],
+          isNot(contains(path)),
+        );
+
+        await watcher.scanNow();
+        expect(attempts, 2);
+        expect(provider.screenshots, hasLength(1));
+        expect(provider.screenshots.single.ocrText, 'recovered text');
+        expect(prefs.getStringList('watcher_seen'), contains(path));
+      } finally {
+        watcher.stop();
+      }
+    },
+  );
 }

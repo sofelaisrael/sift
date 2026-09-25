@@ -25,4 +25,28 @@ void main() {
     expect(restored.sourceIds, message.sourceIds);
     expect(restored.relatedLinks, message.relatedLinks);
   });
+
+  test('local-only display sanitizes thumbnails without mutating history', () {
+    final message = ChatMessage(
+      id: 'm2',
+      role: 'assistant',
+      content: 'Related link',
+      timestamp: DateTime(2026, 1, 1),
+      relatedLinks: const [
+        {
+          'title': 'Example',
+          'url': 'https://example.com',
+          'thumb': 'https://example.com/thumb.jpg',
+        },
+      ],
+    );
+
+    final localLinks = message.relatedLinksForDisplay(localOnly: true);
+    final cloudLinks = message.relatedLinksForDisplay(localOnly: false);
+
+    expect(localLinks.single.containsKey('thumb'), isFalse);
+    expect(message.relatedLinks.single['thumb'],
+        'https://example.com/thumb.jpg');
+    expect(cloudLinks.single['thumb'], 'https://example.com/thumb.jpg');
+  });
 }

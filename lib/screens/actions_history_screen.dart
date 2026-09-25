@@ -234,7 +234,7 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Actions will appear here after Sift handles a screenshot.',
+              'Actions you run will appear here.',
               textAlign: TextAlign.center,
               style: SiftType.bodySans.copyWith(
                 color: s.graphite,

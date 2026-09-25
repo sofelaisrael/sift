@@ -31,8 +31,7 @@ void main() {
     await Hive.openBox('hidden_paths');
     final ocr = OCRService(extractOverride: (_) async => '');
     final provider = ScreenshotProvider(ocr: ocr);
-    provider.loadScreenshots();
-    await Future<void>.delayed(Duration.zero);
+    await provider.loadScreenshots();
     return provider;
   }
 
