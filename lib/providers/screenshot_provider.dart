@@ -80,8 +80,8 @@ class ScreenshotProvider extends ChangeNotifier {
     DocumentsDirectoryLoader? documentsDirectoryLoader,
     ImportDirectoryCleaner? importDirectoryCleaner,
     PreferencesClearer? preferencesClearer,
-  }) : _analyzer = analyzer ??
-            MLKitScreenshotAnalyzer(ocr: ocr, labeler: labeler),
+  })  : _analyzer =
+            analyzer ?? MLKitScreenshotAnalyzer(ocr: ocr, labeler: labeler),
         _localOnlyPreferenceLoader = localOnlyPreferenceLoader,
         _localOnlyPreferenceWriter = localOnlyPreferenceWriter,
         _documentsDirectoryLoader = documentsDirectoryLoader,
@@ -260,9 +260,15 @@ class ScreenshotProvider extends ChangeNotifier {
   }
 
   Future<bool> _persistLocalOnlyPreference(bool value) async {
-    final persisted = _localOnlyPreferenceWriter != null
+    // Both branches are awaited so the ternary stays `bool`; awaiting only one
+    // side of `?:` leaves the other an untyped expression and the whole
+    // expression an Object.
+    final bool persisted = _localOnlyPreferenceWriter != null
         ? await _localOnlyPreferenceWriter!(value)
-        : (await SharedPreferences.getInstance()).setBool('localOnly', value);
+        : await (await SharedPreferences.getInstance()).setBool(
+            'localOnly',
+            value,
+          );
     if (!persisted) throw Exception('local-only preference write failed');
     return persisted;
   }
@@ -329,9 +335,7 @@ class ScreenshotProvider extends ChangeNotifier {
                 ? (firstLine.length > 80
                     ? firstLine.substring(0, 80)
                     : firstLine)
-                : (ocrText.length > 80
-                    ? ocrText.substring(0, 80)
-                    : ocrText)),
+                : (ocrText.length > 80 ? ocrText.substring(0, 80) : ocrText)),
         description: null,
         objects: _mergeObjects(analysis.objects),
         recognitions: const [],
@@ -383,7 +387,8 @@ class ScreenshotProvider extends ChangeNotifier {
     });
   }
 
-  Future<void> _saveScreenshot(Screenshot screenshot, {bool notify = true}) async {
+  Future<void> _saveScreenshot(Screenshot screenshot,
+      {bool notify = true}) async {
     if (_deletionInProgress) throw const _ProviderOperationRejected();
     await _writeSerialized(
       () => Hive.box('screenshots').put(screenshot.id, screenshot.toJson()),
@@ -419,7 +424,8 @@ class ScreenshotProvider extends ChangeNotifier {
   }
 
   /// Add [id] with [weight] for every word in [text] to the inverted index.
-  void _addTerms(String? text, String id, int weight, {Map<String, Map<String, int>>? index}) {
+  void _addTerms(String? text, String id, int weight,
+      {Map<String, Map<String, int>>? index}) {
     if (text == null || text.isEmpty) return;
     final idx = index ?? _invertedIndex;
     for (final word in _tokenize(text)) {
@@ -474,7 +480,8 @@ class ScreenshotProvider extends ChangeNotifier {
     // OCR text gets weight 1 but is capped to avoid bloating the index
     final ocr = s.ocrText ?? '';
     if (ocr.isNotEmpty) {
-      _addTerms(ocr.length > _ocrBlobCap ? ocr.substring(0, _ocrBlobCap) : ocr, s.id, _wOcr);
+      _addTerms(ocr.length > _ocrBlobCap ? ocr.substring(0, _ocrBlobCap) : ocr,
+          s.id, _wOcr);
     }
 
     // Rebuild tag index
@@ -550,9 +557,7 @@ class ScreenshotProvider extends ChangeNotifier {
       summary: ocr.isEmpty
           ? 'No text found'
           : (firstLine.isNotEmpty
-              ? (firstLine.length > 80
-                  ? firstLine.substring(0, 80)
-                  : firstLine)
+              ? (firstLine.length > 80 ? firstLine.substring(0, 80) : firstLine)
               : (ocr.length > 80 ? ocr.substring(0, 80) : ocr)),
       description: null,
       objects: _mergeObjects(objects),
@@ -960,7 +965,9 @@ class ScreenshotProvider extends ChangeNotifier {
       }
       if (_localOnlyPreferenceWriter != null) {
         final writerSaved = await _localOnlyPreferenceWriter!(true);
-        if (!writerSaved) throw StateError('local-only preference write failed');
+        if (!writerSaved) {
+          throw StateError('local-only preference write failed');
+        }
       }
       if (!await prefs.setBool('localOnly', true)) {
         throw StateError('local-only preference write failed');
@@ -973,7 +980,9 @@ class ScreenshotProvider extends ChangeNotifier {
           'watcher_seen',
           paths.toList(),
         );
-        if (!seenSaved) throw StateError('watcher seen preference write failed');
+        if (!seenSaved) {
+          throw StateError('watcher seen preference write failed');
+        }
       }
 
       _screenshots = [];

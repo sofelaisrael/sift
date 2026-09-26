@@ -77,9 +77,14 @@ class IngestService extends ChangeNotifier {
     if (_stopRequested && value['status'] != _metaStatusStopped) {
       return Future<void>.value();
     }
-    final result = _metaTail.then((_) {
-      if (!Hive.isBoxOpen('ingest')) return;
-      if (_stopRequested && value['status'] != _metaStatusStopped) return;
+    // Typed `Future<void>` and every exit returns a value: an untyped callback
+    // infers `Future<void>?`, and the bare `return;` inside it is then a
+    // `return_without_value` error.
+    final Future<void> result = _metaTail.then<void>((_) {
+      if (!Hive.isBoxOpen('ingest')) return Future<void>.value();
+      if (_stopRequested && value['status'] != _metaStatusStopped) {
+        return Future<void>.value();
+      }
       return Hive.box('ingest').put(_metaKey, value);
     });
     _metaTail = result.catchError((_) {});
@@ -295,10 +300,8 @@ class IngestService extends ChangeNotifier {
   }
 
   Future<void> _drain(int generation) async {
-    while (_running &&
-        !_paused &&
-        !_stopRequested &&
-        generation == _generation) {
+    while (
+        _running && !_paused && !_stopRequested && generation == _generation) {
       String? next;
       while (_pendingQueue.isNotEmpty) {
         final candidate = _pendingQueue.removeAt(0);
