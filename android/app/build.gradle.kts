@@ -31,6 +31,15 @@ android {
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // No ABI filter: it applied to every build type, so pinning arm64-v8a
+        // took x86_64 emulator and 32-bit device support away from the whole
+        // app, including screenshot capture, ML Kit OCR and cloud chat, none of
+        // which involve LiteRT. The build does not need it: the plugin's hook
+        // emits no native asset for android_x86_64 and still succeeds, and
+        // armeabi-v7a is the same skip case — it has no registered checksum
+        // either, the hook lists only litertlm-android_arm64.tar.gz for Android.
+        // Elsewhere the app runs normally; Settings says the model is absent.
     }
 
     signingConfigs {

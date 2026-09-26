@@ -9,6 +9,7 @@ import '../models/screenshot.dart';
 import '../providers/screenshot_provider.dart';
 import '../services/chat_engine.dart';
 import '../services/lam_service.dart';
+import '../services/local_model_service.dart';
 import '../services/web_lookup.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
@@ -29,8 +30,7 @@ class ChatScreen extends StatefulWidget {
     required List<String> recognitions,
     required List<String> objects,
     required String? youTubeApiKey,
-  })?
-  lookupOverride;
+  })? lookupOverride;
 
   const ChatScreen({super.key, this.askFocusNode, this.lookupOverride});
 
@@ -239,10 +239,15 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final results = provider.search(text);
 
+      // Nullable read: a screen without the model still chats, it just keeps
+      // the plain local reply in local-only mode.
+      final localModel = context.read<LocalModelService?>()?.model;
+
       final engine = ChatEngine(
         lam: context.read<LAMService>(),
         consentCheck: () => showPrivacyConsentIfNeeded(context),
         lookup: widget.lookupOverride ?? WebLookupService().lookup,
+        localModel: localModel,
       );
       final replyResult = await engine.reply(
         text: text,
@@ -518,7 +523,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
           const SizedBox(height: 32),
           Text(
-            'Screenshot images and OCR text stay on this device. Google Play services may download the small image-labeling model on first use. Cloud chat sends screenshot-derived text and context to your chosen provider, and optional source lookup can query the web. Local-only mode prevents cloud chat and source lookup.',
+            'Screenshot images and OCR text stay on this device. Google Play services may download the small image-labeling model on first use. The optional on-device chat model is not bundled: SIFT downloads it once from Hugging Face when you set it up, then runs it on this device with LiteRT-LM. Cloud chat sends screenshot-derived text and context to your chosen provider, and optional source lookup can query the web. Local-only mode prevents cloud chat and source lookup.',
             style: SiftType.bodySansMd.copyWith(
               fontSize: 13,
               height: 1.45,

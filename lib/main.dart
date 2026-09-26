@@ -13,6 +13,8 @@ import 'services/watcher_service.dart';
 import 'services/ocr_service.dart';
 import 'services/ingest_service.dart';
 import 'services/image_labeler.dart';
+import 'services/litert_local_chat_model.dart';
+import 'services/local_model_service.dart';
 import 'services/screenshot_analyzer.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/app_shell.dart';
@@ -27,10 +29,12 @@ Future<void> _registerFontLicenses() async {
   String? sourceSerif;
   String? jetBrains;
   try {
-    sourceSerif = await rootBundle.loadString('assets/fonts/OFL-SourceSerif4.txt');
+    sourceSerif =
+        await rootBundle.loadString('assets/fonts/OFL-SourceSerif4.txt');
   } catch (_) {}
   try {
-    jetBrains = await rootBundle.loadString('assets/fonts/OFL-JetBrainsMono.txt');
+    jetBrains =
+        await rootBundle.loadString('assets/fonts/OFL-JetBrainsMono.txt');
   } catch (_) {}
   if (sourceSerif != null || jetBrains != null) {
     LicenseRegistry.addLicense(() async* {
@@ -72,6 +76,18 @@ Future<void> main() async {
     isIngesting: () => ingestService.isIngesting,
   );
   ingestService.onPassComplete = watcherService.scanNow;
+  // Registration only: the LiteRT-LM engine is registered with the runtime and
+  // nothing else happens. No model is downloaded, no weights are read, and the
+  // engine is created only when a local-only question needs an answer. A
+  // failure here must not block startup, so the model is simply absent and chat
+  // keeps the plain local reply.
+  final localModel = LiteRtLocalChatModel();
+  try {
+    await LiteRtLocalChatModel.register();
+  } catch (_) {
+    debugPrint('On-device model runtime registration failed');
+  }
+  final localModelService = LocalModelService(model: localModel);
 
   runApp(
     SiftApp(
@@ -81,6 +97,7 @@ Future<void> main() async {
       actionService: actionService,
       watcherService: watcherService,
       ingestService: ingestService,
+      localModelService: localModelService,
     ),
   );
 }
@@ -92,6 +109,7 @@ class SiftApp extends StatelessWidget {
   final ActionService actionService;
   final WatcherService watcherService;
   final IngestService ingestService;
+  final LocalModelService localModelService;
 
   const SiftApp({
     super.key,
@@ -101,6 +119,7 @@ class SiftApp extends StatelessWidget {
     required this.actionService,
     required this.watcherService,
     required this.ingestService,
+    required this.localModelService,
   });
 
   @override
@@ -113,6 +132,7 @@ class SiftApp extends StatelessWidget {
         Provider.value(value: actionService),
         ChangeNotifierProvider.value(value: watcherService),
         ChangeNotifierProvider.value(value: ingestService),
+        ChangeNotifierProvider.value(value: localModelService),
       ],
       child: Consumer<ThemeController>(
         builder: (context, controller, _) {

@@ -25,6 +25,21 @@ class _BlockingAnalyzer implements ScreenshotAnalyzer {
   }
 }
 
+/// Offset of the next member declaration after [from] in a class body, or -1
+/// when the body ends first.
+///
+/// Every member of a `State` class here is indented by exactly two spaces and
+/// a method body by four, so the first line at two spaces that opens a
+/// declaration closes the member the slice started in. Without this the slice
+/// runs to EOF and a later method's `setState(() {` would silently satisfy an
+/// assertion that is supposed to bind to the method under test.
+int _nextMemberStart(String source, int from) {
+  final match = RegExp(
+    r'\n  (?:@|Future|Widget|void|bool|int|String|double|final|late|set)',
+  ).firstMatch(source.substring(from));
+  return match == null ? -1 : from + match.start;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -44,7 +59,8 @@ void main() {
     } catch (_) {}
   });
 
-  test('deleteEverything wipes boxes and reseeds the watcher_seen guard', () async {
+  test('deleteEverything wipes boxes and reseeds the watcher_seen guard',
+      () async {
     final screenshotsBox = await Hive.openBox('screenshots');
     final shot = Screenshot(
       id: 's1',
@@ -78,7 +94,8 @@ void main() {
     expect(provider.localOnly, isTrue);
   });
 
-  test('deleteEverything removes private imports recursively and keeps originals',
+  test(
+      'deleteEverything removes private imports recursively and keeps originals',
       () async {
     await Hive.openBox('screenshots');
     final gallery = Directory('${tempDir.path}/gallery')..createSync();
@@ -136,7 +153,8 @@ void main() {
       importDir: Directory('${tempDir.path}/sift_imports'),
     );
     expect(provider.isDeleting, isTrue);
-    expect(await provider.processScreenshot('${tempDir.path}/new.png'), isFalse);
+    expect(
+        await provider.processScreenshot('${tempDir.path}/new.png'), isFalse);
     expect(
       await provider.addFromBulkIngest(
         path: '${tempDir.path}/new.png',
@@ -217,8 +235,7 @@ void main() {
     });
 
     final documents = Directory('${tempDir.path}/documents')..createSync();
-    final importDir =
-        Directory('${documents.path}/sift_imports')..createSync();
+    final importDir = Directory('${documents.path}/sift_imports')..createSync();
     final imported = File('${importDir.path}/copy.png')
       ..writeAsBytesSync([1, 2, 3]);
 
@@ -258,8 +275,7 @@ void main() {
 
   test('a failed preferences clear is surfaced, not swallowed', () async {
     final documents = Directory('${tempDir.path}/documents')..createSync();
-    final importDir =
-        Directory('${documents.path}/sift_imports')..createSync();
+    final importDir = Directory('${documents.path}/sift_imports')..createSync();
     File('${importDir.path}/copy.png').writeAsBytesSync([1, 2, 3]);
     final screenshotsBox = await Hive.openBox('screenshots');
     await screenshotsBox.put('s1', {
@@ -311,8 +327,7 @@ void main() {
       'timestamp': DateTime(2026, 1, 1).toIso8601String(),
     });
     final documents = Directory('${tempDir.path}/documents')..createSync();
-    final importDir =
-        Directory('${documents.path}/sift_imports')..createSync();
+    final importDir = Directory('${documents.path}/sift_imports')..createSync();
     File('${importDir.path}/copy.png').writeAsBytesSync([1, 2, 3]);
 
     final provider = ScreenshotProvider(
@@ -388,7 +403,55 @@ void main() {
     );
   });
 
-  test('provider exposes a deletion revision for retained chat state', () async {
+  test('Settings removes the model first, then resets the screen', () async {
+    final source =
+        await File('lib/screens/settings_screen.dart').readAsString();
+    // Scoped to this handler: the same statements appear in no other, and the
+    // file holds other setState calls that would make a file-wide index
+    // meaningless. The slice stops at the next member so a later method can
+    // never satisfy one of these assertions by accident.
+    final start = source.indexOf('Future<void> _confirmDeleteEverything');
+    expect(start, greaterThan(-1));
+    final end = _nextMemberStart(source, start);
+    final body = source.substring(start, end == -1 ? source.length : end);
+    // The handler really is bounded, so the assertions below are reading it
+    // rather than the rest of the file.
+    expect(body, isNot(contains('_onLibraryIndexTap')));
+
+    // The order is the invariant: the runtime keeps its model index in the store
+    // the wipe clears, so a removal after the wipe registers nothing and the
+    // 614 MB file survives a deletion the user was told happened.
+    expect(body.indexOf('removeModel()'), greaterThan(-1));
+    expect(
+      body.indexOf('removeModel()'),
+      lessThan(body.indexOf('await provider.deleteEverything();')),
+    );
+    // And it must not be gated on a cached "is it there" read, which answers
+    // false whenever the plugin or the filesystem throws and would leave the
+    // file orphaned beside a wiped index.
+    expect(source, isNot(contains('localModel.installed')));
+
+    // Past the wipe the boxes and prefs really are gone, so the screen must stop
+    // showing the deleted provider, toggles, and API key whether or not the
+    // model file came off.
+    final gate = body.indexOf('if (!modelRemoved) {');
+    expect(gate, greaterThan(-1));
+    for (final reset in const [
+      'setState(() {',
+      '_selectedProvider = \'Google Gemini\';',
+      'MotionTokens.hapticsEnabled = true;',
+      '_youtubeKeyController.clear();',
+    ]) {
+      final at = body.indexOf(reset);
+      expect(at, greaterThan(-1), reason: reset);
+      expect(at, lessThan(gate), reason: reset);
+    }
+    // The claim of full success stays behind that gate.
+    expect(body.indexOf("Text('Everything deleted')"), greaterThan(gate));
+  });
+
+  test('provider exposes a deletion revision for retained chat state',
+      () async {
     await Hive.openBox('screenshots');
     final provider = ScreenshotProvider();
     final before = provider.deletionRevision;

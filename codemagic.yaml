@@ -21,7 +21,9 @@ workflows:
           # the default chat provider), so CI copies it verbatim. Provider and
           # YouTube keys are never read here and never reach the APK: cloud
           # chat and source lookup run only against a key the user saves in
-          # Settings.
+          # Settings. The optional on-device chat model needs no credential at
+          # all — it is a public Hugging Face bundle downloaded by the device
+          # after the user asks for it, so no model token belongs in CI either.
           cp lib/config.example.dart lib/config.dart
       - name: Install dependencies
         script: flutter pub get
@@ -30,6 +32,15 @@ workflows:
       - name: Stop old Gradle daemons
         script: cd android && ./gradlew --stop 2>/dev/null || true
       - name: Build APK
+        # flutter_gemma_litertlm delivers the LiteRT-LM native library through
+        # its Native-Assets build hook, which fetches a SHA256-verified bundle
+        # from github.com/DenisovAV/flutter_gemma/releases (not pub.dev) on the
+        # first build. This step therefore needs egress to github.com; no
+        # secret or token is involved, and the on-device model is still not
+        # part of the build. That runtime ships native libs for arm64-v8a on
+        # Android only, but the build is not ABI-restricted: on x86_64 or
+        # 32-bit the app installs and runs normally and the on-device model is
+        # simply unavailable, which Settings says up front.
         script: flutter build apk --release --no-tree-shake-icons
     artifacts:
       - build/**/*.apk

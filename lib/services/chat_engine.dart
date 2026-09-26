@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
 import '../models/screenshot.dart';
 import 'lam_service.dart';
+import 'local_chat_model.dart';
 import 'web_lookup.dart';
 
 /// Result of a chat reply build: the assistant text, any related links, and
@@ -24,6 +25,12 @@ class ChatReply {
 class ChatEngine {
   final LAMService lam;
   final Future<bool> Function() consentCheck;
+
+  /// On-device model for local-only chat. Null wherever no model is wired, and
+  /// local-only then keeps the plain [buildLocalReply] answer. Injected as the
+  /// interface so the widget layer owns the model and tests can fake it.
+  final LocalChatModel? localModel;
+
   final Future<List<WebResult>> Function({
     required String extractedText,
     required String summary,
@@ -35,6 +42,7 @@ class ChatEngine {
   ChatEngine({
     required this.lam,
     required this.consentCheck,
+    this.localModel,
     Future<List<WebResult>> Function({
       required String extractedText,
       required String summary,
@@ -56,7 +64,7 @@ class ChatEngine {
 
     if (localOnly) {
       return ChatReply(
-        content: buildLocalReply(results),
+        content: await _localReply(text, results),
         relatedLinks: embedded,
       );
     }
@@ -75,7 +83,7 @@ class ChatEngine {
     if (!ok) {
       return const ChatReply(
         content:
-            'Cloud chat needs your consent before it sends screenshot-derived text and context to the selected provider. Optional source lookup can also query the web. Local-only mode keeps both on-device. Screenshot images and OCR text stay on this device; Google Play services may download the small image-labeling model on first use.',
+            'Cloud chat needs your consent before it sends screenshot-derived text and context to the selected provider. Optional source lookup can also query the web. Local-only mode keeps both on-device. Screenshot images and OCR text stay on this device; Google Play services may download the small image-labeling model on first use. The optional on-device chat model is not bundled: SIFT downloads it once from Hugging Face when you set it up, then runs it on this device with LiteRT-LM.',
         blocked: true,
       );
     }
@@ -171,6 +179,40 @@ class ChatEngine {
     }
     return merged.values.take(3).toList();
   }
+
+  /// Answer for local-only mode. The on-device model is preferred when it is
+  /// usable and there is screenshot context to ground it; every other case —
+  /// no model, not installed, still loading, failed, empty answer, or a throw
+  /// — keeps the existing plain local reply. Nothing here reaches the network,
+  /// and a missing model is never downloaded on the user's behalf.
+  Future<String> _localReply(
+    String text,
+    List<Screenshot> results,
+  ) async {
+    final fallback = buildLocalReply(results);
+    final model = localModel;
+    if (model == null || results.isEmpty) return fallback;
+    try {
+      if (!await model.ensureLoaded()) return fallback;
+      if (!model.isUsable) return fallback;
+      final answer = await model.generate(
+        prompt: _buildLocalPrompt(text),
+        context: buildContextText(results),
+      );
+      final trimmed = answer.trim();
+      return trimmed.isEmpty ? fallback : trimmed;
+    } catch (_) {
+      // The engine owns the fallback: a model failure must degrade to the
+      // plain local reply, never surface as a chat error.
+      return fallback;
+    }
+  }
+
+  /// The question, as the model's one user turn. The grounding rules ride
+  /// along as the model's system instruction inside the on-device
+  /// implementation, so LiteRT-LM applies the model's own chat template around
+  /// them; only the question itself is built here.
+  String _buildLocalPrompt(String question) => 'QUESTION: $question';
 
   /// Max characters of OCR text to include per screenshot. Keeps context
   /// focused without losing the signal that matters.

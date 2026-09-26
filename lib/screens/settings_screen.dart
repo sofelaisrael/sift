@@ -10,6 +10,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../providers/theme_controller.dart';
 import '../providers/screenshot_provider.dart';
 import '../services/ingest_service.dart';
+import '../services/local_chat_model.dart';
+import '../services/local_model_service.dart';
+import '../services/local_model_spec.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
 import '../widgets/sift_mark.dart';
@@ -36,6 +39,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoDetect = true;
   int _expandedStep = 0;
   int _localOnlyRevision = 0;
+  bool _localModelChecked = false;
 
   final Map<String, TextEditingController> _keyControllers = {};
   final TextEditingController _youtubeKeyController = TextEditingController();
@@ -68,6 +72,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _loadSettings();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_localModelChecked) return;
+    _localModelChecked = true;
+    // A local stat so the row can tell "not downloaded" from "downloaded but
+    // idle". It never starts a download.
+    context.read<LocalModelService?>()?.refresh();
   }
 
   @override
@@ -308,6 +322,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: _onLocalOnlyChanged,
             ),
           ),
+          Builder(
+            builder: (context) {
+              final localModel = context.watch<LocalModelService?>();
+              if (localModel == null) return const SizedBox.shrink();
+              final failed = localModel.status == LocalChatModelStatus.error;
+              return _flatRow(
+                context,
+                icon: Icons.memory_rounded,
+                title: 'On-device chat model',
+                subtitle: _localModelSubtitle(localModel),
+                titleColor: failed ? s.error : null,
+                onTap: localModel.isDownloading
+                    ? null
+                    : () => _onLocalModelTap(context, localModel),
+                trailing: localModel.isDownloading
+                    ? IconButton(
+                        tooltip: 'Cancel download',
+                        onPressed: localModel.cancelDownload,
+                        icon: Icon(
+                          Icons.close_rounded,
+                          size: 20,
+                          color: s.ink,
+                        ),
+                        padding: EdgeInsets.zero,
+                        constraints:
+                            const BoxConstraints(minWidth: 40, minHeight: 40),
+                      )
+                    : null,
+              );
+            },
+          ),
           _infoRow(
             context,
             icon: Icons.lock_outline_rounded,
@@ -315,8 +360,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle:
                 'Screenshot images and OCR text stay on this device. Google Play '
                 'services may download the small image-labeling model on first use. '
-                'Cloud chat sends screenshot-derived text and context to your '
-                'chosen provider; optional source lookup can query the web.',
+                'The optional on-device chat model is not bundled: SIFT downloads it '
+                'once from Hugging Face when you set it up, then runs it on this '
+                'device with LiteRT-LM. Cloud chat sends '
+                'screenshot-derived text and context to your chosen provider; '
+                'optional source lookup can query the web.',
           ),
           _infoRow(
             context,
@@ -784,6 +832,142 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Switch(value: value, onChanged: onChanged);
   }
 
+  /// One line describing the model's real state, including an honest error.
+  /// Nothing here claims the model is bundled or already able to answer.
+  String _localModelSubtitle(LocalModelService service) {
+    // Said first because it outranks every state below it: no transfer was ever
+    // started here, so "Not downloaded" would be promising a setup that cannot
+    // work on this device.
+    if (!service.isSupportedDevice) {
+      return 'Unavailable here. ${service.unsupportedDeviceNote}';
+    }
+    switch (service.status) {
+      case LocalChatModelStatus.downloading:
+        final percent = service.downloadPercent;
+        return 'Downloading $percent% of '
+            '${LocalModelSpec.approxSizeLabel}…';
+      case LocalChatModelStatus.loading:
+        return 'Downloaded. Loading ${LocalModelSpec.runtimeName} on this '
+            'device…';
+      case LocalChatModelStatus.installed:
+        return 'Downloaded. Loads the first time you ask a local question.';
+      case LocalChatModelStatus.ready:
+        return 'Ready — answers local questions on this device with '
+            '${LocalModelSpec.runtimeName}.';
+      case LocalChatModelStatus.error:
+        return service.statusMessage ??
+            'The on-device model could not be set up. Tap to try again.';
+      case LocalChatModelStatus.notInstalled:
+        return service.installed
+            ? 'Downloaded. Loads the first time you ask a local question.'
+            : 'Not downloaded. Optional ${LocalModelSpec.modelId} answers '
+                'local questions on this device. SIFT never bundles it.';
+    }
+  }
+
+  /// Manage the optional model. Setup is explicit: the copy says what will be
+  /// downloaded, from where, and that the answer then stays on the device.
+  Future<void> _onLocalModelTap(
+    BuildContext context,
+    LocalModelService service,
+  ) async {
+    // Captured before the await: the dialog and the snackbar must not reach
+    // for a BuildContext across an async gap.
+    final messenger = ScaffoldMessenger.of(context);
+
+    // This device's architecture cannot run the model, so there is no setup to
+    // offer. The row still opens this to say why, but the dialog carries no
+    // Download action and the service would refuse a transfer anyway.
+    if (!service.isSupportedDevice) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('On-device chat model'),
+          content: Text(service.unsupportedDeviceNote),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final failed = service.status == LocalChatModelStatus.error;
+    final installed = service.installed;
+    // The trailing sentence offers the download, so it may only appear when the
+    // dialog actually carries a Download button. With the model installed the
+    // only actions are Close and Remove, and a re-download would short-circuit
+    // as already installed — the copy must not promise a button that is absent.
+    final message = failed
+        ? installed
+            ? '${service.statusMessage}'
+            : '${service.statusMessage}\n\nYou can try the download again.'
+        : installed
+            ? '${LocalModelSpec.licenseNote}\n\n'
+                'SIFT loads the model the first time you ask a local question '
+                'and keeps it on this device. Removing it only affects local '
+                'chat; cloud chat is unchanged.'
+            : '${LocalModelSpec.licenseNote}\n\n'
+                'SIFT will download it once (${LocalModelSpec.approxSizeLabel}) '
+                'from Hugging Face, then answer local questions on this device '
+                'with ${LocalModelSpec.runtimeName}. No account, no API key, and '
+                'the answer never leaves the phone.';
+
+    final action = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('On-device chat model'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'close'),
+            child: Text(installed ? 'Close' : 'Not now'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(context, installed ? 'remove' : 'download'),
+            child: Text(installed ? 'Remove' : 'Download'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || action == null || action == 'close') return;
+
+    if (action == 'download') {
+      // Fire-and-forget: the row itself is the progress and error surface.
+      service.startDownload();
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Downloading the on-device chat model…',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
+    final removal = await service.removeModel();
+    if (!mounted) return;
+    // A file is only ever said to be gone when one was actually deleted: the
+    // other two outcomes leave the dialog honest about what is still there.
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          switch (removal) {
+            LocalModelRemoval.removed => 'On-device model removed.',
+            LocalModelRemoval.notRegistered =>
+              'No on-device model file is on this device.',
+            LocalModelRemoval.failed => 'The model file could not be removed.',
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _buildDeleteEverythingTile(BuildContext context) {
     final s = AppTheme.of(context);
 
@@ -827,13 +1011,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     final provider = context.read<ScreenshotProvider>();
+    // The manager owns the optional model directory, so the wipe goes through
+    // it rather than through the import folder the provider owns.
+    final localModel = context.read<LocalModelService?>();
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete everything?'),
         content: const Text(
-          'This permanently deletes everything Sift owns: saved screenshots and their analysis, chat history, actions, settings, saved API keys, and search history. Your gallery photos are untouched.',
+          'This permanently deletes everything Sift owns: saved screenshots and their analysis, chat history, actions, settings, saved API keys, the optional on-device chat model, and search history. Your gallery photos are untouched.',
         ),
         actions: [
           TextButton(
@@ -851,6 +1038,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
     _localOnlyRevision++;
+
+    // The model goes first, and never after the wipe. The runtime keeps its
+    // model index in the same SharedPreferences store the wipe clears, so a
+    // removal that runs afterwards finds nothing registered, leaves the file
+    // on the device, and reports a deletion that never happened.
+    //
+    // The removal is not gated on a cached "is it there" answer. That read
+    // reports false whenever the plugin or the filesystem throws, and skipping
+    // the removal on that basis wipes the index and strands the file beside an
+    // empty one — the exact orphan this order exists to prevent. A model that
+    // is not there is a successful no-op, so asking is the only safe direction.
+    //
+    // Only a `failed` outcome withholds the success claim, and that includes a
+    // removal the model cannot confirm: the index is about to be wiped, so
+    // after this point nothing can tell SIFT whether the file went with it, and
+    // the copy has to say that instead of offering a retry that can no longer
+    // reach anything.
+    //
+    // Cancelling a transfer in flight is best-effort, nothing more: it flips a
+    // cancellation token, and the service's active-download future is not
+    // awaited before the removal below, so nothing here guarantees the runtime
+    // deletes a partially staged transfer.
+    var modelRemoved = true;
+    if (localModel != null) {
+      if (localModel.isDownloading) localModel.cancelDownload();
+      modelRemoved = await localModel.removeModel() != LocalModelRemoval.failed;
+    }
+
     try {
       await provider.deleteEverything();
     } catch (e) {
@@ -871,6 +1086,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _localOnlyRevision++;
     if (!mounted) return;
 
+    // The boxes and prefs are gone, so the screen must not keep showing what
+    // the wipe removed: a provider that is no longer selected, toggles that no
+    // longer match the store, and an API key that is typed into a field but
+    // exists nowhere on disk. This runs before the model outcome is judged,
+    // because that outcome does not change what the wipe already did.
     setState(() {
       _selectedProvider = 'Google Gemini';
       _localOnly = true;
@@ -882,6 +1102,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
       c.clear();
     }
     _youtubeKeyController.clear();
+
+    // The rest of the wipe did go through, so this copy is honest: only the
+    // model file is still on this device. It says nothing about trying again,
+    // because the wipe that followed has already removed the record that a
+    // retry would need — there is no longer a way back to the file from in here.
+    if (!modelRemoved) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Everything else was deleted, but the on-device model file could '
+            'not be removed. SIFT can no longer track it; removing the app '
+            'frees the space.',
+          ),
+        ),
+      );
+      return;
+    }
 
     messenger.showSnackBar(
       const SnackBar(content: Text('Everything deleted')),

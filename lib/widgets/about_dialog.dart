@@ -58,7 +58,10 @@ class PremiumAboutDialog extends StatelessWidget {
             const SizedBox(height: 18),
             Text(
               'Screenshot images and OCR text stay on this device. Google Play '
-              'services may download the small image-labeling model on first use.',
+              'services may download the small image-labeling model on first use. '
+              'The optional on-device chat model is not bundled: SIFT downloads '
+              'it once from Hugging Face when you set it up, then runs it on this '
+              'device with LiteRT-LM.',
               textAlign: TextAlign.center,
               style: SiftType.bodySansMd.copyWith(
                 color: s.stone,
