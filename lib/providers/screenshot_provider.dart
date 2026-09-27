@@ -134,13 +134,27 @@ class ScreenshotProvider extends ChangeNotifier {
 
   // Inverted index: word → {screenshotId: fieldWeightScore}
   // Built at load time and updated incrementally on add/delete.
-  // Field weights: summary=5, description=4, tags=3, objects/recognitions/lamType=2, ocrText/fileName/extractedData=1.
+  // Every indexed field, with its weight: summary 5, searchKeywords 4,
+  // description 4, tags 3, objects 2, recognitions 2, ocrText 1, fileName 1,
+  // extractedData 1.
+  //
+  // Unpopulated by the local analyzer: searchKeywords, description,
+  // recognitions and extractedData are written as null/[] on every record, so
+  // their 11 weight units never fire. tags is empty until the user adds one.
+  // ocrText is null when the image has no readable text. summary is the first
+  // 80 characters of ocrText, so its 5 units re-weight the same tokens.
+  //
+  // lamType is deliberately NOT indexed: the local paths store the constant
+  // 'document' on every record, so it can never discriminate between results.
+  // The field itself is untouched — cards and the type filter still read it.
+  //
+  // The weight values are not tuned. They are unmeasured, and recalibrating
+  // them is a separate, measurement-driven task; only remove the dead entries.
   static const int _wSummary = 5;
   static const int _wDescription = 4;
   static const int _wTags = 3;
   static const int _wObjects = 2;
   static const int _wRecognitions = 2;
-  static const int _wLamType = 2;
   static const int _wOcr = 1;
   static const int _wFileName = 1;
   static const int _wExtractedData = 1;
@@ -330,7 +344,7 @@ class ScreenshotProvider extends ChangeNotifier {
         ocrText: ocrText.isEmpty ? null : ocrText,
         lamType: 'document',
         summary: ocrText.isEmpty
-            ? 'No text found'
+            ? _noTextSummary
             : (firstLine.isNotEmpty
                 ? (firstLine.length > 80
                     ? firstLine.substring(0, 80)
@@ -423,12 +437,42 @@ class ScreenshotProvider extends ChangeNotifier {
         .toList();
   }
 
+  /// The summary a text-free screenshot is stored and displayed with. It is a
+  /// display string, never content — see [_displayOnlyValues].
+  static const String _noTextSummary = 'No text found';
+
+  /// Values that stand in for absent content: stored, shown to the user, and
+  /// indexed nowhere. Held lowercased because [_searchableText] compares a
+  /// lowercased value. [_noTextSummary] is the only one written today; add
+  /// future sentinels here, never as a check at an indexing call site.
+  static final Set<String> _displayOnlyValues = {
+    _noTextSummary.toLowerCase(),
+  };
+
+  /// [value] trimmed when it carries real searchable content, null when there
+  /// is nothing to index: null, blank, or a display-only placeholder.
+  ///
+  /// This is the single gate every field passes through on its way into the
+  /// index, so a placeholder cannot be indexed merely by being stored. It
+  /// matters most at the top weight: the text-free summary would otherwise
+  /// donate `no`, `text` and `found` at [_wSummary] on every such screenshot,
+  /// so a query for "text" outscored genuine matches across the whole library.
+  static String? _searchableText(String? value) {
+    final trimmed = value?.trim() ?? '';
+    if (trimmed.isEmpty) return null;
+    if (_displayOnlyValues.contains(trimmed.toLowerCase())) return null;
+    return trimmed;
+  }
+
   /// Add [id] with [weight] for every word in [text] to the inverted index.
+  /// Text with nothing to say — blank, or a display-only placeholder — indexes
+  /// nothing. See [_searchableText].
   void _addTerms(String? text, String id, int weight,
       {Map<String, Map<String, int>>? index}) {
-    if (text == null || text.isEmpty) return;
+    final searchable = _searchableText(text);
+    if (searchable == null) return;
     final idx = index ?? _invertedIndex;
-    for (final word in _tokenize(text)) {
+    for (final word in _tokenize(searchable)) {
       idx.putIfAbsent(word, () => <String, int>{});
       idx[word]![id] = (idx[word]![id] ?? 0) + weight;
     }
@@ -459,7 +503,7 @@ class ScreenshotProvider extends ChangeNotifier {
     _addTerms(s.summary, s.id, _wSummary);
     _addTerms(s.description, s.id, _wDescription);
     _addTerms(s.fileName, s.id, _wFileName);
-    _addTerms(s.lamType, s.id, _wLamType);
+    // lamType is intentionally absent: see the weight-table comment.
     for (final tag in s.tags) {
       _addTerms(tag, s.id, _wTags);
     }
@@ -555,7 +599,7 @@ class ScreenshotProvider extends ChangeNotifier {
       ocrText: ocr.isEmpty ? null : ocr,
       lamType: 'document',
       summary: ocr.isEmpty
-          ? 'No text found'
+          ? _noTextSummary
           : (firstLine.isNotEmpty
               ? (firstLine.length > 80 ? firstLine.substring(0, 80) : firstLine)
               : (ocr.length > 80 ? ocr.substring(0, 80) : ocr)),
