@@ -58,9 +58,9 @@ quarter of work in the wrong direction.
 | Capture | Screenshot folder enumeration + watcher, plus a bulk "index my library" pass | `screenshot_watcher.dart`, `file_enumerator.dart`, `ingest_service.dart` |
 | Ingest queue | Hive-backed per-path state machine, pause/resume/stop, crash recovery (entries stuck in `processing` re-queue on start) | `ingest_service.dart:246-268` |
 | Analysis | On-device only: ML Kit text recognition + ML Kit image labeling. No image bytes leave the device through app code | `screenshot_analyzer.dart:27-52`, `main.dart:62-67` |
-| Labels | Only computed when OCR text is ≤ 200 chars; confidence ≥ 0.5; max 4 labels; deduped, then capped at 12 on store | `screenshot_analyzer.dart:32-38`, `image_labeler.dart:14-15`, `screenshot_provider.dart:597-608` |
-| Search | Weighted inverted index, word → {id: score}, rebuilt at load and updated incrementally | `screenshot_provider.dart:135-150`, `450-491` |
-| Query handling | Lowercased, split on non-word/CJK, first 6 terms only, min 2 chars (1 for CJK), exact token match — no stemming, no prefix, no fuzzy, no phrases | `screenshot_provider.dart:418-424`, `1045-1058` |
+| Labels | Only computed when OCR text is ≤ 200 chars; confidence ≥ 0.5; max 4 labels; deduped, then capped at 12 on store | `screenshot_analyzer.dart:32-38`, `image_labeler.dart:14-15`, `screenshot_provider.dart:640-652` |
+| Search | Weighted inverted index, word → {id: score}, rebuilt at load and updated incrementally. Display-only placeholders and the constant `lamType` are excluded from the index | `screenshot_provider.dart:135-163`, `440-479`, `494-535` |
+| Query handling | Lowercased, split on non-word/CJK, first 6 terms only, min 2 chars (1 for CJK), exact token match — no stemming, no prefix, no fuzzy, no phrases. The no-prefix half is contested; see §Open issues in search | `screenshot_provider.dart:432-438`, `1089-1102` |
 | Chat | Two paths. Cloud: hosted LLM, consent-gated, user's own key. Local-only: zero network, plain local reply as the fallback on every failure mode | `chat_engine.dart:55-110`, `188-209` |
 | On-device model | Qwen3-0.6B `.litertlm` bundle via Google's LiteRT-LM runtime (`flutter_gemma` 1.9.0 + `flutter_gemma_litertlm` 1.8.0). 614,236,160 bytes, pinned. Fetched once from a public Hugging Face URL, never bundled, no token, no CI credential. Used only by the local-only chat path | `local_model_spec.dart`, `litert_local_chat_model.dart` |
 | Grounding | The on-device model is given a system instruction to answer only from the supplied screenshot context and to say so when the context does not contain the answer | `litert_local_chat_model.dart:195-203` |
@@ -82,28 +82,43 @@ Two precision points that the marketing version of "on-device" usually drops:
 
 This is the measurable defect, and it is the core of the plan. For any
 screenshot written by the local analyzer, `_indexScreenshot`
-(`screenshot_provider.dart:450-491`) assigns these weights:
+(`screenshot_provider.dart:494-535`) assigns these weights:
 
 | Field | Weight | What the local path actually puts there |
 |---|---|---|
-| `summary` | 5 | First 80 chars of the OCR text, or the literal string `"No text found"` (`:332-338`, `:557-561`) |
-| `description` | 4 | `null`. Always. (`:339`, `:562`) |
-| `searchKeywords` | 4 | `[]`. Always. (`:341`, `:567`; the field defaults to `const []`) |
-| `tags` | 3 | Empty until the user adds a tag |
-| `objects` | 2 | ML Kit labels — **already indexed, real signal** (`:466-468`) |
-| `recognitions` | 2 | `[]`. Always. (`:341`, `:564`) |
-| `lamType` | 2 | The constant string `"document"` (`:331`, `:556`) |
-| `ocrText` | 1 | First 2,000 chars (`:481-485`) |
-| `fileName` | 1 | `path.split('/').last`, extension included (`:327`) |
-| `extractedData` | 1 | `null`. Always. |
+| `summary` | 5 | First 80 chars of the OCR text, or the literal string `"No text found"` when there is none (`:346-352`, `:601-605`). The placeholder is stored and displayed; it is **not indexed** (see below) |
+| `description` | 4 | `null`. Always. (`:353`, `:606`) |
+| `searchKeywords` | 4 | `[]`. Always. Not passed at either local write site; the field defaults to `const []` (`screenshot.dart:89`) |
+| `tags` | 3 | Empty until the user adds a tag (`:362`, `:615`) |
+| `objects` | 2 | ML Kit labels — **already indexed, real signal** (`:354`, `:607`, deduped and capped at 12 by `:640-652`) |
+| `recognitions` | 2 | `[]`. Always. (`:355`, `:608`) |
+| `lamType` | — | **Not indexed.** Stored as the constant `"document"` on every record (`:345`, `:600`), so it can never discriminate. The field, the Hive adapter, `TypeBadge` and the detail view's `typeLabel` are untouched |
+| `ocrText` | 1 | First 2,000 chars (`_ocrBlobCap`, `:53`; applied at `:525-529`) |
+| `fileName` | 1 | `path.split('/').last`, extension included (`:341`, `:596`) |
+| `extractedData` | 1 | `null`. Always. Not passed at either local write site |
 
-**The weight budget is 25 units. 11 of them can never fire for a locally
-analysed screenshot:** `description` 4 + `searchKeywords` 4 + `recognitions` 2 +
-`extractedData` 1. A further 2 (`lamType`) are the same constant on every record.
-And the 5 units on `summary` are a re-weighted copy of the 1 unit on `ocrText` —
-the same tokens, scored higher. So **15 of 25 weight units carry no independent
-signal**, and the real signal — 4 units of OCR plus 2 units of visual labels —
-is outvoted 15 to 6.
+**The indexed weight budget is 23 units, down from 25.** `lamType`'s 2 units were
+removed from the index. It was the same constant on every record, so it could
+never break a tie between two results — but it did give the bare query
+"document" every screenshot in the library at 2 points, and after the removal
+that query returns nothing at all. Of the 23, **11 can never fire** for a
+locally analysed screenshot: `description` 4 + `searchKeywords` 4 +
+`recognitions` 2 + `extractedData` 1. **A further 5 are a re-weighted copy** of
+the single unit on `ocrText`, because `summary` is the first 80 characters of the
+same text scored at 5 instead of 1. So **16 of 23 weight units carry no
+independent signal**, leaving **7**: `tags` 3, `objects` 2, `ocrText` 1,
+`fileName` 1. The OCR-and-visual part of that is 3 units — `ocrText` 1 and
+`objects` 2 — against 5 units of OCR text that is already counted, and given the
+per-occurrence rule below.
+
+**A weight is added once per occurrence of a term, not once per term.** Scoring
+in `_addTerms` (`:470-479`) adds the field weight for every token the splitter
+emits, so a word repeated three times in an 80-character `summary` scores 15, not
+5. "Weight 5" is therefore not a ceiling on a term's contribution from that
+field, and the effective per-field weight of a record grows with repetition
+rather than with importance. Any future recalibration has to read the weight as
+a per-occurrence multiplier, not as a fixed field score. This is stated here as
+read from the code; it has not been measured.
 
 Three consequences, all verifiable:
 
@@ -111,16 +126,30 @@ Three consequences, all verifiable:
    understanding" and "smart summaries" are not partially served; the weight-4
    field that would carry them is `null` on every locally written record, and the
    weight-5 field is a truncated string slice of the weight-1 field.
-2. **`"No text found"` is indexed at weight 5.** Every text-less screenshot
-   gets the same three tokens (`no`, `text`, `found`) at 5 points each. A query
-   containing "text" outranks real matches on the entire text-less population.
-   `chat_engine.dart:163` already special-cases the string; the index does not.
-3. **Weights are the reason ranking feels wrong, and they were never measured.**
-   `_wSummary` through `_wSearchKeywords` are hand-set constants. The comment
-   on `screenshot_provider.dart:137` lists the weights and omits
-   `searchKeywords` (4), so the code's own documentation is already out of date
-   against the code. `DESIGNSTATE.md:158` states `searchKeywords` is
-   "generated by LLM prompt" — that prompt no longer runs.
+2. **The weight-5 placeholder bug is FIXED — kept here as the evidence for why
+   the phase gates exist.** `summary` was set to the literal `"No text found"`
+   when OCR text is empty, and that string was indexed at weight 5, so the tokens
+   `no`, `text` and `found` scored 5 points against *every* text-free screenshot
+   in the library. **Measured before the fix:** a text-free screenshot ranked
+   first for the query "text" with score 5, above a genuine OCR match at score
+   1. The fix gates the single indexing entry point — `_searchableText`
+   (`:460-465`) feeding `_addTerms` — against a named registry of display-only
+   values (`:442-450`), so no placeholder can reach the index regardless of which
+   field it came from. `lamType` was removed from the index in the same pass.
+   Two deliberate non-changes: the stored `summary` still holds the placeholder,
+   because nulling it would render finished analyses as "Processing…"
+   (`home_screen.dart:1184`, `detail_screen.dart:162`) and would kill the
+   special case in `chat_engine.dart:163`; and the `lamType` field itself is
+   untouched, so cards and the detail view still read it. Only the index changed.
+   `test/search_placeholder_test.dart` exercises the production write path and
+   fails if this regresses.
+3. **The weights themselves are still hand-set and still unmeasured.** Removing
+   the two dead entries was a correctness fix, not a calibration. `_wSummary`
+   through `_wSearchKeywords` are constants nobody has tuned. The weight comment
+   at `screenshot_provider.dart:137-152` and `DESIGNSTATE.md:158` both now list
+   all nine indexed weights and both state that nothing populates
+   `searchKeywords`; the stale claim that `searchKeywords` is "generated by LLM
+   prompt" is gone. The documentation is in sync. The values are not.
 
 `objects` is indexed at weight 2 and works. **Do not propose adding label
 indexing; it is already there.** The problem is what it is outranked by, not its
@@ -128,9 +157,61 @@ absence.
 
 Two more limits worth measuring before tuning anything, both from the same
 function: query terms are truncated to the first six
-(`screenshot_provider.dart:52`, `1056-1058`), and candidate→record resolution
+(`screenshot_provider.dart:52`, `1100-1102`), and candidate→record resolution
 is a linear scan per candidate with no id→screenshot map
-(`screenshot_provider.dart:1076-1079`).
+(`screenshot_provider.dart:1120-1123`).
+
+---
+
+## Open issues in search
+
+Two defects in the tokenizer itself, confirmed by reading the code. Neither is
+fixed. They are separate from the weight problem above: the weights can be
+calibrated perfectly and still miss these.
+
+**1. Underscores are not word separators. Confirmed defect, higher priority.**
+The splitter is `[^\w\u4e00-\u9fff]+` (`screenshot_provider.dart:163`) and `\w`
+includes `_`, so `receipt_0312` is a single token. Screenshot filenames are
+exactly that shape — `Screenshot_20260927_143012.png` — so the `fileName` field
+at weight 1 is largely unsearchable: a query for `receipt` does not find
+`receipt_0312.png`. It is also inconsistent, since hyphens *do* split and
+underscores do not. This is the cause of the two pre-existing failures in
+`test/search_bounds_test.dart`: line 75 (`search('receipt')` against
+`/g/receipt_0312.png`) and line 54 (see item 2, which fails for a second
+reason). The fix is a one-character regex change, and it is cheap enough that
+gating it behind a measurement is not obviously right — but the harness should
+still record how often a query fails only because of the separator, so the size
+of the win is a number and not an assertion.
+
+**2. No prefix matching. Open decision, not a defect.** `search('bag')` does not
+match "Bagel…". The spec as written is exact-token match with no stemming, no
+prefix and no fuzzy, so this is arguably working as designed — but the search
+box is an as-you-type box, and a user who types the first three letters of a
+word and gets nothing will read it as broken search, not as a design decision.
+`test/search_bounds_test.dart:54` asserts the opposite behaviour to the spec
+(`expect(provider.search('bag').length, 1)` against "Bagel shop order total 12
+dollars"), so the plan and the test currently contradict each other. **This needs
+a product call and is not resolved here.** Either:
+
+- **Adopt prefix matching.** Matches user expectation for an incremental search
+  box, and the fix is confined to query-side prefix lookup over the posting
+  keys. The cost is real: every term becomes a prefix scan over the vocabulary
+  instead of an O(1) hash hit, and it widens recall for terms that are prefixes
+  of unrelated words. `test/search_bounds_test.dart:54` then passes as written,
+  and the spec line in §Current state has to change with it.
+- **Keep exact match.** No cost, no new failure mode, and the vocabulary stays
+  O(1) per term. The user-visible cost is that partial words return nothing
+  until the word is complete. `test/search_bounds_test.dart:54` must then be
+  changed to assert the exact-match behaviour, because leaving it as-is means
+  the suite asserts a spec the product does not have.
+
+Whichever way it goes, the test and the spec line in §Current state must be
+changed in the same commit as the behaviour. They currently disagree.
+
+**Not part of the problem: CJK.** There is no whitespace between CJK
+characters, so the `\u4e00-\u9fff` range in the splitter is what keeps
+`咖啡店的菜单` tokenizing at all. The CJK path in `search_bounds_test.dart:55-56`
+is sound. The defect is specifically `\w` swallowing `_`.
 
 ---
 
@@ -206,11 +287,18 @@ in this space is dead. Keep it. Do not market it as the reason to switch.
 2. **Attribute hits per field.** For each query, log which fields produced the
    hit. The point is to find out which fields carry recall and which are
    decoration.
-3. **Recalibrate weights from the measurement, not from intuition.** Fix at
+3. **Count the queries that fail at the tokenizer, not the weights.** Log every
+   query that returns nothing and check it against a split on `_`. §Open issues
+   in search item 1 says the `fileName` field is largely unsearchable because of
+   it; the harness is what turns that into a measured recall loss.
+4. **Recalibrate weights from the measurement, not from intuition.** Fix at
    minimum: the `summary`/`ocrText` duplication, the weight-4 `description` and
-   `searchKeywords` that are always empty, and the `"No text found"` weight-5
-   constant. A weight assigned to a field that is always `null` is not a
-   ranking decision, it is a comment.
+   `searchKeywords` that are always empty, and the per-occurrence scoring rule
+   from §The actual gap, which changes what any weight means. A weight assigned
+   to a field that is always `null` is not a ranking decision, it is a comment.
+   The `"No text found"` placeholder is no longer on this list — it is fixed and
+   covered by `test/search_placeholder_test.dart`. Keep it in the harness anyway
+   as a regression check that the fix holds on real data.
 
 **Deliverable:** a written recall@10 for today, and a ranked list of which
 fields actually produce hits. Nothing in Phase 1 is worth building without it.
@@ -329,6 +417,23 @@ number to justify it.
   path and must not be planned as one.
 - **Cloud inference requires the user's own API key.** There is no app-funded
   backend, and adding one is deferred. Do not design a feature that assumes one.
+- **A field weight is a per-occurrence multiplier, not a per-field score.**
+  `_addTerms` (`screenshot_provider.dart:470-479`) adds the weight for every
+  token emitted, so a term repeated *n* times scores *n* × weight from that
+  field. A word appearing three times in an 80-character `summary` scores 15, not
+  5. Do not reason about a weight as a cap, and do not compare two fields by
+  their weight values alone — a repeated term in a heavy field outranks a term
+  in a light one by repetition alone. Read from the code, not measured.
+- **`lamType` is display-only and must stay out of the index.** Both local write
+  paths store the constant `"document"` (`screenshot_provider.dart:345`, `:600`),
+  so it can never discriminate between results. The field itself is still read —
+  `TypeBadge` (`home_screen.dart:1192`, `detail_screen.dart:155`),
+  `AppTheme.typeLabel` (`detail_screen.dart:236`) and the chat context dump
+  (`chat_engine.dart:254`) — and the `byType` getter
+  (`screenshot_provider.dart:185-192`) groups by it. **But `byType` has no
+  callers in `lib/`, and there is no type filter in the app.** The UI filters by
+  tag (`byTag`, `:199-204`) and by favourites (`_showFavoritesOnly`). Do not
+  write "the type filter reads it" — nothing in the product does.
 
 ---
 
