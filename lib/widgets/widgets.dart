@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../theme/brutal_tokens.dart';
 import '../theme/motion_tokens.dart';
+import 'brutal_button.dart';
 import 'sift_mark.dart';
 
 /// Neutral recognition type badge. Label differentiates, never color.
@@ -37,7 +39,12 @@ class TypeBadge extends StatelessWidget {
 }
 
 /// User-added tag chip. Hairline pill with optional delete affordance.
-class TagChip extends StatelessWidget {
+///
+/// A tag is a label, not a control, so the pill keeps its full radius and its
+/// hairline and stays outside the brutal set (DESIGN-BRUTALIST.md §2.5). The
+/// 40x40 delete target inside it is a control, and a focus ring is the only
+/// brutal change it gets (§4.6).
+class TagChip extends StatefulWidget {
   final String label;
   final VoidCallback? onDeleted;
   final bool compact;
@@ -50,8 +57,18 @@ class TagChip extends StatelessWidget {
   });
 
   @override
+  State<TagChip> createState() => _TagChipState();
+}
+
+class _TagChipState extends State<TagChip> {
+  bool _deleteFocused = false;
+
+  @override
   Widget build(BuildContext context) {
     final s = AppTheme.of(context);
+    final label = widget.label;
+    final onDeleted = widget.onDeleted;
+    final compact = widget.compact;
 
     return Container(
       padding: EdgeInsets.fromLTRB(
@@ -81,15 +98,41 @@ class TagChip extends StatelessWidget {
               width: 40,
               height: 40,
               child: Center(
-                child: InkWell(
-                  onTap: onDeleted,
-                  customBorder: const CircleBorder(),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Icon(
-                      Icons.close_rounded,
-                      size: 14,
-                      color: s.stone,
+                // The delete target is the control; the pill stays a label
+                // (§2.5). This 2pt ring is TagChip's only brutal change
+                // (§4.6). The target's own box is unfilled, so the ring lands
+                // on the `paper` pill: a page step, not a slab — hence [focus].
+                child: Focus(
+                  onFocusChange: (focused) => setState(
+                    () => _deleteFocused = focused,
+                  ),
+                  child: InkWell(
+                    onTap: onDeleted,
+                    customBorder: const CircleBorder(),
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: _deleteFocused
+                            ? Border.all(
+                                color: SiftBrutal.focus(
+                                  Theme.of(context).brightness ==
+                                      Brightness.dark,
+                                ),
+                                width: SiftBrutal.borderW,
+                              )
+                            : null,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(
+                          Icons.close_rounded,
+                          size: 14,
+                          color: s.stone,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -261,16 +304,16 @@ class EmptyState extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 28),
-            FilledButton.icon(
+            BrutalButton.icon(
               onPressed: onScan,
               icon: const Icon(Icons.camera_alt_rounded, size: 20),
               label: const Text('Add a screenshot'),
             ),
             if (onAsk != null) ...[
               const SizedBox(height: 8),
-              TextButton(
+              BrutalButton.text(
                 onPressed: onAsk,
-                child: Text(
+                label: Text(
                   'Ask your memory instead',
                   style: SiftType.buttonLabel.copyWith(
                     color: s.stone,

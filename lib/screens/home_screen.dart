@@ -9,6 +9,9 @@ import '../providers/screenshot_provider.dart';
 import '../services/ingest_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
+import '../widgets/brutal_button.dart';
+import '../widgets/brutal_chip.dart';
+import '../widgets/brutal_field.dart';
 import '../widgets/widgets.dart';
 import '../widgets/ingest_banner.dart';
 import '../widgets/bottom_sheet.dart';
@@ -230,9 +233,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     selecting: _selecting,
                     selected: _selected.contains(screenshot.id),
                     onTap: () => _onCardTap(context, screenshot),
-                    onLongPress: _selecting
-                        ? null
-                        : () => _startSelection(screenshot),
+                    onLongPress:
+                        _selecting ? null : () => _startSelection(screenshot),
                   ),
                 );
               },
@@ -288,9 +290,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       selecting: _selecting,
                       selected: _selected.contains(screenshot.id),
                       onTap: () => _onCardTap(context, screenshot),
-                      onLongPress: _selecting
-                          ? null
-                          : () => _startSelection(screenshot),
+                      onLongPress:
+                          _selecting ? null : () => _startSelection(screenshot),
                     ),
                   );
                 },
@@ -322,9 +323,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     selecting: _selecting,
                     selected: _selected.contains(screenshot.id),
                     onTap: () => _onCardTap(context, screenshot),
-                    onLongPress: _selecting
-                        ? null
-                        : () => _startSelection(screenshot),
+                    onLongPress:
+                        _selecting ? null : () => _startSelection(screenshot),
                   );
                 },
                 childCount: items.length,
@@ -395,22 +395,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildSearchBar(BuildContext context) {
     final s = AppTheme.of(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SliverToBoxAdapter(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: MotionTokens.easeOutCubic,
-          decoration: BoxDecoration(
-            color: s.paper,
-            borderRadius: BorderRadius.circular(SiftRadii.rField),
-            border: Border.all(
-              color: _searchFocusNode.hasFocus ? s.accent : s.divider,
-              width: _searchFocusNode.hasFocus ? 1.5 : AppTheme.hairline(isDark),
-            ),
-          ),
+        child: BrutalField(
+          // The ring tracks the field's own node, so focusing the clear button
+          // in the same box does not light it — the behaviour this bar already
+          // had.
+          focusNode: _searchFocusNode,
           child: Row(
             children: [
               const SizedBox(width: 14),
@@ -436,7 +429,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icon(Icons.close_rounded, size: 18, color: s.stone),
                   onPressed: _clearSearch,
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                  constraints:
+                      const BoxConstraints.tightFor(width: 32, height: 32),
                 ),
               const SizedBox(width: 8),
             ],
@@ -572,7 +566,6 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20),
           children: [
             _filterChip(
-              context,
               label: 'All',
               active: _activeTag == null,
               onTap: () {
@@ -582,7 +575,6 @@ class _HomeScreenState extends State<HomeScreen> {
             for (final tag in tags) ...[
               const SizedBox(width: 8),
               _filterChip(
-                context,
                 label: tag,
                 active: _activeTag == tag,
                 onTap: () {
@@ -599,47 +591,24 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _filterChip(
-    BuildContext context, {
+  Widget _filterChip({
     required String label,
     required bool active,
     required VoidCallback onTap,
   }) {
-    final s = AppTheme.of(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
+    // The 40dp slot centres a 32dp chip, leaving exactly 4dp of slack above and
+    // below, which is what lets the 4dp press translate and its shadow land
+    // without clipping. Do not tighten it (§4.6).
     return Center(
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            if (MotionTokens.canHaptic) HapticFeedback.selectionClick();
-            onTap();
-          },
-          borderRadius: BorderRadius.circular(999),
-          child: AnimatedContainer(
-            duration: MotionTokens.standard,
-            curve: MotionTokens.easeOutCubic,
-            height: 32,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: active ? s.accentSoft : s.paper,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: active ? s.accent : s.divider,
-                width: active ? 1 : AppTheme.hairline(isDark),
-              ),
-            ),
-            child: Text(
-              label,
-              style: SiftType.chipLabel.copyWith(
-                fontWeight: FontWeight.w600,
-                color: active ? s.accentDeep : s.tagText,
-              ),
-            ),
-          ),
-        ),
+      child: SiftBrutalChip(
+        label: label,
+        selected: active,
+        restLabelWeight: FontWeight.w600,
+        selectedLabelWeight: FontWeight.w600,
+        onTap: () {
+          if (MotionTokens.canHaptic) HapticFeedback.selectionClick();
+          onTap();
+        },
       ),
     );
   }
@@ -675,12 +644,12 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
           ),
-          TextButton(
+          BrutalButton.text(
             onPressed: () => setState(_selected.clear),
-            child: const Text('Clear'),
+            label: const Text('Clear'),
           ),
           const SizedBox(width: 8),
-          FilledButton.icon(
+          BrutalButton.icon(
             onPressed: () => _batchHide(context),
             icon: const Icon(Icons.visibility_off_outlined, size: 18),
             label: const Text('Hide'),
@@ -744,7 +713,7 @@ class _FavoritesEmptyState extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 28),
-            FilledButton(
+            BrutalButton(
               onPressed: () => context
                   .read<ScreenshotProvider>()
                   .setShowFavoritesOnly(false),
@@ -791,7 +760,7 @@ class _TagFilterEmptyState extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 28),
-            FilledButton(
+            BrutalButton(
               onPressed: onClear,
               child: const Text('Show all screenshots'),
             ),
@@ -1096,8 +1065,7 @@ class _SiftCard extends StatelessWidget {
                       },
                     ),
                     Container(color: s.scrimPhoto),
-                    if (selecting && !selected)
-                      Container(color: s.barrier),
+                    if (selecting && !selected) Container(color: s.barrier),
                     Positioned(
                       top: 12,
                       left: 12,

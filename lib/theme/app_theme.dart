@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'brutal_tokens.dart';
+
 /// "Warm Paper Recall" design tokens.
 ///
 /// Cream paper canvas, one terracotta accent, serif assistant voice / sans
@@ -10,8 +12,9 @@ import 'package:flutter/material.dart';
 /// Screen code reads colors via `AppTheme.of(context)` (the [SiftColors]
 /// ThemeExtension) and type via [SiftType], avoiding M3 defaults entirely.
 
-/// Radius lock: 0 nav/hairlines, 4 inline code, 12 thumbs/OCR/banners,
-/// 16 fields/buttons, 20 cards/dialogs, 24 sheet top, full pills/chips.
+/// Radius lock: 0 nav/hairlines, 4 inline code + hard-edged controls,
+/// 12 thumbs/OCR/banners, 16 fields/buttons, 20 cards/dialogs, 24 sheet top,
+/// full pills/chips.
 abstract final class SiftRadii {
   SiftRadii._();
 
@@ -21,6 +24,11 @@ abstract final class SiftRadii {
   static const double rField = 16;
   static const double rCard = 20;
   static const double rSheet = 24;
+
+  /// Control radius (buttons, inputs, chips, sheet options). Lower than
+  /// rField (16) because a hard 2pt border on a 16pt corner reads as a chip
+  /// mended with tape. Cards/sheets/thumbs/OCR are NOT affected.
+  static const double rControl = 4;
 }
 
 /// 4pt base spacing rhythm. 20pt gutters, 32–48pt sections.
@@ -97,125 +105,125 @@ abstract final class SiftType {
 
   // Serif — assistant voice + essayist headlines.
   static TextStyle get serifDisplay => const TextStyle(
-    fontFamily: serifFamily,
-    fontSize: 32,
-    fontWeight: FontWeight.w600,
-    height: 1.2,
-    letterSpacing: -0.4,
-    fontVariations: [FontVariation('opsz', 30)],
-  );
+        fontFamily: serifFamily,
+        fontSize: 32,
+        fontWeight: FontWeight.w600,
+        height: 1.2,
+        letterSpacing: -0.4,
+        fontVariations: [FontVariation('opsz', 30)],
+      );
 
   static TextStyle get serifTitle => const TextStyle(
-    fontFamily: serifFamily,
-    fontSize: 28,
-    fontWeight: FontWeight.w600,
-    height: 1.25,
-    letterSpacing: -0.3,
-    fontVariations: [FontVariation('opsz', 30)],
-  );
+        fontFamily: serifFamily,
+        fontSize: 28,
+        fontWeight: FontWeight.w600,
+        height: 1.25,
+        letterSpacing: -0.3,
+        fontVariations: [FontVariation('opsz', 30)],
+      );
 
   static TextStyle get serifHeadline => const TextStyle(
-    fontFamily: serifFamily,
-    fontSize: 24,
-    fontWeight: FontWeight.w600,
-    height: 1.3,
-    letterSpacing: -0.2,
-  );
+        fontFamily: serifFamily,
+        fontSize: 24,
+        fontWeight: FontWeight.w600,
+        height: 1.3,
+        letterSpacing: -0.2,
+      );
 
   static TextStyle get serifSubhead => const TextStyle(
-    fontFamily: serifFamily,
-    fontSize: 20,
-    fontWeight: FontWeight.w600,
-    height: 1.3,
-    letterSpacing: -0.1,
-  );
+        fontFamily: serifFamily,
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+        height: 1.3,
+        letterSpacing: -0.1,
+      );
 
   static TextStyle get serifSubhead2 => const TextStyle(
-    fontFamily: serifFamily,
-    fontSize: 17,
-    fontWeight: FontWeight.w600,
-    height: 1.35,
-  );
+        fontFamily: serifFamily,
+        fontSize: 17,
+        fontWeight: FontWeight.w600,
+        height: 1.35,
+      );
 
   static TextStyle get serifBody => const TextStyle(
-    fontFamily: serifFamily,
-    fontSize: 16,
-    fontWeight: FontWeight.w400,
-    height: 1.55,
-  );
+        fontFamily: serifFamily,
+        fontSize: 16,
+        fontWeight: FontWeight.w400,
+        height: 1.55,
+      );
 
   static TextStyle get serifSummary => const TextStyle(
-    fontFamily: serifFamily,
-    fontSize: 17,
-    fontWeight: FontWeight.w400,
-    height: 1.5,
-  );
+        fontFamily: serifFamily,
+        fontSize: 17,
+        fontWeight: FontWeight.w400,
+        height: 1.5,
+      );
 
   // Sans — system stack (no family override), all chrome.
   static TextStyle get bodySans => const TextStyle(
-    fontSize: 16,
-    fontWeight: FontWeight.w400,
-    height: 1.5,
-  );
+        fontSize: 16,
+        fontWeight: FontWeight.w400,
+        height: 1.5,
+      );
 
   static TextStyle get bodySansMd => const TextStyle(
-    fontSize: 15,
-    fontWeight: FontWeight.w400,
-    height: 1.45,
-  );
+        fontSize: 15,
+        fontWeight: FontWeight.w400,
+        height: 1.45,
+      );
 
   static TextStyle get chromeTitle => const TextStyle(
-    fontSize: 18,
-    fontWeight: FontWeight.w600,
-    height: 1.25,
-    letterSpacing: -0.1,
-  );
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+        height: 1.25,
+        letterSpacing: -0.1,
+      );
 
   static TextStyle get buttonLabel => const TextStyle(
-    fontSize: 15,
-    fontWeight: FontWeight.w600,
-    height: 1.0,
-  );
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+        height: 1.0,
+      );
 
   static TextStyle get chipLabel => const TextStyle(
-    fontSize: 13,
-    fontWeight: FontWeight.w500,
-    height: 1.2,
-  );
+        fontSize: 13,
+        fontWeight: FontWeight.w500,
+        height: 1.2,
+      );
 
   static TextStyle get metaLabel => const TextStyle(
-    fontSize: 12,
-    fontWeight: FontWeight.w400,
-    height: 1.3,
-    fontFeatures: [FontFeature.tabularFigures()],
-  );
+        fontSize: 12,
+        fontWeight: FontWeight.w400,
+        height: 1.3,
+        fontFeatures: [FontFeature.tabularFigures()],
+      );
 
   static TextStyle get microLabel => const TextStyle(
-    fontSize: 11,
-    fontWeight: FontWeight.w400,
-    height: 1.3,
-    fontFeatures: [FontFeature.tabularFigures()],
-  );
+        fontSize: 11,
+        fontWeight: FontWeight.w400,
+        height: 1.3,
+        fontFeatures: [FontFeature.tabularFigures()],
+      );
 
   static TextStyle get tabLabel => const TextStyle(
-    fontSize: 11,
-    fontWeight: FontWeight.w500,
-    height: 1.2,
-    fontFeatures: [FontFeature.tabularFigures()],
-  );
+        fontSize: 11,
+        fontWeight: FontWeight.w500,
+        height: 1.2,
+        fontFeatures: [FontFeature.tabularFigures()],
+      );
 
   // Mono — OCR block only.
   static TextStyle get ocrMono => const TextStyle(
-    fontFamily: monoFamily,
-    fontSize: 13,
-    fontWeight: FontWeight.w400,
-    height: 1.6,
-  );
+        fontFamily: monoFamily,
+        fontSize: 13,
+        fontWeight: FontWeight.w400,
+        height: 1.6,
+      );
 
   /// Add tabular figures for dates/numerals.
   static TextStyle tabular(TextStyle style) => style.copyWith(
-    fontFeatures: const [FontFeature.tabularFigures()],
-  );
+        fontFeatures: const [FontFeature.tabularFigures()],
+      );
 }
 
 /// Full token palette as a ThemeExtension so every screen can read the whole
@@ -561,10 +569,14 @@ class AppTheme {
         fontWeight: FontWeight.w400,
         height: 1.55,
       ),
-      bodyMedium: TextStyle(fontSize: 16, fontWeight: FontWeight.w400, height: 1.5),
-      bodySmall: TextStyle(fontSize: 15, fontWeight: FontWeight.w400, height: 1.45),
-      labelLarge: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, height: 1.0),
-      labelMedium: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, height: 1.2),
+      bodyMedium:
+          TextStyle(fontSize: 16, fontWeight: FontWeight.w400, height: 1.5),
+      bodySmall:
+          TextStyle(fontSize: 15, fontWeight: FontWeight.w400, height: 1.45),
+      labelLarge:
+          TextStyle(fontSize: 15, fontWeight: FontWeight.w600, height: 1.0),
+      labelMedium:
+          TextStyle(fontSize: 13, fontWeight: FontWeight.w500, height: 1.2),
       labelSmall: TextStyle(
         fontSize: 12,
         fontWeight: FontWeight.w400,
@@ -626,7 +638,8 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         modalBackgroundColor: s.paper,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(SiftRadii.rSheet)),
+          borderRadius:
+              BorderRadius.vertical(top: Radius.circular(SiftRadii.rSheet)),
         ),
       ),
       dialogTheme: DialogThemeData(
@@ -643,21 +656,54 @@ class AppTheme {
         thickness: borderWidth,
         space: borderWidth,
       ),
+      // Switches are themed, not re-wrapped in a custom widget: Flutter's
+      // SwitchThemeData already carries a track outline, so the 2pt hard edge is
+      // reachable without a new widget (§4.7). All three call sites in Settings
+      // go through the one `_flatSwitch` seam, so they cannot drift apart.
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
-          (states) => states.contains(WidgetState.selected) ? s.paper : s.paper,
+          // DARK-MODE ACCESSIBILITY FIX, not a style change. This used to be
+          // `paper` in both states. In dark, `paper` on the unselected
+          // `surfaceWarm2` track is 1.22:1 — the thumb was invisible against
+          // its own track until the switch was turned on, and the on-state
+          // thumb was a marginal 2.89:1. `stone` is 3.83:1 off and `canvas`
+          // 3.26:1 on. Do not revert (§6.11.3).
+          (states) => states.contains(WidgetState.selected)
+              ? (isDark ? s.canvas : s.paper)
+              : (isDark ? s.stone : s.ink),
         ),
         trackColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.selected)
               ? s.accentDeep
               : s.surfaceWarm2,
         ),
-        trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+        // Was Colors.transparent, so in dark the switch had no boundary at all:
+        // `surfaceWarm2` on `canvas` is 1.22:1.
+        //
+        // The outline is painted inside the track, on top of the track FILL, so
+        // it is scored against the track and not the page — the same rule the
+        // brutal controls follow. The ON track fills with `accentDeep`, where
+        // `focus` measures 1.00:1 in light and 1.68:1 in dark, so a selected
+        // AND focused track takes the slab ring instead (§6.10). The off track
+        // is a `surfaceWarm2` page step and keeps `focus`.
+        trackOutlineColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.focused)
+              ? (states.contains(WidgetState.selected)
+                  ? SiftBrutal.focusOnFill(isDark: isDark)
+                  : SiftBrutal.focus(isDark))
+              : s.stone,
+        ),
+        trackOutlineWidth:
+            const WidgetStatePropertyAll<double>(SiftBrutal.borderW),
       ),
       filledButtonTheme: FilledButtonThemeData(
+        // Fallback only. SIFT's own buttons are BrutalButton
+        // (widgets/brutal_button.dart); this stays for any Material button a
+        // dependency or a future screen introduces.
         style: ButtonStyle(
           minimumSize: const WidgetStatePropertyAll(Size(0, SiftSpacing.btnH)),
-          maximumSize: const WidgetStatePropertyAll(Size.fromHeight(SiftSpacing.btnH)),
+          maximumSize:
+              const WidgetStatePropertyAll(Size.fromHeight(SiftSpacing.btnH)),
           padding: const WidgetStatePropertyAll(
             EdgeInsets.symmetric(horizontal: 20),
           ),
@@ -693,9 +739,11 @@ class AppTheme {
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
+        // Fallback only, same as filledButtonTheme above.
         style: ButtonStyle(
           minimumSize: const WidgetStatePropertyAll(Size(0, SiftSpacing.btnH)),
-          maximumSize: const WidgetStatePropertyAll(Size.fromHeight(SiftSpacing.btnH)),
+          maximumSize:
+              const WidgetStatePropertyAll(Size.fromHeight(SiftSpacing.btnH)),
           padding: const WidgetStatePropertyAll(
             EdgeInsets.symmetric(horizontal: 20),
           ),
@@ -713,13 +761,15 @@ class AppTheme {
           elevation: const WidgetStatePropertyAll(0),
           side: WidgetStateProperty.resolveWith(
             (states) => BorderSide(
-              color: states.contains(WidgetState.focused) ? s.accent : s.divider,
+              color:
+                  states.contains(WidgetState.focused) ? s.accent : s.divider,
               width: states.contains(WidgetState.focused) ? 1.5 : 1,
             ),
           ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
+        // Fallback only, same as filledButtonTheme above.
         style: ButtonStyle(
           minimumSize: const WidgetStatePropertyAll(Size(0, 40)),
           shape: WidgetStatePropertyAll(

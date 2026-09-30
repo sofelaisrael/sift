@@ -15,6 +15,8 @@ import '../services/local_model_service.dart';
 import '../services/local_model_spec.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
+import '../widgets/brutal_button.dart';
+import '../widgets/brutal_field.dart';
 import '../widgets/sift_mark.dart';
 import '../widgets/about_dialog.dart';
 import 'actions_history_screen.dart';
@@ -659,18 +661,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required ValueChanged<String> onChanged,
   }) {
     final s = AppTheme.of(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Container(
+    return BrutalField(
       height: 48,
-      decoration: BoxDecoration(
-        color: s.paper,
-        borderRadius: BorderRadius.circular(SiftRadii.rField),
-        border: Border.all(
-          color: s.divider,
-          width: AppTheme.hairline(isDark),
-        ),
-      ),
       child: TextField(
         controller: controller,
         obscureText: true,
@@ -825,6 +818,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// The one Switch in the app.
+  ///
+  /// Deliberately still a bare Material [Switch] and deliberately still themed
+  /// rather than wrapped: `SwitchThemeData` already carries `trackOutlineColor`
+  /// and `trackOutlineWidth`, so the 2pt hard edge and the dark thumb fix are
+  /// reachable without a custom widget (DESIGN-BRUTALIST.md §4.7). Keeping the
+  /// three call sites on this one seam is what guarantees they render
+  /// identically.
   Widget _flatSwitch({
     required bool value,
     required ValueChanged<bool> onChanged,
@@ -885,9 +886,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: const Text('On-device chat model'),
           content: Text(service.unsupportedDeviceNote),
           actions: [
-            TextButton(
+            BrutalButton.text(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
+              label: const Text('Close'),
             ),
           ],
         ),
@@ -922,11 +923,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('On-device chat model'),
         content: Text(message),
         actions: [
-          TextButton(
+          BrutalButton.text(
             onPressed: () => Navigator.pop(context, 'close'),
-            child: Text(installed ? 'Close' : 'Not now'),
+            label: Text(installed ? 'Close' : 'Not now'),
           ),
-          FilledButton(
+          BrutalButton(
             onPressed: () =>
                 Navigator.pop(context, installed ? 'remove' : 'download'),
             child: Text(installed ? 'Remove' : 'Download'),
@@ -1023,11 +1024,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'This permanently deletes everything Sift owns: saved screenshots and their analysis, chat history, actions, settings, saved API keys, the optional on-device chat model, and search history. Your gallery photos are untouched.',
         ),
         actions: [
-          TextButton(
+          BrutalButton.text(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            label: const Text('Cancel'),
           ),
-          FilledButton(
+          // The only destructive adoption in the app: one irreversible action,
+          // so the one semantic colour is not spent on the routine confirms
+          // above (DESIGN-BRUTALIST.md §4.4).
+          BrutalButton(
+            variant: BrutalVariant.destructive,
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete everything'),
           ),
@@ -1150,11 +1155,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'Play services may download the small image-labeling model on first use.',
         ),
         actions: [
-          TextButton(
+          BrutalButton.text(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            label: const Text('Cancel'),
           ),
-          FilledButton(
+          BrutalButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Index library'),
           ),

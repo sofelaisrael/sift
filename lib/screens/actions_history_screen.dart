@@ -4,6 +4,8 @@ import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
+import '../widgets/brutal_button.dart';
+import '../widgets/brutal_chip.dart';
 import '../widgets/sift_mark.dart';
 import 'shopping_list_screen.dart';
 
@@ -129,7 +131,8 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
                   child: Row(
                     children: [
                       for (final (value, label) in _filters) ...[
-                        if (value != _filters.first.$1) const SizedBox(width: 8),
+                        if (value != _filters.first.$1)
+                          const SizedBox(width: 8),
                         _FilterChip(
                           label: label,
                           selected: _filter == value,
@@ -149,7 +152,8 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
                       padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
                       itemCount: _filteredActions.length,
                       itemBuilder: (context, index) {
-                        return _buildActionRow(context, _filteredActions[index]);
+                        return _buildActionRow(
+                            context, _filteredActions[index]);
                       },
                     ),
             ),
@@ -165,7 +169,8 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
     final icon = _typeIcon(type);
     final label = _typeLabel(type);
     final date = action['created_at'] != null
-        ? DateFormat('MMM d, h:mm a').format(DateTime.parse(action['created_at']))
+        ? DateFormat('MMM d, h:mm a')
+            .format(DateTime.parse(action['created_at']))
         : 'Unknown date';
 
     return Column(
@@ -364,11 +369,11 @@ class _ActionsHistoryScreenState extends State<ActionsHistoryScreen> {
         title: const Text('Clear all actions?'),
         content: const Text('This removes every action from your history.'),
         actions: [
-          TextButton(
+          BrutalButton.text(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            label: const Text('Cancel'),
           ),
-          FilledButton(
+          BrutalButton(
             onPressed: () {
               if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
               final box = Hive.box('actions');
@@ -397,35 +402,18 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = AppTheme.of(context);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          if (MotionTokens.canHaptic) HapticFeedback.lightImpact();
-          onTap();
-        },
-        borderRadius: BorderRadius.circular(999),
-        child: AnimatedContainer(
-          duration: MotionTokens.standard,
-          curve: MotionTokens.easeOutCubic,
-          height: SiftSpacing.chipH,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected ? s.accentSoft : s.surfaceWarm1,
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            label,
-            style: SiftType.chipLabel.copyWith(
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-              color: selected ? s.accentDeep : s.ink,
-            ),
-          ),
-        ),
-      ),
+    return SiftBrutalChip(
+      label: label,
+      selected: selected,
+      rest: SiftChipRest.warm,
+      // Unselected stayed w500 here while the library filter used w600, and §9
+      // forbids a typography change, so the difference rides along.
+      restLabelWeight: FontWeight.w500,
+      selectedLabelWeight: FontWeight.w600,
+      onTap: () {
+        if (MotionTokens.canHaptic) HapticFeedback.lightImpact();
+        onTap();
+      },
     );
   }
 }

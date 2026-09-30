@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/screenshot.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
+import 'brutal_button.dart';
 import 'sift_mark.dart';
 import 'widgets.dart' show PulsingMark;
 
@@ -38,7 +39,8 @@ class _UserPillState extends State<UserPill>
       vsync: this,
       duration: MotionTokens.emphasis,
     );
-    _slide = CurvedAnimation(parent: _controller, curve: MotionTokens.easeOutCubic);
+    _slide =
+        CurvedAnimation(parent: _controller, curve: MotionTokens.easeOutCubic);
     if (MotionTokens.enabled) {
       _controller.forward();
     } else {
@@ -190,9 +192,8 @@ class _EvidenceStripState extends State<EvidenceStrip>
                 ),
               ),
               TextSpan(
-                text: widget.sources.length == 1
-                    ? ' screenshot'
-                    : ' screenshots',
+                text:
+                    widget.sources.length == 1 ? ' screenshot' : ' screenshots',
               ),
               if (widget.partial)
                 TextSpan(
@@ -309,8 +310,7 @@ class EssayBlock extends StatefulWidget {
   State<EssayBlock> createState() => _EssayBlockState();
 }
 
-class _EssayBlockState extends State<EssayBlock>
-    with TickerProviderStateMixin {
+class _EssayBlockState extends State<EssayBlock> with TickerProviderStateMixin {
   late final List<String> _words;
   late final AnimationController _trailing;
   late final AnimationController _caret;
@@ -324,9 +324,12 @@ class _EssayBlockState extends State<EssayBlock>
   void initState() {
     super.initState();
     _words = widget.text.split(' ');
-    _trailing = AnimationController(vsync: this, duration: MotionTokens.wordTick);
-    _caret = AnimationController(vsync: this, duration: MotionTokens.caretCycle);
-    _caretFade = AnimationController(vsync: this, duration: MotionTokens.standard);
+    _trailing =
+        AnimationController(vsync: this, duration: MotionTokens.wordTick);
+    _caret =
+        AnimationController(vsync: this, duration: MotionTokens.caretCycle);
+    _caretFade =
+        AnimationController(vsync: this, duration: MotionTokens.standard);
 
     if (widget.stream && MotionTokens.enabled) {
       _streaming = true;
@@ -381,8 +384,9 @@ class _EssayBlockState extends State<EssayBlock>
   @override
   Widget build(BuildContext context) {
     final s = AppTheme.of(context);
-    final showCaret =
-        widget.stream && MotionTokens.enabled && (_streaming || _caretFade.isAnimating);
+    final showCaret = widget.stream &&
+        MotionTokens.enabled &&
+        (_streaming || _caretFade.isAnimating);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -423,13 +427,13 @@ class _EssayBlockState extends State<EssayBlock>
                       children: [
                         for (var i = 0; i < visible.length; i++)
                           TextSpan(
-                            text: i == visible.length - 1 &&
-                                    _streaming
+                            text: i == visible.length - 1 && _streaming
                                 ? visible[i]
                                 : '${visible[i]} ',
                             style: i == visible.length - 1 && _streaming
                                 ? TextStyle(
-                                    color: s.ink.withValues(alpha: trailingAlpha),
+                                    color:
+                                        s.ink.withValues(alpha: trailingAlpha),
                                   )
                                 : null,
                           ),
@@ -455,7 +459,8 @@ class _EssayBlockState extends State<EssayBlock>
           Row(
             children: [
               if (widget.onRegenerate != null) ...[
-                OutlinedButton.icon(
+                BrutalButton.icon(
+                  variant: BrutalVariant.outline,
                   onPressed: () {
                     if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
                     widget.onRegenerate!();
@@ -465,7 +470,7 @@ class _EssayBlockState extends State<EssayBlock>
                 ),
                 const SizedBox(width: 8),
               ],
-              TextButton.icon(
+              BrutalButton.text(
                 onPressed: () => _copy(context),
                 icon: Icon(
                   _copied ? Icons.check_rounded : Icons.copy_rounded,
@@ -499,9 +504,7 @@ class _StreamingCaret extends StatelessWidget {
     return AnimatedBuilder(
       animation: Listenable.merge([blink, fade]),
       builder: (context, child) {
-        final opacity = streaming
-            ? 0.3 + 0.7 * blink.value
-            : 1.0 - fade.value;
+        final opacity = streaming ? 0.3 + 0.7 * blink.value : 1.0 - fade.value;
         return Opacity(
           opacity: opacity.clamp(0.0, 1.0),
           child: Container(
@@ -605,8 +608,7 @@ class RelatedLinksStrip extends StatelessWidget {
                           width: 64,
                           height: 36,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) =>
-                              _thumbFallback(s),
+                          errorBuilder: (_, __, ___) => _thumbFallback(s),
                         ),
                       )
                     else
@@ -631,8 +633,7 @@ class RelatedLinksStrip extends StatelessWidget {
     );
   }
 
-  String _thumb(Map<String, String> link) =>
-      (link['thumb'] ?? '').trim();
+  String _thumb(Map<String, String> link) => (link['thumb'] ?? '').trim();
 
   Widget _thumbFallback(SiftColors s) => Container(
         width: 64,

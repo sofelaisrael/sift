@@ -12,7 +12,10 @@ import '../services/lam_service.dart';
 import '../services/local_model_service.dart';
 import '../services/web_lookup.dart';
 import '../theme/app_theme.dart';
+import '../widgets/brutal_field.dart';
 import '../theme/motion_tokens.dart';
+import '../widgets/brutal_button.dart';
+import '../widgets/brutal_chip.dart';
 import '../widgets/chat_atoms.dart';
 import '../widgets/privacy_gate.dart';
 import 'detail_screen.dart';
@@ -363,11 +366,11 @@ class _ChatScreenState extends State<ChatScreen> {
         title: const Text('Clear chat?'),
         content: const Text('This deletes the conversation history.'),
         actions: [
-          TextButton(
+          BrutalButton.text(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            label: const Text('Cancel'),
           ),
-          FilledButton(
+          BrutalButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Clear'),
           ),
@@ -628,8 +631,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-/// Paper field (r16, 1pt hairline -> 1.5pt accent on focus) + 40pt send
-/// circle (accentDeep when there is text, surfaceWarm2 when empty).
+/// Paper field (r4, 2pt stone border -> 2pt focus ring) + 40pt send circle
+/// (accentDeep when there is text, surfaceWarm2 when empty). The focus
+/// listener stays on the field's node because it is also what refreshes
+/// `hasText` when the user types without submitting.
 class _ComposerRow extends StatefulWidget {
   final TextEditingController controller;
   final FocusNode? focusNode;
@@ -677,18 +682,11 @@ class _ComposerRowState extends State<_ComposerRow> {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Expanded(
-          child: AnimatedContainer(
-            duration: MotionTokens.standard,
-            curve: MotionTokens.easeOutCubic,
+          child: BrutalField(
             height: 52,
-            decoration: BoxDecoration(
-              color: s.paper,
-              borderRadius: BorderRadius.circular(SiftRadii.rField),
-              border: Border.all(
-                color: _focus.hasFocus ? s.accent : s.divider,
-                width: _focus.hasFocus ? 1.5 : 1,
-              ),
-            ),
+            // The ring tracks the field's own node, exactly as it did when this
+            // row read `_focus.hasFocus` itself.
+            focusNode: _focus,
             child: TextField(
               controller: widget.controller,
               focusNode: _focus,
@@ -785,30 +783,13 @@ class _PromptChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = AppTheme.of(context);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {
-          if (MotionTokens.canHaptic) HapticFeedback.lightImpact();
-          onTap();
-        },
-        borderRadius: BorderRadius.circular(999),
-        child: Container(
-          height: SiftSpacing.chipH,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: s.surfaceWarm1,
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            label,
-            style: SiftType.chipLabel.copyWith(color: s.ink),
-          ),
-        ),
-      ),
+    return SiftBrutalChip(
+      label: label,
+      rest: SiftChipRest.warm,
+      onTap: () {
+        if (MotionTokens.canHaptic) HapticFeedback.lightImpact();
+        onTap();
+      },
     );
   }
 }

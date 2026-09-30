@@ -7,7 +7,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/screenshot.dart';
 import '../providers/screenshot_provider.dart';
 import '../theme/app_theme.dart';
+import '../theme/brutal_tokens.dart';
 import '../theme/motion_tokens.dart';
+import '../widgets/brutal_button.dart';
+import '../widgets/brutal_field.dart';
 import '../widgets/widgets.dart';
 
 /// Screenshot detail: full-bleed 240pt hero with quiet back/pin
@@ -181,7 +184,8 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
               ],
             ],
-            if (shot.extractedData != null && shot.extractedData!.isNotEmpty) ...[
+            if (shot.extractedData != null &&
+                shot.extractedData!.isNotEmpty) ...[
               const SizedBox(height: 28),
               _sectionLabel(context, 'Extracted data'),
               const SizedBox(height: 4),
@@ -309,6 +313,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Widget _buildOcrBlock(BuildContext context) {
     final s = AppTheme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
       width: double.infinity,
@@ -321,6 +326,15 @@ class _DetailScreenState extends State<DetailScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+            // The one deliberate exception in the app: this button sits inside
+            // the read-only mono OCR block, and a hard border plus a cast
+            // shadow on a copy affordance would make the text look broken.
+            // It keeps the Material TextButton and gains a focus ring as its
+            // ONLY brutal change (DESIGN-BRUTALIST.md §2.5, §7.3). The ring is
+            // the 2pt `SiftBrutal.focus` side, not the theme's 1.5pt `accent`
+            // one — `accent` is 2.85:1 on canvas and 2.97:1 on paper and clears
+            // neither, which is the failure this ring exists to fix. The OCR
+            // block itself is untouched.
             child: TextButton.icon(
               onPressed: _copyOcr,
               icon: Icon(
@@ -334,11 +348,23 @@ class _DetailScreenState extends State<DetailScreen> {
                   fontWeight: FontWeight.w600,
                   color: s.codeText,
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 minimumSize: const Size(0, 36),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
+                ),
+              ).copyWith(
+                // BorderSide.none when unfocused, so the ring appears on focus
+                // and the button is a plain text button the rest of the time.
+                side: WidgetStateProperty.resolveWith(
+                  (states) => states.contains(WidgetState.focused)
+                      ? BorderSide(
+                          color: SiftBrutal.focus(isDark),
+                          width: SiftBrutal.borderW,
+                        )
+                      : BorderSide.none,
                 ),
               ),
             ),
@@ -431,8 +457,7 @@ class _DetailScreenState extends State<DetailScreen> {
   Future<void> _openUrl(String url) async {
     if (url.isEmpty) return;
     final uri = Uri.tryParse(url);
-    if (uri == null ||
-        (uri.scheme != 'http' && uri.scheme != 'https')) {
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
       return;
     }
     try {
@@ -503,10 +528,10 @@ class _DetailScreenState extends State<DetailScreen> {
     final shot = widget.screenshot;
 
     if (shot.actionCompleted) {
-      return FilledButton.icon(
+      return const BrutalButton.icon(
         onPressed: null,
-        icon: const Icon(Icons.check_rounded, size: 20),
-        label: const Text('Completed'),
+        icon: Icon(Icons.check_rounded, size: 20),
+        label: Text('Completed'),
       );
     }
 
@@ -521,7 +546,7 @@ class _DetailScreenState extends State<DetailScreen> {
     }
 
     final (icon, label) = _actionFor(actionType);
-    return FilledButton.icon(
+    return BrutalButton.icon(
       onPressed: _running ? () {} : _runAction,
       icon: _running
           ? SizedBox(
@@ -565,8 +590,19 @@ class _DetailScreenState extends State<DetailScreen> {
 
   String _formatDate(DateTime date) {
     final months = [
-      '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      '',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${months[date.month]} ${date.day}, ${date.year} at '
         '${date.hour}:${date.minute.toString().padLeft(2, '0')}';
@@ -723,7 +759,6 @@ class _TagEditorState extends State<_TagEditor> {
   @override
   Widget build(BuildContext context) {
     final s = AppTheme.of(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -753,15 +788,7 @@ class _TagEditorState extends State<_TagEditor> {
         Row(
           children: [
             Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: s.paper,
-                  borderRadius: BorderRadius.circular(SiftRadii.rField),
-                  border: Border.all(
-                    color: s.divider,
-                    width: AppTheme.hairline(isDark),
-                  ),
-                ),
+              child: BrutalField(
                 child: TextField(
                   controller: _controller,
                   textInputAction: TextInputAction.done,
@@ -857,9 +884,7 @@ class _FindOnlineButtonState extends State<_FindOnlineButton> {
     if (_running) return;
     if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
     setState(() => _running = true);
-    await context
-        .read<ScreenshotProvider>()
-        .findOnline(widget.screenshot);
+    await context.read<ScreenshotProvider>().findOnline(widget.screenshot);
     if (!mounted) return;
     setState(() => _running = false);
   }
@@ -868,19 +893,18 @@ class _FindOnlineButtonState extends State<_FindOnlineButton> {
   Widget build(BuildContext context) {
     final s = AppTheme.of(context);
 
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        onPressed: _running ? () {} : _find,
-        icon: _running
-            ? SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2, color: s.accent),
-              )
-            : const Icon(Icons.travel_explore_rounded, size: 20),
-        label: const Text('Find online'),
-      ),
+    return BrutalButton.icon(
+      variant: BrutalVariant.outline,
+      expand: true,
+      onPressed: _running ? () {} : _find,
+      icon: _running
+          ? SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: s.accent),
+            )
+          : const Icon(Icons.travel_explore_rounded, size: 20),
+      label: const Text('Find online'),
     );
   }
 }

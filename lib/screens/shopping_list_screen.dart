@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:hive/hive.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
+import '../widgets/brutal_button.dart';
+import '../widgets/brutal_field.dart';
 import '../widgets/sift_mark.dart';
 
 /// Quiet shopping list: back + title header, one sentence of progress
@@ -151,16 +153,8 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         child: Row(
           children: [
             Expanded(
-              child: Container(
+              child: BrutalField(
                 height: 52,
-                decoration: BoxDecoration(
-                  color: s.paper,
-                  borderRadius: BorderRadius.circular(SiftRadii.rField),
-                  border: Border.all(
-                    color: s.divider,
-                    width: AppTheme.hairline(isDark),
-                  ),
-                ),
                 child: TextField(
                   controller: _addItemController,
                   textInputAction: TextInputAction.done,
@@ -293,11 +287,11 @@ class _ShoppingListScreenState extends State<ShoppingListScreen> {
         title: const Text('Delete this list?'),
         content: Text('"${widget.listName}" will be permanently deleted.'),
         actions: [
-          TextButton(
+          BrutalButton.text(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            label: const Text('Cancel'),
           ),
-          FilledButton(
+          BrutalButton(
             onPressed: () {
               if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
               final box = Hive.box('actions');

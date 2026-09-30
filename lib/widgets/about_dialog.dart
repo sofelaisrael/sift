@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
+import 'brutal_button.dart';
 import 'sift_mark.dart';
 
 /// Flat, paper-styled about dialog: mark, serif title, version, closing line,
@@ -71,15 +72,13 @@ class PremiumAboutDialog extends StatelessWidget {
             const _Hairline(),
             _licenseRow(context, s),
             const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () {
-                  if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
-                  Navigator.pop(context);
-                },
-                child: const Text('Got it'),
-              ),
+            BrutalButton(
+              expand: true,
+              onPressed: () {
+                if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
+                Navigator.pop(context);
+              },
+              child: const Text('Got it'),
             ),
           ],
         ),

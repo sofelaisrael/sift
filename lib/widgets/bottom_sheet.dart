@@ -1,7 +1,15 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../theme/brutal_tokens.dart';
+import '../theme/motion_tokens.dart';
+import 'brutal_activate.dart';
 
-/// Capture source picker. Paper tiles, neutral icons, no tinted wells.
+/// Capture source picker. Paper sheet, neutral icons, no tinted wells.
+///
+/// The SHEET is not a control, so its chrome keeps `rSheet` and the soft L4
+/// shadow and is deliberately outside the brutal set (DESIGN-BRUTALIST.md
+/// §2.5, §8 Phase 4). The two source tiles inside it are, and carry the hard
+/// edge.
 class PremiumBottomSheet extends StatelessWidget {
   final VoidCallback onCamera;
   final VoidCallback onGallery;
@@ -108,7 +116,7 @@ class PremiumBottomSheet extends StatelessWidget {
   }
 }
 
-class _SourceOption extends StatelessWidget {
+class _SourceOption extends StatefulWidget {
   final IconData icon;
   final String label;
   final String subtitle;
@@ -122,38 +130,91 @@ class _SourceOption extends StatelessWidget {
   });
 
   @override
+  State<_SourceOption> createState() => _SourceOptionState();
+}
+
+class _SourceOptionState extends State<_SourceOption> {
+  bool _pressed = false;
+  bool _focused = false;
+
+  void _setFocused(bool value) {
+    if (value == _focused) return;
+    setState(() => _focused = value);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final s = AppTheme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(SiftRadii.rCard),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-          decoration: BoxDecoration(
-            color: s.paper,
-            borderRadius: BorderRadius.circular(SiftRadii.rCard),
-            border: Border.all(color: s.divider),
-          ),
-          child: Column(
-            children: [
-              Icon(icon, size: 28, color: s.ink),
-              const SizedBox(height: 12),
-              Text(
-                label,
-                style: SiftType.bodySans.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: s.ink,
+    // One of the two contents the spec promotes (§8 Phase 4): the sheet chrome
+    // around it stays rSheet 24 with its soft L4 shadow, because a sheet is a
+    // container, not a control (§2.5). What the user actually touches inside it
+    // gets the full treatment — 2pt stone border, rControl, hard shadow, press.
+    //
+    // This is a control on a paper sheet, so the fill stays `paper`: the
+    // selected and disabled fills in §4.6 belong to chips, and a source picker
+    // has no selected state.
+    //
+    // Focus is not optional. A modal sheet traps traversal, so a source option
+    // with no `Focus` leaves the sheet with ZERO focusable children: a keyboard
+    // user opens the capture sheet and is stuck. The ring replaces the stone
+    // border in place, exactly as on the chip and the button (§5.4), and
+    // [brutalActivate] is what makes Enter and Space actually do something.
+    return Semantics(
+      button: true,
+      child: brutalActivate(
+        onActivate: widget.onTap,
+        child: Focus(
+          onFocusChange: _setFocused,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: widget.onTap,
+              onTapDown: (_) => setState(() => _pressed = true),
+              onTapUp: (_) => setState(() => _pressed = false),
+              onTapCancel: () => setState(() => _pressed = false),
+              child: Transform.translate(
+                offset: _pressed && MotionTokens.enabled
+                    ? SiftBrutal.offset
+                    : Offset.zero,
+                child: AnimatedContainer(
+                  duration: _pressed ? SiftBrutal.pressIn : SiftBrutal.pressOut,
+                  curve: MotionTokens.easeOutCubic,
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: s.paper,
+                    borderRadius: BorderRadius.circular(SiftRadii.rControl),
+                    border: Border.all(
+                      color: _focused ? SiftBrutal.focus(isDark) : s.stone,
+                      width: SiftBrutal.borderW,
+                    ),
+                    boxShadow: _pressed
+                        ? SiftBrutal.hardPressed(isDark)
+                        : SiftBrutal.hard(isDark),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(widget.icon, size: 28, color: s.ink),
+                      const SizedBox(height: 12),
+                      Text(
+                        widget.label,
+                        style: SiftType.bodySans.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: s.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        widget.subtitle,
+                        style: SiftType.metaLabel.copyWith(color: s.stone),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: SiftType.metaLabel.copyWith(color: s.stone),
-              ),
-            ],
+            ),
           ),
         ),
       ),

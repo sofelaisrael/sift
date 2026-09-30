@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'brutal_button.dart';
+
 /// Show the one-time privacy consent dialog before cloud chat.
 /// Returns true when the user has already consented or grants consent now.
 /// A declined consent is not stored, so the prompt can appear again.
@@ -22,11 +24,11 @@ Future<bool> showPrivacyConsentIfNeeded(BuildContext context) async {
         'you choose. Optional source lookup can also query the web.',
       ),
       actions: [
-        TextButton(
+        BrutalButton.text(
           onPressed: () => Navigator.pop(context, false),
-          child: const Text('Not now'),
+          label: const Text('Not now'),
         ),
-        FilledButton(
+        BrutalButton(
           onPressed: () => Navigator.pop(context, true),
           child: const Text('Continue'),
         ),

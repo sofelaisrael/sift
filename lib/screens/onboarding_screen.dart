@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/screenshot.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
+import '../widgets/brutal_button.dart';
 import '../widgets/chat_atoms.dart';
 import '../widgets/sift_mark.dart';
 import 'app_shell.dart';
@@ -62,9 +63,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               alignment: Alignment.topRight,
               child: Padding(
                 padding: const EdgeInsets.only(right: 8, top: 4),
-                child: TextButton(
+                child: BrutalButton.text(
                   onPressed: () => _completeOnboarding(setup: false),
-                  child: Text(
+                  label: Text(
                     'Skip',
                     style: SiftType.buttonLabel.copyWith(
                       color: s.stone,
@@ -102,20 +103,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: _currentPage == 2
-                      ? () => _completeOnboarding(setup: true)
-                      : () {
-                          _pageController.nextPage(
-                            duration: MotionTokens.emphasis,
-                            curve: MotionTokens.easeOutCubic,
-                          );
-                        },
-                  child: Text(
-                    _currentPage == 2 ? 'Set up Sift' : 'Next',
-                  ),
+              child: BrutalButton(
+                expand: true,
+                onPressed: _currentPage == 2
+                    ? () => _completeOnboarding(setup: true)
+                    : () {
+                        _pageController.nextPage(
+                          duration: MotionTokens.emphasis,
+                          curve: MotionTokens.easeOutCubic,
+                        );
+                      },
+                child: Text(
+                  _currentPage == 2 ? 'Set up Sift' : 'Next',
                 ),
               ),
             ),
@@ -281,11 +280,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
           ),
           const SizedBox(height: 32),
-          _trustRow(context, Icons.lock_outline_rounded, 'Your data, your call'),
+          _trustRow(
+              context, Icons.lock_outline_rounded, 'Your data, your call'),
           Divider(color: s.divider, height: 1, thickness: 1),
           _trustRow(context, Icons.storage_rounded, 'Stored locally'),
           Divider(color: s.divider, height: 1, thickness: 1),
-          _trustRow(context, Icons.verified_user_outlined, 'You stay in control'),
+          _trustRow(
+              context, Icons.verified_user_outlined, 'You stay in control'),
         ],
       ),
     );
