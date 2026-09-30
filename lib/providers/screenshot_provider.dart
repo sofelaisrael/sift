@@ -138,6 +138,15 @@ class ScreenshotProvider extends ChangeNotifier {
   // description 4, tags 3, objects 2, recognitions 2, ocrText 1, fileName 1,
   // extractedData 1.
   //
+  // A weight is a per-field score, not a per-occurrence multiplier: a term
+  // contributes its field's weight once however many times the term recurs
+  // inside that field. The same term in two fields still adds both — `summary`
+  // is a slice of `ocrText`, so an overlap legitimately scores 5 + 1.
+  //
+  // Queries match a term when the *indexed* term starts with it, so 'bag'
+  // finds 'bagel'. That is query-side only: nothing extra is written to the
+  // index, and a mid-word substring still does not match. See [search].
+  //
   // Unpopulated by the local analyzer: searchKeywords, description,
   // recognitions and extractedData are written as null/[] on every record, so
   // their 11 weight units never fire. tags is empty until the user adds one.
@@ -160,7 +169,20 @@ class ScreenshotProvider extends ChangeNotifier {
   static const int _wExtractedData = 1;
   static const int _wSearchKeywords = 4;
   static const int _maxWordLength = 64;
-  static final RegExp _wordSplitter = RegExp(r'[^\w\u4e00-\u9fff]+');
+  // Separators are everything outside `A-Za-z0-9` and the CJK range, so `_`
+  // splits. The keep-set is spelled out letter-by-letter rather than written as
+  // `\w` because Dart's `\w` is `[A-Za-z0-9_]`: a negated class can only ever
+  // *add* to the set it excludes from, so `[^\w…]` can never make the
+  // underscore a separator. It stayed glued to its neighbours instead, which
+  // made `Screenshot_20260927_143012` one token and the fileName field
+  // unsearchable by any part of the name. Hyphens already split and
+  // underscores joining them was an oversight, not a decision, so both now
+  // separate. Nothing else moves: `\w` is ASCII-only in Dart, so accented
+  // Latin and other non-CJK scripts were already separators and still are. The
+  // CJK range is untouched for the same reason as before — CJK has no spaces
+  // between characters, so `\u4e00-\u9fff` is the only reason
+  // '咖啡店的菜单' tokenizes at all.
+  static final RegExp _wordSplitter = RegExp(r'[^A-Za-z0-9\u4e00-\u9fff]+');
   Map<String, Map<String, int>> _invertedIndex = {};
 
   List<Screenshot> get screenshots => _screenshots;
@@ -464,15 +486,25 @@ class ScreenshotProvider extends ChangeNotifier {
     return trimmed;
   }
 
-  /// Add [id] with [weight] for every word in [text] to the inverted index.
-  /// Text with nothing to say — blank, or a display-only placeholder — indexes
-  /// nothing. See [_searchableText].
+  /// Add [id] with [weight] once for every distinct word in [text] to the
+  /// inverted index. Text with nothing to say — blank, or a display-only
+  /// placeholder — indexes nothing. See [_searchableText].
+  ///
+  /// The word set is what makes a weight mean what the weight table says. The
+  /// splitter emits a repeated word once per occurrence, and adding the field
+  /// weight each time made 'summary = 5' a floor rather than a score: a word
+  /// repeated three times in 80 characters scored 15, and beat a screenshot
+  /// that mentions the same word once because it happened to say it louder.
+  /// Counting each term once per field removes that inflation. It is
+  /// deliberately *not* a per-document dedupe: the same term in two different
+  /// fields still adds both weights, so a term in `summary` and in `ocrText`
+  /// scores 5 + 1.
   void _addTerms(String? text, String id, int weight,
       {Map<String, Map<String, int>>? index}) {
     final searchable = _searchableText(text);
     if (searchable == null) return;
     final idx = index ?? _invertedIndex;
-    for (final word in _tokenize(searchable)) {
+    for (final word in _tokenize(searchable).toSet()) {
       idx.putIfAbsent(word, () => <String, int>{});
       idx[word]![id] = (idx[word]![id] ?? 0) + weight;
     }
@@ -1086,6 +1118,15 @@ class ScreenshotProvider extends ChangeNotifier {
   /// Local keyword search using inverted index with field weighting.
   /// Returns most relevant visible screenshots first. O(t × avg_postings)
   /// instead of O(n × t) for the old linear scan.
+  ///
+  /// A query term matches every indexed term that *starts with* it, so a
+  /// partial word finds its completion. The search box is as-you-type with a
+  /// debounce, so a user is mid-word most of the time and 'bag' returning
+  /// nothing for a screenshot that plainly says "Bagel…" reads as broken
+  /// search. This is query-side only: the index is untouched, so no prefix
+  /// entries are stored and no existing query's score moves. Stemming and
+  /// fuzzy matching are still out — a term in the *middle* of an indexed word
+  /// does not match, and a query for 'ag' does not find 'bagel'.
   List<Screenshot> search(String query, {int limit = 5}) {
     // Min-query gate: 2 chars for non-CJK, 1 char for CJK (single kanji
     // queries are legitimate).
@@ -1101,14 +1142,19 @@ class ScreenshotProvider extends ChangeNotifier {
       terms = terms.sublist(0, _maxQueryTerms);
     }
 
-    // Collect candidate screenshot IDs and sum their weighted scores.
+    // Collect candidate screenshot IDs and sum their weighted scores. A term
+    // can match several indexed words at once ('bag' over 'bag' and 'bagel'),
+    // and a document holding both is scored for both — the exact word carries
+    // its own weight on top of the extension, which is what keeps a literal
+    // hit ahead of a merely-prefixed one.
     final scores = <String, int>{};
     for (final term in terms) {
-      final postings = _invertedIndex[term];
-      if (postings == null) continue;
-      for (final entry in postings.entries) {
-        // Only count hidden-path-free screenshots (checked later).
-        scores[entry.key] = (scores[entry.key] ?? 0) + entry.value;
+      for (final posting in _invertedIndex.entries) {
+        if (!posting.key.startsWith(term)) continue;
+        for (final entry in posting.value.entries) {
+          // Only count hidden-path-free screenshots (checked later).
+          scores[entry.key] = (scores[entry.key] ?? 0) + entry.value;
+        }
       }
     }
 
