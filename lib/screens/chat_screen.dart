@@ -12,6 +12,8 @@ import '../services/lam_service.dart';
 import '../services/local_model_service.dart';
 import '../services/web_lookup.dart';
 import '../theme/app_theme.dart';
+import '../theme/brutal_tokens.dart';
+import '../widgets/brutal_activate.dart';
 import '../widgets/brutal_field.dart';
 import '../theme/motion_tokens.dart';
 import '../widgets/brutal_button.dart';
@@ -709,7 +711,7 @@ class _ComposerRowState extends State<_ComposerRow> {
           ),
         ),
         const SizedBox(width: 8),
-        _SendCircle(
+        SiftSendCircle(
           enabled: hasText && !widget.sending,
           onPressed: widget.onSend,
         ),
@@ -718,18 +720,38 @@ class _ComposerRowState extends State<_ComposerRow> {
   }
 }
 
-class _SendCircle extends StatefulWidget {
+/// The composer's send button.
+///
+/// Public because it is a control, not a screen detail: DESIGN-BRUTALIST.md §7.6
+/// records it as the one interactive element left outside the brutal control
+/// system, and the only way to keep it inside is to test it on its own rather
+/// than by mounting the whole screen around it.
+///
+/// §2.5 excludes circular icon buttons from the hard-edge treatment — a cast
+/// shadow fights a circle's curvature — and that exclusion is honoured: the
+/// press-scale, the fill and the shape are all exactly as they were. What it
+/// over-reached on was FOCUS, which is not a shape question. So the ring is a
+/// 2pt `BoxDecoration` border on the same circle, which follows the curve
+/// instead of boxing it in, and it uses the page-step/slab rule the rest of the
+/// system uses (§6.10): `accentDeep` is a slab, so the ring is the slab pair,
+/// while the disabled `surfaceWarm2` fill is a page step and takes the plain one.
+class SiftSendCircle extends StatefulWidget {
   final bool enabled;
   final VoidCallback onPressed;
 
-  const _SendCircle({required this.enabled, required this.onPressed});
+  const SiftSendCircle({
+    super.key,
+    required this.enabled,
+    required this.onPressed,
+  });
 
   @override
-  State<_SendCircle> createState() => _SendCircleState();
+  State<SiftSendCircle> createState() => _SiftSendCircleState();
 }
 
-class _SendCircleState extends State<_SendCircle> {
+class _SiftSendCircleState extends State<SiftSendCircle> {
   bool _pressed = false;
+  bool _focused = false;
 
   void _setPressed(bool value) {
     if (widget.enabled && MotionTokens.enabled) {
@@ -737,37 +759,71 @@ class _SendCircleState extends State<_SendCircle> {
     }
   }
 
+  void _setFocused(bool value) {
+    if (value == _focused) return;
+    setState(() => _focused = value);
+  }
+
+  /// One body for the tap and for Enter, so the keyboard can never reach a
+  /// different outcome than the pointer. [brutalActivate] is handed null while
+  /// disabled, which swallows the intent rather than letting it fire a send the
+  /// pointer is not allowed to make.
+  void _send() {
+    if (!widget.enabled) return;
+    if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
+    widget.onPressed();
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppTheme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return GestureDetector(
-      onTapDown: (_) => _setPressed(true),
-      onTapUp: (_) => _setPressed(false),
-      onTapCancel: () => _setPressed(false),
-      onTap: widget.enabled
-          ? () {
-              if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
-              widget.onPressed();
-            }
-          : null,
-      child: AnimatedScale(
-        scale: _pressed ? 0.94 : 1.0,
-        duration: MotionTokens.press,
-        curve: MotionTokens.easeOutCubic,
-        child: AnimatedContainer(
-          duration: MotionTokens.pressRelease,
-          curve: MotionTokens.easeOutCubic,
-          width: SiftSpacing.sendBtn,
-          height: SiftSpacing.sendBtn,
-          decoration: BoxDecoration(
-            color: widget.enabled ? s.accentDeep : s.surfaceWarm2,
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            Icons.arrow_upward_rounded,
-            size: 20,
-            color: widget.enabled ? s.onAccent : s.stone,
+    return Semantics(
+      button: true,
+      enabled: widget.enabled,
+      label: 'Send message',
+      child: brutalActivate(
+        onActivate: widget.enabled ? _send : null,
+        child: Focus(
+          onFocusChange: _setFocused,
+          child: GestureDetector(
+            onTapDown: (_) => _setPressed(true),
+            onTapUp: (_) => _setPressed(false),
+            onTapCancel: () => _setPressed(false),
+            onTap: widget.enabled ? _send : null,
+            child: AnimatedScale(
+              scale: _pressed ? 0.94 : 1.0,
+              duration: MotionTokens.press,
+              curve: MotionTokens.easeOutCubic,
+              child: AnimatedContainer(
+                duration: MotionTokens.pressRelease,
+                curve: MotionTokens.easeOutCubic,
+                width: SiftSpacing.sendBtn,
+                height: SiftSpacing.sendBtn,
+                decoration: BoxDecoration(
+                  color: widget.enabled ? s.accentDeep : s.surfaceWarm2,
+                  shape: BoxShape.circle,
+                  // A border on a circular shape paints as a circular ring
+                  // inside the shape, which is what keeps the indicator on the
+                  // circle instead of squaring it off (§6.10: the border is
+                  // drawn ON TOP OF the fill, so it is scored against the fill).
+                  border: _focused
+                      ? Border.all(
+                          color: widget.enabled
+                              ? SiftBrutal.focusOnFill(isDark: isDark)
+                              : SiftBrutal.focus(isDark),
+                          width: SiftBrutal.borderW,
+                        )
+                      : null,
+                ),
+                child: Icon(
+                  Icons.arrow_upward_rounded,
+                  size: 20,
+                  color: widget.enabled ? s.onAccent : s.stone,
+                ),
+              ),
+            ),
           ),
         ),
       ),

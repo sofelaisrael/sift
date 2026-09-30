@@ -504,4 +504,223 @@ void main() {
       }
     }
   });
+
+  group('ghost press observability', () {
+    /// Presses a ghost mounted on an explicit host surface and returns what it
+    /// actually paints: the pressed fill, the pressed edge, and the rendered
+    /// label colour.
+    ///
+    /// The host matters and cannot be assumed. A ghost button is mounted either
+    /// on `canvas` (onboarding, home's `_batchBar`) or on `paper` (every dialog
+    /// action row), and §4.3's light press fill was `canvas` — 1.00:1 on one host
+    /// and 1.04:1 on the other, so it drew nothing on either.
+    Future<({Color fill, Border? edge, Color label})> pressGhostOn(
+      WidgetTester tester, {
+      required Color host,
+      required Brightness brightness,
+      required bool dimmed,
+    }) async {
+      final isDark = brightness == Brightness.dark;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: isDark ? AppTheme.darkTheme : AppTheme.lightTheme,
+          home: Scaffold(
+            body: ColoredBox(
+              color: host,
+              child: Center(
+                child: Builder(
+                  builder: (context) => BrutalButton.text(
+                    onPressed: () {},
+                    label: Text(
+                      'Skip',
+                      style: dimmed
+                          ? SiftType.buttonLabel.copyWith(
+                              color: AppTheme.of(context).stone,
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final gesture =
+          await tester.startGesture(tester.getCenter(find.text('Skip')));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final decoration = decorationOf(tester);
+      final rich = tester.widget<RichText>(
+        find.descendant(
+          of: find.text('Skip'),
+          matching: find.byType(RichText),
+        ),
+      );
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      return (
+        fill: decoration.color!,
+        edge: decoration.border as Border?,
+        label: rich.text.style!.color!,
+      );
+    }
+
+    for (final brightness in [Brightness.light, Brightness.dark]) {
+      final isDark = brightness == Brightness.dark;
+      final palette = isDark ? SiftColors.dark : SiftColors.light;
+      // The only two page surfaces a ghost is ever mounted on, per mode.
+      final hosts = isDark
+          ? [SiftColors.dark.canvas, SiftColors.dark.paper]
+          : [SiftColors.light.canvas, SiftColors.light.paper];
+
+      for (final dimmed in [false, true]) {
+        for (final host in hosts) {
+          testWidgets(
+            'the ${brightness.name} press is observable on a ${_hex(host)} '
+            'host with the ${dimmed ? 'stone' : 'default'} label',
+            (tester) async {
+              final pressed = await pressGhostOn(
+                tester,
+                host: host,
+                brightness: brightness,
+                dimmed: dimmed,
+              );
+
+              // The press has to have engaged before any of this means anything:
+              // a ghost at rest is transparent, so a transparent fill here would
+              // mean the ratios below were measured against the page.
+              expect(pressed.fill.a, greaterThan(0),
+                  reason: 'the press did not engage');
+
+              // (1) The press has to be visible against the host it sits on.
+              // Before this fix the only candidate was the fill, and on both
+              // hosts it measured 1.00-1.04:1, so the press drew nothing.
+              expect(
+                pressed.edge,
+                isNotNull,
+                reason: 'the ${brightness.name} press paints no edge, so its '
+                    'only signal is a fill that matches the ${_hex(host)} host '
+                    'to within '
+                    '${wcagContrast(pressed.fill, host).toStringAsFixed(2)}:1',
+              );
+              final edge = pressed.edge!.top;
+              expect(edge.width, SiftBrutal.borderW);
+              expect(edge.color, palette.ink);
+              expect(
+                wcagContrast(edge.color, host),
+                greaterThanOrEqualTo(kNonTextContrast),
+                reason: 'press edge ${_hex(edge.color)} on the ${_hex(host)} '
+                    'host = '
+                    '${wcagContrast(edge.color, host).toStringAsFixed(2)}:1',
+              );
+
+              // (2) AND visible against the fill it is painted ON. A
+              // `BoxDecoration` border draws inside the box, on top of
+              // `decoration.color`, so its inner side is the pressed fill, not
+              // the host. Both faces have to clear or the ring is an edge with one
+              // invisible side.
+              expect(
+                wcagContrast(edge.color, pressed.fill),
+                greaterThanOrEqualTo(kNonTextContrast),
+                reason: 'press edge ${_hex(edge.color)} on the pressed fill '
+                    '${_hex(pressed.fill)} = '
+                    '${wcagContrast(edge.color, pressed.fill).toStringAsFixed(2)}:1',
+              );
+
+              // (3) The edge must be a genuinely different colour from the two
+              // things it could be mistaken for, or (1) and (2) would be
+              // measuring an invisible value.
+              expect(edge.color, isNot(host));
+              expect(edge.color, isNot(pressed.fill));
+
+              // (4) The label still clears 4.5:1. This is the constraint that
+              // ruled out fixing the press with a fill at all: in light the
+              // binding `stone` override needs L + 0.05 >= 0.95186, and only
+              // `canvas` and `paper` reach it — the two hosts. Both label
+              // colours keep their shipped ratios (light 4.79 / 4.53, dark
+              // 11.58 / 4.68).
+              expect(
+                wcagContrast(pressed.label, pressed.fill),
+                greaterThanOrEqualTo(kTextContrast),
+                reason: 'pressed ghost label ${_hex(pressed.label)} on '
+                    '${_hex(pressed.fill)} ($brightness, dimmed=$dimmed) = '
+                    '${wcagContrast(pressed.label, pressed.fill).toStringAsFixed(2)}:1',
+              );
+            },
+          );
+        }
+      }
+    }
+
+    testWidgets('the edge exists only while held down', (tester) async {
+      // A ghost has NO resting edge (§4.3), so an edge that leaked into the
+      // resting state would put a hard 2pt border on twelve quiet secondary
+      // actions and promote them to primary visual weight.
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          home: Scaffold(
+            body: Center(
+              child: BrutalButton.text(
+                onPressed: () {},
+                label: const Text('Skip'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(decorationOf(tester).border, isNull);
+
+      final gesture =
+          await tester.startGesture(tester.getCenter(find.text('Skip')));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(decorationOf(tester).border, isNotNull);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(decorationOf(tester).border, isNull);
+    });
+
+    testWidgets('focus wins over a simultaneous press', (tester) async {
+      // The ring is what SC 2.4.7 is about. A press affordance must not be able
+      // to repaint it, or a keyboard user tabbing to a ghost and then pressing
+      // Space would watch the indicator disappear.
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          home: Scaffold(
+            body: Center(
+              child: BrutalButton.text(
+                onPressed: () {},
+                label: const Text('Skip'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect((decorationOf(tester).border! as Border).top.color,
+          SiftBrutal.focusLight);
+
+      final gesture =
+          await tester.startGesture(tester.getCenter(find.text('Skip')));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect((decorationOf(tester).border! as Border).top.color,
+          SiftBrutal.focusLight,
+          reason: 'the press repainted the focus ring');
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
+  });
 }
+
+String _hex(Color c) =>
+    '#${(c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';

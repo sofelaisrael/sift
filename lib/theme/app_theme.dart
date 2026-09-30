@@ -686,12 +686,25 @@ class AppTheme {
         // `focus` measures 1.00:1 in light and 1.68:1 in dark, so a selected
         // AND focused track takes the slab ring instead (§6.10). The off track
         // is a `surfaceWarm2` page step and keeps `focus`.
+        //
+        // The selected-but-unfocused track used to fall through to `stone`,
+        // which is 1.06:1 in light against its own `accentDeep` fill: a 2pt
+        // border that drew nothing, the same defect the light filled button's
+        // resting edge had. It now takes `SiftBrutal.edgeOnTrack`, which was
+        // chosen by measurement over the whole palette in both modes —
+        // `divider` 3.51:1 light, `ink` 4.01:1 dark — and which is NOT either
+        // mode's focus ring, so the focused state still reads as a change. The
+        // arithmetic and the two disqualified candidates are in the token.
         trackOutlineColor: WidgetStateProperty.resolveWith(
-          (states) => states.contains(WidgetState.focused)
-              ? (states.contains(WidgetState.selected)
+          (states) {
+            final selected = states.contains(WidgetState.selected);
+            if (states.contains(WidgetState.focused)) {
+              return selected
                   ? SiftBrutal.focusOnFill(isDark: isDark)
-                  : SiftBrutal.focus(isDark))
-              : s.stone,
+                  : SiftBrutal.focus(isDark);
+            }
+            return selected ? SiftBrutal.edgeOnTrack(isDark) : s.stone;
+          },
         ),
         trackOutlineWidth:
             const WidgetStatePropertyAll<double>(SiftBrutal.borderW),

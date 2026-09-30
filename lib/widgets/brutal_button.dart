@@ -151,16 +151,26 @@ class _BrutalButtonState extends State<BrutalButton> {
         // and both are asserted in the test rather than reasoned about here.
         // Operands below are `L + 0.05`, not raw luminance — the ratio is
         // (L_lighter + 0.05) / (L_darker + 0.05).
-        //   light  accentDeep / canvas  0.95772 / 0.19996 =  4.79:1
-        //   light  stone      / canvas  0.95772 / 0.21153 =  4.53:1
-        //   dark   ink        / paper   0.80120 / 0.06920 = 11.58:1
-        //   dark   stone      / paper   0.32381 / 0.06920 =  4.68:1
         //
-        // `surfaceWarm2` is ruled out by that last row (3.83:1) and `canvas` is
-        // ruled out in dark because it IS the dark page: a `canvas` press would
-        // change nothing at all, leaving the fill as the only press signal
-        // (§7.4). `paper` is the only step that both lifts the press visibly
-        // and clears both labels.
+        // LIGHT: `canvas`, and the arithmetic says it is the only option there
+        // is. The binding label is `stone` (L + 0.05 = 0.21153), so a 4.5:1
+        // fill needs L + 0.05 >= 0.95186 — and the only palette steps in light
+        // that reach it are `paper`/`onAccent` (0.99792) and `canvas`
+        // (0.95772), which sit 1.00:1 and 1.04:1 from the two surfaces this
+        // button is ever mounted on. A fill cannot be both 4.5:1-safe and
+        // visible on `canvas` AND `paper`: the whole admissible band is 0.0476
+        // of luminance wide and the two hosts are 0.0402 apart inside it. So
+        // light keeps `canvas` — the label contrast is the part that cannot be
+        // compromised — and the press is carried by the pressed ghost's edge
+        // instead (see pressBorder). (`surfaceWarm2` fails at 3.79:1 and
+        // `surfaceWarm1` at 4.15:1, both on the `stone` label.)
+        //
+        // DARK: `paper`, which is 4.68:1 under the `stone` label and 11.58:1
+        // under the default `ink`. `surfaceWarm2` is ruled out by that 4.68
+        // (3.83:1) and `canvas` is ruled out in dark because it IS the dark
+        // page: a `canvas` press would change nothing at all, leaving the fill
+        // as the only press signal (§7.4). `paper` is the only step that both
+        // lifts the press visibly and clears both labels.
         if (_pressed) return isDark ? s.paper : s.canvas;
         return Colors.transparent;
     }
@@ -188,6 +198,50 @@ class _BrutalButtonState extends State<BrutalButton> {
     }
   }
 
+  /// The 2pt edge a pressed GHOST paints, and the only thing carrying the press
+  /// in light mode.
+  ///
+  /// The ghost's press cannot be a fill change on its own. §4.3's press fill in
+  /// light was `canvas`, and the ghost is mounted either on `canvas` (onboarding,
+  /// home's `_batchBar`) or on `paper` (every dialog action row) — so the wash
+  /// measured 1.00:1 on one host and 1.04:1 on the other and drew nothing. The
+  /// dark mode already rejects `canvas` for exactly this reason and takes
+  /// `paper` instead; light has the same problem in mirror image, and its only
+  /// available fix is bounded by the label, because the label sits ON the fill.
+  ///
+  /// The arithmetic, from [wcagContrast] over the `SiftColors.light` palette:
+  ///
+  ///   stone label  L + 0.05 = 0.21153  →  a 4.5:1 fill needs L + 0.05 >= 0.95186
+  ///   paper/onAccent 0.99792   accentDeep 4.99 · stone 4.72 · vs canvas 1.04 · vs paper 1.00
+  ///   canvas         0.95772   accentDeep 4.79 · stone 4.53 · vs canvas 1.00 · vs paper 1.04
+  ///
+  /// Those are the only two steps that clear the binding `stone` label, and they
+  /// are the two hosts. So in light there is no fill that is both safe under the
+  /// label and visible against the page, and the choice is forced: keep `canvas`
+  /// for the label's 4.53:1 and put the press on an edge instead. Nothing is
+  /// regressed to get there — light default stays 4.79:1, light `stone` 4.53:1,
+  /// dark default 11.58:1, dark `stone` 4.68:1.
+  ///
+  /// [SiftColors.ink] is the right edge value, and one name covers both modes
+  /// because `ink` IS each mode's own extreme step (warm-black in light, cream
+  /// in dark — the same step the dark hard shadow is built from). A
+  /// `BoxDecoration` border paints inside the box and ON TOP OF THE FILL, so this
+  /// 2pt edge has the pressed fill on its inner side and the host on its outer
+  /// one, and `ink` clears 3:1 on every such pair:
+  ///
+  ///   light  ink on the canvas fill / canvas host 13.71 · on a paper host 14.29
+  ///   dark   ink on the paper fill / paper host 11.58 · on a canvas host 13.06
+  ///
+  /// Asserted per mode against both hosts in the test rather than restated here.
+  ///
+  /// It is not [SiftBrutal.focus], which is what the focused ghost draws. Focus
+  /// wins when both are true: the focus indicator is what SC 2.4.7 is about, and
+  /// a press affordance must not be allowed to erase it.
+  Border? pressBorder(SiftColors s) => Border.all(
+        color: s.ink,
+        width: SiftBrutal.borderW,
+      );
+
   /// A `BoxDecoration` border paints INSIDE the box, ON TOP OF THE FILL, so
   /// both the ring and the resting edge are scored against THIS control's own
   /// box and never against the page. The earlier comment here claimed the ring
@@ -201,12 +255,26 @@ class _BrutalButtonState extends State<BrutalButton> {
   /// [SiftBrutal.focus]. A filled or destructive button is a slab and takes the
   /// inverted pair instead, at rest and pressed alike. Zero layout change: the
   /// ring still replaces the border in place at the same 2pt.
+  ///
+  /// The ghost is the one variant with no resting edge at all, so its border
+  /// exists only in a state: the focus ring, or [pressBorder] while held down.
   Border? _border(SiftColors s, bool isDark) {
-    if (_ghost && !_focused) return null;
+    if (_ghost) {
+      // The ghost has no resting edge (§4.3), so both of its edges are
+      // state-only. Focus is resolved first and wins over a simultaneous press:
+      // the ring is the SC 2.4.7 indicator and must never be repainted by a
+      // press affordance.
+      if (_focused) {
+        return Border.all(
+          color: SiftBrutal.focus(isDark),
+          width: SiftBrutal.borderW,
+        );
+      }
+      return _pressed ? pressBorder(s) : null;
+    }
     // Disabled fills with `surfaceWarm2`, a page step, so a disabled button
     // keeps the page-fill pair and the ring it already showed.
-    final slab = !_ghost &&
-        !_disabled &&
+    final slab = !_disabled &&
         (widget.variant == BrutalVariant.filled ||
             widget.variant == BrutalVariant.destructive);
     return Border.all(

@@ -102,36 +102,47 @@ class _TagChipState extends State<TagChip> {
                 // (§2.5). This 2pt ring is TagChip's only brutal change
                 // (§4.6). The target's own box is unfilled, so the ring lands
                 // on the `paper` pill: a page step, not a slab — hence [focus].
-                child: Focus(
+                //
+                // The ring is driven by the InkWell's OWN focus rather than by a
+                // `Focus` wrapped around it. `InkResponse.build` is
+                // `Actions({ActivateIntent, ButtonActivateIntent},
+                // child: Focus(...))`, so a wrapping `Focus` inserted itself
+                // BETWEEN those Actions and the InkWell's node. Being a plain
+                // focusable node it attached first and was traversed first:
+                // Tab #1 landed on the outer node, the ring lit, and Enter
+                // dispatched ActivateIntent upward from a context whose nearest
+                // handler was nothing — `WidgetsApp.defaultActions` registers
+                // neither intent — so the first Tab was inert and only Tab #2
+                // worked. `InkWell.onFocusChange` reports the same node without
+                // adding one, which keeps the target at ONE tab stop with its
+                // own Actions ancestor intact (§5.3, seventh requirement).
+                child: InkWell(
+                  onTap: onDeleted,
                   onFocusChange: (focused) => setState(
                     () => _deleteFocused = focused,
                   ),
-                  child: InkWell(
-                    onTap: onDeleted,
-                    customBorder: const CircleBorder(),
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: _deleteFocused
-                            ? Border.all(
-                                color: SiftBrutal.focus(
-                                  Theme.of(context).brightness ==
-                                      Brightness.dark,
-                                ),
-                                width: SiftBrutal.borderW,
-                              )
-                            : null,
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(4),
-                        child: Icon(
-                          Icons.close_rounded,
-                          size: 14,
-                          color: s.stone,
-                        ),
+                  customBorder: const CircleBorder(),
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: _deleteFocused
+                          ? Border.all(
+                              color: SiftBrutal.focus(
+                                Theme.of(context).brightness == Brightness.dark,
+                              ),
+                              width: SiftBrutal.borderW,
+                            )
+                          : null,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 14,
+                        color: s.stone,
                       ),
                     ),
                   ),

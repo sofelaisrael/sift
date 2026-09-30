@@ -165,6 +165,46 @@ abstract final class SiftBrutal {
   static Color edgeOnFill(bool isDark) =>
       isDark ? edgeOnFillDark : edgeOnFillLight;
 
+  /// The RESTING 2pt edge on the switch's ON track. Deliberately NOT
+  /// [edgeOnFill], and this is the one place the shared-value rule above is
+  /// broken.
+  ///
+  /// `switchTheme` had no resting edge for a selected track at all — it fell
+  /// through to `stone`, which measures 1.06:1 in light and 1.62:1 in dark
+  /// against the `accentDeep` fill. The track fills with the same `accentDeep`
+  /// in BOTH modes (there is no dark-slab variant for it), so one fill value has
+  /// to clear the threshold twice, and the two modes disagree about which step
+  /// does it. Measured over the whole palette, against `accentDeep` (L + 0.05 =
+  /// 0.19996):
+  ///
+  ///   light  paper/onAccent 4.99 · canvas 4.79 · divider 3.51 · bone 2.32 · ink 2.86
+  ///   dark   ink 4.01 · canvas 3.26 · paper 2.89 · divider 2.37 · bone 1.52
+  ///
+  /// Two of those are disqualified on state legibility rather than contrast. The
+  /// light ring is `onAccent` and the dark ring is `canvas`, so `canvas` cannot
+  /// be the light resting edge (1.04:1 from its own ring — the focus state
+  /// would stop being visible, an SC 2.4.7 regression) and cannot be the dark
+  /// one (1.00:1 from its own ring — it IS the ring). That leaves, per mode:
+  ///
+  ///   light  `divider` 3.51:1 on the track, 1.42:1 from the ring
+  ///   dark   `ink`     4.01:1 on the track, 13.06:1 from the ring
+  ///
+  /// `divider` is the DARKEST light step that clears 3:1, which is the same
+  /// reason `bone` was picked for the shared edge: among the steps that qualify,
+  /// the one furthest from the ring is the one that keeps focus readable. The
+  /// 1.42:1 light step is weaker than the 2.15:1 `bone` gets, and that cost is
+  /// named rather than hidden.
+  ///
+  /// Unsharing is safe here in a way it was not for [edgeOnFill]: this value is
+  /// used on exactly one surface, so unlike the shared edge it can collide with
+  /// nothing. `ink` IS the dark filled button's and the dark selected chip's
+  /// fill, and neither control is ever inside a switch track.
+  static const Color edgeOnTrackLight = Color(0xFFDDD2BD); // == divider (light)
+  static const Color edgeOnTrackDark = Color(0xFFE8E0D2); // == ink (dark)
+
+  static Color edgeOnTrack(bool isDark) =>
+      isDark ? edgeOnTrackDark : edgeOnTrackLight;
+
   /// Press timing. Mirrors MotionTokens.press / MotionTokens.pressRelease
   /// rather than restating them, so the brutal press obeys the app's single
   /// reduced-motion gate for free: under reduced motion both durations

@@ -23,6 +23,7 @@ void main() {
   const off = <WidgetState>{};
   const on = <WidgetState>{WidgetState.selected};
   const focused = <WidgetState>{WidgetState.focused};
+  const onAndFocused = <WidgetState>{WidgetState.selected, WidgetState.focused};
 
   /// Mounts a real `Switch` and returns the `SwitchThemeData` AS THE MOUNTED
   /// WIDGET SEES IT — resolved through `Theme.of` on an element taken from
@@ -196,7 +197,119 @@ void main() {
       }
     });
   });
+
+  group('the ON track resting outline', () {
+    // DESIGN-BRUTALIST.md §7.6.2 recorded this as a known gap rather than a fix:
+    // `switchTheme` only branched on `focused`, so a selected-and-unfocused track
+    // fell through to `stone`, which measures 1.06:1 in light against the
+    // `accentDeep` fill — a 2pt border that drew nothing. The tests above read
+    // the OFF track, so nothing noticed.
+
+    testWidgets('clears 3:1 against its own track fill in both modes', (
+      tester,
+    ) async {
+      for (final brightness in [Brightness.light, Brightness.dark]) {
+        final isDark = brightness == Brightness.dark;
+        final theme =
+            await resolve(tester, brightness: brightness, selected: true);
+
+        final outline = theme.trackOutlineColor!.resolve(on)!;
+        final trackFill = track(theme, on);
+
+        // The ON track fills with the same `accentDeep` in BOTH modes, so one
+        // fill value has to clear the threshold twice and the two modes disagree
+        // about which palette step does it.
+        expect(
+          trackFill,
+          isDark ? SiftColors.dark.accentDeep : SiftColors.light.accentDeep,
+        );
+
+        // The outline paints inside the track, on top of the track FILL, so the
+        // fill is the adjacent colour and the page is not what it is scored
+        // against — the same rule the brutal controls follow (§6.10).
+        expect(
+          wcagContrast(outline, trackFill),
+          greaterThanOrEqualTo(kNonTextContrast),
+          reason: 'ON resting outline $brightness = '
+              '${wcagContrast(outline, trackFill).toStringAsFixed(2)}:1',
+        );
+      }
+    });
+
+    testWidgets('is the measured pair, not stone and not the focus ring', (
+      tester,
+    ) async {
+      // Two properties the 3:1 floor alone does not pin.
+      //
+      // Not `stone`: that is the 1.06:1 value the fix removes, and it is what
+      // the code fell through to before.
+      //
+      // Not the focus ring: the ring is `onAccent` in light and `canvas` in dark,
+      // and either of those as a resting edge would put the focused state within
+      // 1.04:1 (light) or 1.00:1 (dark) of the resting one — the focus indicator
+      // would stop being visible. Measured from the palette, `divider` is the
+      // darkest light step that clears 3:1 and `ink` the lightest dark one that
+      // is not the ring, so the pair is forced rather than chosen.
+      for (final (brightness, expected) in [
+        (Brightness.light, SiftColors.light.divider),
+        (Brightness.dark, SiftColors.dark.ink),
+      ]) {
+        final isDark = brightness == Brightness.dark;
+        final theme =
+            await resolve(tester, brightness: brightness, selected: true);
+
+        expect(theme.trackOutlineWidth?.resolve(on), SiftBrutal.borderW);
+        expect(theme.trackOutlineColor?.resolve(on), expected);
+        expect(expected, SiftBrutal.edgeOnTrack(isDark));
+
+        final palette = isDark ? SiftColors.dark : SiftColors.light;
+        expect(theme.trackOutlineColor?.resolve(on), isNot(palette.stone));
+        expect(
+          theme.trackOutlineColor?.resolve(on),
+          isNot(SiftBrutal.focusOnFill(isDark: isDark)),
+        );
+
+        // Focus still CHANGES something. The light step is only 1.42:1, which is
+        // the price of keeping the resting edge off the ring, and it is asserted
+        // so a future edit cannot close that gap to 1.00:1 unnoticed.
+        final resting = theme.trackOutlineColor!.resolve(on)!;
+        final focusedRing = theme.trackOutlineColor!.resolve(onAndFocused)!;
+        expect(resting, isNot(focusedRing));
+        expect(
+          wcagContrast(resting, focusedRing),
+          greaterThanOrEqualTo(kDistinguishableState),
+          reason: 'resting and focused ON outlines are indistinguishable, '
+              '$brightness',
+        );
+
+        // And the ring this change must not regress is still a compliant one.
+        expect(
+          wcagContrast(focusedRing, track(theme, on)),
+          greaterThanOrEqualTo(kNonTextContrast),
+        );
+      }
+    });
+
+    testWidgets('the OFF track keeps its page-step stone resting edge', (
+      tester,
+    ) async {
+      // The ON track is a slab and the OFF track is a `surfaceWarm2` page step,
+      // so the two states are not allowed to drift onto one value.
+      for (final (brightness, stone) in [
+        (Brightness.light, SiftColors.light.stone),
+        (Brightness.dark, SiftColors.dark.stone),
+      ]) {
+        final theme = await resolve(tester, brightness: brightness);
+        expect(theme.trackOutlineColor?.resolve(off), stone);
+      }
+    });
+  });
 }
+
+/// How far apart two colours must be before a state change reads as one. Stated
+/// locally so the light switch pair's 1.42:1 is a threshold somebody picked
+/// rather than a number nobody questioned.
+const double kDistinguishableState = 1.25;
 
 /// WCAG 2.2 SC 2.5.8 floor, restated locally so the mounted-size assertion
 /// above does not read as an arbitrary number.
