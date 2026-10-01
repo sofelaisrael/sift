@@ -339,6 +339,63 @@ in this space is dead. Keep it. Do not market it as the reason to switch.
 **Deliverable:** a written recall@10 for today, and a ranked list of which
 fields actually produce hits. Nothing in Phase 1 is worth building without it.
 
+### Status: the harness exists; the measurement does not
+
+**Built:** the recall harness at `test/support/recall_harness.dart`, driven by
+`test/recall_harness_test.dart`. It measures class 1 (lexical probes derived
+from tokens known to be in each record) and class 2 (hand-written semantic
+queries) separately, and never averages them — class 1 is a property of the
+index, class 2 is a property of the index *and* the data, and blending them
+would hide the interesting number. Phase 0 item 2 is answered by
+`ScreenshotProvider.explainScores()`, an additive accessor that runs the same
+private scorer `search()` runs, so per-field attribution is read off the live
+index rather than re-implemented in the harness.
+
+**Run so far: FIXTURE mode only,** over the hand-written synthetic corpus in
+`test/support/recall_fixture_corpus.dart`. **Those numbers are not a baseline
+and must not be quoted as one.** Every record in that corpus is a string someone
+typed; recall@10 over it says something about the fixture, not about this user's
+library. All four Phase 0 items above remain open — the harness is the
+instrument, not the reading.
+
+**To run it for real, we need from you:**
+
+- A flat directory of images. No subfolders.
+- A `corpus.jsonl` sidecar in that same directory — one JSON object per line:
+
+  ```json
+  {"fileName": "shot_0001.png", "ocrText": "…", "tags": ["…"], "objects": ["…"]}
+  ```
+
+  `fileName` must match a file in the directory. `ocrText` and `objects` must be
+  **the app's own ML Kit output** — do not retype them. The harness seeds through
+  `addFromBulkIngest`, so production derives `summary` and applies the 2000-char
+  OCR cap, but it cannot re-run recognition. Hand-typed approximations would
+  measure the approximation.
+- Class 2 additionally needs `tool/recall_queries.jsonl` — hand-labelled phrases
+  a user would actually type, each with an `expect` list of file names that would
+  count as correct:
+
+  ```json
+  {"q": "what did I pay for coffee", "expect": ["shot_0001.png"]}
+  ```
+
+  Without it class 2 reports `not supplied`, and it is never inferred from
+  class 1 — the two answer different questions.
+
+**Entry point:** `RecallHarness.runRealRecall(imageDirectory: …)`. It returns
+`null` when the directory does not exist, so the caller skips with a null check.
+
+One caveat on reading the output: the harness seeds into the `screenshots` Hive
+box without clearing it, so `description`, `searchKeywords`, `recognitions` and
+`extractedData` are confirmed empty only on records seeded through
+`addFromBulkIngest` — `processScreenshot` is the other local write path and is
+not exercised. Both are believed to leave those fields empty, but that is a
+review conclusion about code the harness does not run. A legacy Hive row written
+by an older build could legitimately carry them, and a real run against a
+library with pre-existing records may therefore show non-zero contribution from
+those fields. That is the correct reading of the data, not a bug.
+
 ---
 
 ## Phase 1 — Fill the empty field honestly
