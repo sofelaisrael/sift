@@ -46,6 +46,72 @@ class _ProviderOperationRejected implements Exception {
   const _ProviderOperationRejected();
 }
 
+/// One record's score for a query, split into the per-field weights that
+/// produced it. Returned by [ScreenshotProvider.explainScores].
+class SearchScoreExplanation {
+  const SearchScoreExplanation({
+    required this.id,
+    required this.fileName,
+    required this.score,
+    required this.fieldContributions,
+    required this.contributionsSum,
+    required this.contributionsMatchScore,
+  });
+
+  final String id;
+  final String fileName;
+
+  /// The total [ScreenshotProvider.search] ranked this record on. Not
+  /// recomputed: it is the score the ranking used.
+  final int score;
+
+  /// Field name -> the weight units that field earned for this query. A field
+  /// absent from the map earned nothing. A term in both `summary` and `ocrText`
+  /// appears in both, because the index really does score both.
+  final Map<String, int> fieldContributions;
+
+  /// [fieldContributions] summed, so a reader can check it against [score]
+  /// without walking the map.
+  final int contributionsSum;
+
+  /// Whether [contributionsSum] equals [score]. False means the breakdown does
+  /// not account for the whole score -- a write path indexing a field this
+  /// split does not know about, most likely. Report it rather than trusting
+  /// the split.
+  final bool contributionsMatchScore;
+}
+
+/// Everything [ScreenshotProvider.explainScores] knows about one query.
+class SearchExplanation {
+  const SearchExplanation({required this.query, required this.results});
+
+  final String query;
+
+  /// The same records, in the same rank order, as the list
+  /// [ScreenshotProvider.search] returns for [query] at the same limit.
+  final List<SearchScoreExplanation> results;
+
+  /// Whether every result's per-field breakdown adds up to its score. A false
+  /// here means the attribution is incomplete for this query.
+  bool get isConsistent =>
+      results.every((SearchScoreExplanation r) => r.contributionsMatchScore);
+}
+
+/// One field's contribution to the inverted index: the text that goes in, the
+/// weight it carries, and the field's name so a score can be attributed back to
+/// it.
+///
+/// [text] is the raw value, ungated and untrimmed, because
+/// `ScreenshotProvider._addTerms` applies `_searchableText` itself.
+class _IndexedField {
+  const _IndexedField(this.field, this.text, this.weight);
+
+  /// Field name, matching the key the weight table uses.
+  final String field;
+  final String? text;
+  final int weight;
+}
+
 class ScreenshotProvider extends ChangeNotifier {
   static const _uuid = Uuid();
   static const int _bulkNotifyInterval = 25;
@@ -522,6 +588,47 @@ class ScreenshotProvider extends ChangeNotifier {
     }
   }
 
+  /// Every field of [s] that reaches the inverted index, in the order and with
+  /// the text [_indexScreenshot] feeds it. `lamType` is absent on purpose: see
+  /// the weight-table comment above.
+  ///
+  /// This is the single description of what a record contributes.
+  /// [_indexScreenshot] builds the index from it and `explainScores` attributes
+  /// a score back through it, so the attribution cannot credit a field the
+  /// index never received, nor miss one it did.
+  Iterable<_IndexedField> _indexedFields(Screenshot s) sync* {
+    yield _IndexedField('summary', s.summary, _wSummary);
+    yield _IndexedField('description', s.description, _wDescription);
+    yield _IndexedField('fileName', s.fileName, _wFileName);
+    for (final tag in s.tags) {
+      yield _IndexedField('tags', tag, _wTags);
+    }
+    for (final obj in s.objects) {
+      yield _IndexedField('objects', obj, _wObjects);
+    }
+    for (final rec in s.recognitions) {
+      yield _IndexedField('recognitions', rec, _wRecognitions);
+    }
+    for (final kw in s.searchKeywords) {
+      yield _IndexedField('searchKeywords', kw, _wSearchKeywords);
+    }
+    final extracted = s.extractedData;
+    if (extracted != null) {
+      for (final e in extracted.entries) {
+        yield _IndexedField(
+            'extractedData', '${e.key} ${e.value}', _wExtractedData);
+      }
+    }
+    // OCR text gets weight 1 but is capped to avoid bloating the index
+    final ocr = s.ocrText ?? '';
+    if (ocr.isNotEmpty) {
+      yield _IndexedField(
+          'ocrText',
+          ocr.length > _ocrBlobCap ? ocr.substring(0, _ocrBlobCap) : ocr,
+          _wOcr);
+    }
+  }
+
   /// Build the inverted index for a single screenshot.
   void _indexScreenshot(Screenshot s) {
     // Remove old tags from tag index
@@ -532,32 +639,8 @@ class ScreenshotProvider extends ChangeNotifier {
     _removeId(s.id);
 
     // Build fresh inverted index with field weights
-    _addTerms(s.summary, s.id, _wSummary);
-    _addTerms(s.description, s.id, _wDescription);
-    _addTerms(s.fileName, s.id, _wFileName);
-    // lamType is intentionally absent: see the weight-table comment.
-    for (final tag in s.tags) {
-      _addTerms(tag, s.id, _wTags);
-    }
-    for (final obj in s.objects) {
-      _addTerms(obj, s.id, _wObjects);
-    }
-    for (final rec in s.recognitions) {
-      _addTerms(rec, s.id, _wRecognitions);
-    }
-    for (final kw in s.searchKeywords) {
-      _addTerms(kw, s.id, _wSearchKeywords);
-    }
-    if (s.extractedData != null) {
-      for (final e in s.extractedData!.entries) {
-        _addTerms('${e.key} ${e.value}', s.id, _wExtractedData);
-      }
-    }
-    // OCR text gets weight 1 but is capped to avoid bloating the index
-    final ocr = s.ocrText ?? '';
-    if (ocr.isNotEmpty) {
-      _addTerms(ocr.length > _ocrBlobCap ? ocr.substring(0, _ocrBlobCap) : ocr,
-          s.id, _wOcr);
+    for (final _IndexedField field in _indexedFields(s)) {
+      _addTerms(field.text, s.id, field.weight);
     }
 
     // Rebuild tag index
@@ -1115,38 +1198,38 @@ class ScreenshotProvider extends ChangeNotifier {
     }
   }
 
-  /// Local keyword search using inverted index with field weighting.
-  /// Returns most relevant visible screenshots first. O(t × avg_postings)
-  /// instead of O(n × t) for the old linear scan.
-  ///
-  /// A query term matches every indexed term that *starts with* it, so a
-  /// partial word finds its completion. The search box is as-you-type with a
-  /// debounce, so a user is mid-word most of the time and 'bag' returning
-  /// nothing for a screenshot that plainly says "Bagel…" reads as broken
-  /// search. This is query-side only: the index is untouched, so no prefix
-  /// entries are stored and no existing query's score moves. Stemming and
-  /// fuzzy matching are still out — a term in the *middle* of an indexed word
-  /// does not match, and a query for 'ag' does not find 'bagel'.
-  List<Screenshot> search(String query, {int limit = 5}) {
+  /// The terms [search] scores on, or null when the query cannot be searched at
+  /// all. Shared with [explainScores] so both take the same minimum-query gate,
+  /// the same splitter and the same term cap.
+  List<String>? _queryTerms(String query) {
     // Min-query gate: 2 chars for non-CJK, 1 char for CJK (single kanji
     // queries are legitimate).
-    if (query.trim().length < 2 && !_cjk.hasMatch(query)) return [];
+    if (query.trim().length < 2 && !_cjk.hasMatch(query)) return null;
 
     var terms = query
         .toLowerCase()
         .split(_wordSplitter)
         .where((t) => t.isNotEmpty)
         .toList();
-    if (terms.isEmpty) return [];
+    if (terms.isEmpty) return null;
     if (terms.length > _maxQueryTerms) {
       terms = terms.sublist(0, _maxQueryTerms);
     }
+    return terms;
+  }
 
-    // Collect candidate screenshot IDs and sum their weighted scores. A term
-    // can match several indexed words at once ('bag' over 'bag' and 'bagel'),
-    // and a document holding both is scored for both — the exact word carries
-    // its own weight on top of the extension, which is what keeps a literal
-    // hit ahead of a merely-prefixed one.
+  /// Score every record the terms reach and order them the way [search] ranks
+  /// them: highest score first, hidden screenshots dropped, ties left to the
+  /// sort. Both [search] and [explainScores] read this, so an explanation
+  /// cannot describe a different set of results, or a different order, from the
+  /// ranking it is explaining.
+  ///
+  /// A term can match several indexed words at once ('bag' over 'bag' and
+  /// 'bagel'), and a document holding both is scored for both — the exact word
+  /// carries its own weight on top of the extension, which is what keeps a
+  /// literal hit ahead of a merely-prefixed one.
+  List<({Screenshot screenshot, int score})> _ranked(List<String> terms) {
+    // Collect candidate screenshot IDs and sum their weighted scores.
     final scores = <String, int>{};
     for (final term in terms) {
       for (final posting in _invertedIndex.entries) {
@@ -1158,7 +1241,7 @@ class ScreenshotProvider extends ChangeNotifier {
       }
     }
 
-    if (scores.isEmpty) return [];
+    if (scores.isEmpty) return const [];
 
     // Build scored list, filtering hidden screenshots.
     final scored = <({Screenshot screenshot, int score})>[];
@@ -1172,7 +1255,95 @@ class ScreenshotProvider extends ChangeNotifier {
     }
 
     scored.sort((a, b) => b.score.compareTo(a.score));
-    return scored.take(limit).map((e) => e.screenshot).toList();
+    return scored;
+  }
+
+  /// Local keyword search using inverted index with field weighting.
+  /// Returns most relevant visible screenshots first. O(t × avg_postings)
+  /// instead of O(n × t) for the old linear scan.
+  ///
+  /// A query term matches every indexed term that *starts with* it, so a
+  /// partial word finds its completion. The search box is as-you-type with a
+  /// debounce, so a user is mid-word most of the time and 'bag' returning
+  /// nothing for a screenshot that plainly says "Bagel…" reads as broken
+  /// search. This is query-side only: the index is untouched, so no prefix
+  /// entries are stored and no existing query's score moves. Stemming and
+  /// fuzzy matching are still out — a term in the *middle* of an indexed word
+  /// does not match, and a query for 'ag' does not find 'bagel'.
+  List<Screenshot> search(String query, {int limit = 5}) {
+    final terms = _queryTerms(query);
+    if (terms == null) return [];
+    return _ranked(terms).take(limit).map((e) => e.screenshot).toList();
+  }
+
+  /// The same records [search] returns for [query], in the same rank order, each
+  /// carrying the score it was ranked on and a breakdown of which field earned
+  /// each part of that score. Additive and read-only.
+  ///
+  /// The totals here are not a re-computation: they come out of the same
+  /// [_ranked] call [search] ranks on, so `score` here is literally the score
+  /// that produced the rank. Calling this changes nothing — the index is not
+  /// touched, no field is reindexed, and [search] returns exactly what it
+  /// returned before.
+  ///
+  /// The per-field weights are derived back through [_indexedFields] — the same
+  /// description of the index that [_indexScreenshot] builds from — using the
+  /// same weights, the same tokenizer and the same [_searchableText] gate. That
+  /// makes the breakdown a *decomposition* of the score rather than a second
+  /// scorer, and it is checked rather than trusted:
+  /// [SearchScoreExplanation.contributionsMatchScore] is false whenever the
+  /// parts do not add up to the total, which is what a future write path that
+  /// indexes a field this split does not know about would look like. Read the
+  /// flag instead of assuming the split is complete.
+  SearchExplanation explainScores(String query, {int limit = 5}) {
+    final terms = _queryTerms(query);
+    if (terms == null) {
+      return SearchExplanation(query: query, results: const []);
+    }
+    return SearchExplanation(
+      query: query,
+      results: [
+        for (final ({Screenshot screenshot, int score}) e
+            in _ranked(terms).take(limit))
+          _explain(e.screenshot, terms, e.score),
+      ],
+    );
+  }
+
+  /// Split one record's score into the per-field weights that produced it.
+  ///
+  /// A term matches a field's word when the *word* starts with the term, which
+  /// is the same rule [_ranked] applies to the index key — and a word reached by
+  /// two terms is credited twice, because [_ranked] visits its posting once per
+  /// term. The result therefore reproduces the indexed score for [terms] field
+  /// by field rather than approximating it.
+  SearchScoreExplanation _explain(Screenshot s, List<String> terms, int score) {
+    final byField = <String, int>{};
+    for (final _IndexedField field in _indexedFields(s)) {
+      final searchable = _searchableText(field.text);
+      if (searchable == null) continue;
+      final words = _tokenize(searchable).toSet();
+      var earned = 0;
+      for (final term in terms) {
+        for (final word in words) {
+          if (word.startsWith(term)) {
+            earned += field.weight;
+          }
+        }
+      }
+      if (earned > 0) {
+        byField[field.field] = (byField[field.field] ?? 0) + earned;
+      }
+    }
+    final total = byField.values.fold(0, (a, b) => a + b);
+    return SearchScoreExplanation(
+      id: s.id,
+      fileName: s.fileName,
+      score: score,
+      fieldContributions: byField,
+      contributionsSum: total,
+      contributionsMatchScore: total == score,
+    );
   }
 
   Future<void> deleteScreenshot(String id) async {
