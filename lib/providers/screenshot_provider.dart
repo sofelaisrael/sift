@@ -200,9 +200,8 @@ class ScreenshotProvider extends ChangeNotifier {
 
   // Inverted index: word → {screenshotId: fieldWeightScore}
   // Built at load time and updated incrementally on add/delete.
-  // Every indexed field, with its weight: summary 5, searchKeywords 4,
-  // description 4, tags 3, objects 2, recognitions 2, ocrText 1, fileName 1,
-  // extractedData 1.
+  // Every indexed field, with its weight: summary 5, searchKeywords 4, tags 3,
+  // objects 2, recognitions 2, ocrText 1, fileName 1, extractedData 1.
   //
   // A weight is a per-field score, not a per-occurrence multiplier: a term
   // contributes its field's weight once however many times the term recurs
@@ -213,11 +212,17 @@ class ScreenshotProvider extends ChangeNotifier {
   // finds 'bagel'. That is query-side only: nothing extra is written to the
   // index, and a mid-word substring still does not match. See [search].
   //
-  // Unpopulated by the local analyzer: searchKeywords, description,
-  // recognitions and extractedData are written as null/[] on every record, so
-  // their 11 weight units never fire. tags is empty until the user adds one.
-  // ocrText is null when the image has no readable text. summary is the first
-  // 80 characters of ocrText, so its 5 units re-weight the same tokens.
+  // Unpopulated by the local analyzer: searchKeywords, recognitions and
+  // extractedData are written as []/null on every record, so their 7 weight
+  // units never fire. tags is empty until the user adds one. ocrText is null
+  // when the image has no readable text. summary is the first 80 characters of
+  // ocrText, so its 5 units re-weight the same tokens.
+  //
+  // description is record-and-prompt-only: stored on the record, rendered into
+  // the model prompt, and indexed nowhere. It is built from `objects` plus
+  // framing words that are themselves unreachable, so it carries nothing
+  // `objects` does not already carry, and indexing it would count the same
+  // label tokens twice. See [_deriveDescription].
   //
   // lamType is deliberately NOT indexed: the local paths store the constant
   // 'document' on every record, so it can never discriminate between results.
@@ -226,7 +231,6 @@ class ScreenshotProvider extends ChangeNotifier {
   // The weight values are not tuned. They are unmeasured, and recalibrating
   // them is a separate, measurement-driven task; only remove the dead entries.
   static const int _wSummary = 5;
-  static const int _wDescription = 4;
   static const int _wTags = 3;
   static const int _wObjects = 2;
   static const int _wRecognitions = 2;
@@ -420,10 +424,11 @@ class ScreenshotProvider extends ChangeNotifier {
       final analysis = await _analyzer.analyze(imagePath);
       if (_deletionInProgress) return false;
       final ocrText = analysis.ocrText.trim();
-      final firstLine = ocrText.split('\n').firstWhere(
-            (line) => line.trim().isNotEmpty,
-            orElse: () => '',
-          );
+      // Both derived values are computed here and handed to the record, rather
+      // than derived inside the constructor, so the description can be given the
+      // exact summary it must not repeat. One call site each: the derivations
+      // themselves are shared, see [_deriveSummary] and [_deriveDescription].
+      final labels = _mergeObjects(analysis.objects);
       final screenshot = Screenshot(
         id: _uuid.v4(),
         fileName: imagePath.split('/').last,
@@ -431,15 +436,9 @@ class ScreenshotProvider extends ChangeNotifier {
         timestamp: DateTime.now(),
         ocrText: ocrText.isEmpty ? null : ocrText,
         lamType: 'document',
-        summary: ocrText.isEmpty
-            ? _noTextSummary
-            : (firstLine.isNotEmpty
-                ? (firstLine.length > 80
-                    ? firstLine.substring(0, 80)
-                    : firstLine)
-                : (ocrText.length > 80 ? ocrText.substring(0, 80) : ocrText)),
-        description: null,
-        objects: _mergeObjects(analysis.objects),
+        summary: _deriveSummary(ocrText),
+        description: _deriveDescription(objects: labels),
+        objects: labels,
         recognitions: const [],
         actionType: null,
         actionCompleted: false,
@@ -598,7 +597,6 @@ class ScreenshotProvider extends ChangeNotifier {
   /// index never received, nor miss one it did.
   Iterable<_IndexedField> _indexedFields(Screenshot s) sync* {
     yield _IndexedField('summary', s.summary, _wSummary);
-    yield _IndexedField('description', s.description, _wDescription);
     yield _IndexedField('fileName', s.fileName, _wFileName);
     for (final tag in s.tags) {
       yield _IndexedField('tags', tag, _wTags);
@@ -702,10 +700,10 @@ class ScreenshotProvider extends ChangeNotifier {
   }) async {
     if (_deletionInProgress || _byPath.containsKey(path)) return null;
     final ocr = ocrText.trim();
-    final firstLine = ocr.split('\n').firstWhere(
-          (line) => line.trim().isNotEmpty,
-          orElse: () => '',
-        );
+    // The same two derivations the single-image path uses, from the same two
+    // helpers. A record ingested in bulk and a record analyzed one at a time
+    // must not be describable in two different ways.
+    final labels = _mergeObjects(objects);
     final screenshot = Screenshot(
       id: _uuid.v4(),
       fileName: path.split('/').last,
@@ -713,13 +711,9 @@ class ScreenshotProvider extends ChangeNotifier {
       timestamp: capturedAt,
       ocrText: ocr.isEmpty ? null : ocr,
       lamType: 'document',
-      summary: ocr.isEmpty
-          ? _noTextSummary
-          : (firstLine.isNotEmpty
-              ? (firstLine.length > 80 ? firstLine.substring(0, 80) : firstLine)
-              : (ocr.length > 80 ? ocr.substring(0, 80) : ocr)),
-      description: null,
-      objects: _mergeObjects(objects),
+      summary: _deriveSummary(ocr),
+      description: _deriveDescription(objects: labels),
+      objects: labels,
       recognitions: const [],
       actionType: null,
       actionCompleted: false,
@@ -765,6 +759,106 @@ class ScreenshotProvider extends ChangeNotifier {
     }
     return out;
   }
+
+  /// The display summary for a locally written record: the first non-empty OCR
+  /// line, capped at [_summaryChars] characters, or [_noTextSummary] when the
+  /// image has no readable text at all.
+  ///
+  /// Extracted, with the logic untouched, so both local write paths derive it in
+  /// one place. Duplicating it in a second call site is what let the two write
+  /// paths drift on everything else too, and this is the value a record is
+  /// displayed by everywhere from here on.
+  static String _deriveSummary(String ocrText) {
+    if (ocrText.isEmpty) return _noTextSummary;
+    final firstLine = ocrText.split('\n').firstWhere(
+          (line) => line.trim().isNotEmpty,
+          orElse: () => '',
+        );
+    final source = firstLine.isNotEmpty ? firstLine : ocrText;
+    return source.length > _summaryChars
+        ? source.substring(0, _summaryChars)
+        : source;
+  }
+
+  static const int _summaryChars = 80;
+
+  /// How many visual labels a description names.
+  ///
+  /// Three is where a description stops being a description and becomes a dump.
+  /// Nothing is lost by the cap: the full label list is indexed field by field at
+  /// [_wObjects] and is already rendered in its own line of the model prompt, so
+  /// a description that listed all twelve would add reading, not meaning.
+  static const int _maxDescriptionLabels = 3;
+
+  /// The one-sentence description both local write paths store.
+  ///
+  /// Derived, never generated: no model, no network, no inference. Everything it
+  /// says was already computed at index time, so the same record yields the same
+  /// string on every device and no fact reaches the prompt that the index does
+  /// not already hold.
+  ///
+  /// Why the field was worth filling: `ChatEngine.buildContextText` renders it
+  /// into the prompt the on-device model receives — and on every record it was
+  /// null. So the prompt handed the model `Summary:` (the first 80 characters of
+  /// the OCR) immediately followed by `Text:` beginning with those same 80
+  /// characters. Duplicated tokens, zero semantics.
+  ///
+  /// **What it deliberately does not do: quote the OCR.** An earlier draft
+  /// appended the text past `summary`, and it read well — and it was wrong, for
+  /// a reason the recall harness had already measured about `summary`: a field
+  /// that restates words another field already holds takes weight units in
+  /// proportion to how much it repeats. Quoting the tail turned a second-line
+  /// term into 4 + 1 = 5 points where it had earned 1, and the three tests that
+  /// pin "this term is only in `ocrText`" all failed at once. That is the
+  /// duplicate-OCR defect being fixed, rebuilt one field over.
+  ///
+  /// So it says only what the OCR cannot: what the picture *is*, from the ML Kit
+  /// labels. Those are indexed already, at [_wObjects]. The field itself is
+  /// indexed nowhere: a caption naming three of a record's twelve labels carries
+  /// nothing `objects` does not, so weighting it would count those label tokens a
+  /// second time — the same duplicate-field inflation `summary` was cleared of,
+  /// one field over. It earns its place by being in the prompt, not in the index.
+  ///
+  /// Returns null when there are no labels. That is a clean empty rather than a
+  /// filler sentence: a record with no labels is one whose only content is text,
+  /// and `summary` at 5 plus `ocrText` at 1 already cover every token in it. A
+  /// description here could only restate them.
+  static String? _deriveDescription({required List<String> objects}) {
+    final labels = _labelPhrase(objects);
+    if (labels == null) return null;
+    return 'Looks like $labels.';
+  }
+
+  /// "a receipt and food" from the visual labels.
+  ///
+  /// ML Kit returns single lowercase labels such as `receipt` or
+  /// `bicycle helmet`, so they read as a noun phrase once an article is in
+  /// front. Lowercased here because the sentence puts them mid-clause, and
+  /// de-duplicated by the caller's `_mergeObjects` rather than again here.
+  ///
+  /// The article is also index noise, and deliberately so little of it: `a` is
+  /// unreachable by any query (the minimum-query gate rejects a one-character
+  /// term, and prefix matching only ever widens a term, never a posting), so
+  /// the indefinite article costs the index nothing.
+  static String? _labelPhrase(List<String> objects) {
+    final words = <String>[
+      for (final o in objects)
+        if (o.trim().isNotEmpty) o.trim().toLowerCase(),
+    ].take(_maxDescriptionLabels).toList();
+    if (words.isEmpty) return null;
+    final joined = words.length == 1
+        ? words.single
+        : '${words.sublist(0, words.length - 1).join(', ')} and ${words.last}';
+    return '${_indefiniteArticle(words.first)} $joined';
+  }
+
+  /// "a" or "an", from the first letter.
+  ///
+  /// Approximate on purpose. It is only ever read inside one sentence built from
+  /// ML Kit's own labels, and an article chosen wrong there is not worth a
+  /// pronunciation table or an exception list.
+  static String _indefiniteArticle(String word) =>
+      'aeiou'.contains(word[0].toLowerCase()) ? 'an' : 'a';
 
   Future<Directory> _defaultImportDirectory() async {
     final documents = _documentsDirectoryLoader != null
@@ -1198,24 +1292,154 @@ class ScreenshotProvider extends ChangeNotifier {
     }
   }
 
+  /// English words dropped from a query before it is scored on.
+  ///
+  /// This is a short list of *function* words, not a language model's stop-word
+  /// list. Every entry is here because it breaks retrieval in this index, in a
+  /// way that can be named; anything that could plausibly be the content a user
+  /// typed is left out on purpose.
+  ///
+  /// Two separate things break, and both are visible in one plain question —
+  /// "can you please show me my food screenshots from last week":
+  ///
+  ///  * **The term cap.** [_maxQueryTerms] keeps the *first* six words, so an
+  ///    eleven-word question was scored on `can you please show me my` and
+  ///    `food` and `screenshots` were discarded before the index was ever read.
+  ///    Filtering first is what lets the content words reach it.
+  ///  * **Prefix matching.** A term matches every indexed word that *starts*
+  ///    with it (see [search]), so a function word reaches records that never
+  ///    contained anything the user asked for. `me` -> `menu` is the measured
+  ///    one; `in` -> `invoice`, `an` -> `android`, `at` -> `atm` and
+  ///    `be` -> `berlin` are the same accident. Those hits carry a real weight,
+  ///    so they can outrank the screenshot the user actually meant.
+  ///
+  /// Grouped by what each group breaks:
+  ///
+  ///  * **Articles.** `a` reaches every word starting with a, `an` reaches
+  ///    `android`/`answer`, `the` reaches `theme`/`their`. No discriminative
+  ///    power at all, only dilution.
+  ///  * **Pronouns, possessives, demonstratives, question words.** They name
+  ///    the asker, not the thing: `i`, `me`, `my`, `you`, `it`, `this`, `what`,
+  ///    `which`. `me` -> `menu` is the false positive this list exists for.
+  ///  * **Prepositions, including the time words questions lean on.** "from
+  ///    last week" is grammar around the content; the content is `week`. `on` ->
+  ///    `onion`, `in` -> `invoice` and `to` -> `total` are `me` -> `menu`
+  ///    again. `last`/`next`/`past` go because they are prepositions in "last
+  ///    week" but would otherwise reach `laptop` and `lunch`.
+  ///  * **Conjunctions.** `or` -> `orange`/`order` and `so` -> `social`/`software`
+  ///    are real hits on the wrong screenshot; `and`, `but`, `if`, `than`,
+  ///    `because` name no content either.
+  ///  * **Auxiliaries, copula and modals.** `is`, `was`, `do`, `have`, `can`,
+  ///    `could`, `would` carry the question, never its subject: `can` ->
+  ///    `cancelled`/`candy`, `is` -> `istanbul`.
+  ///  * **Asking-verbs and fillers.** `please`, `show`, `find`, `give`, `tell`,
+  ///    `help`, `hey`, `thanks`. The instruction to the app, not the query —
+  ///    and because every question opens with them, they are also the words
+  ///    most likely to be what the term cap keeps.
+  ///  * **Sift's own nouns, singular.** `screenshot`, `image`, `picture`,
+  ///    `photo`, `pic`, `shot`, `phone`, `gallery`. Naming the medium is not
+  ///    naming the content, and the singular `screenshot` is the worst term in
+  ///    the set: `addFromBulkIngest` derives `fileName` as
+  ///    `Screenshot_<timestamp>.png`, so that one word is in the index on
+  ///    *every* record, at [_wFileName]. It cannot separate two screenshots
+  ///    from each other while still costing a cap slot.
+  ///
+  ///    Only the singular is dropped, and that is the whole justification: no
+  ///    production file name is ever `Screenshots_…`, so the plurals are not
+  ///    the non-discriminative term. Keeping `screenshots` also keeps the word
+  ///    of the worked example alive — "food screenshots" is a person naming a
+  ///    subject and a medium, and `food` is the half that carries the content.
+  ///
+  /// Matched case-insensitively by being compared against the already-lowercased
+  /// term: OCR and typed input disagree about case and the index is lowercase,
+  /// so a case-sensitive set would miss the very words it lists. Consulted only
+  /// for a non-CJK query — see [_queryTerms].
+  static const Set<String> _queryStopWords = <String>{
+    // Articles.
+    'a', 'an', 'the',
+    // Pronouns, possessives, demonstratives, question words.
+    'i', 'me', 'my', 'we', 'us', 'our', 'you', 'your',
+    'he', 'him', 'his', 'she', 'her', 'it', 'its',
+    'they', 'them', 'their', 'this', 'that', 'these', 'those',
+    'there', 'who', 'which', 'what',
+    // Prepositions, including the time words questions lean on.
+    'of', 'in', 'on', 'at', 'to', 'for', 'with', 'from', 'by', 'about',
+    'into', 'up', 'out', 'over', 'under', 'after', 'before', 'between',
+    'during', 'near', 'through', 'against', 'last', 'next', 'past',
+    // Conjunctions.
+    'and', 'or', 'but', 'if', 'then', 'than', 'so', 'because', 'as',
+    // Auxiliaries, copula, modals.
+    'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'do', 'does', 'did', 'have', 'has', 'had',
+    'can', 'could', 'will', 'would', 'shall', 'should', 'may', 'might',
+    'must',
+    // Asking-verbs and fillers.
+    'please', 'show', 'find', 'give', 'tell', 'help', 'see', 'want', 'need',
+    'let', 'thanks', 'thank', 'hey', 'hi', 'hello',
+    // Sift's own nouns, singular only: see the doc comment for why the
+    // plurals stay searchable.
+    'screenshot', 'image', 'picture', 'photo', 'pic', 'shot', 'phone',
+    'gallery',
+  };
+
   /// The terms [search] scores on, or null when the query cannot be searched at
   /// all. Shared with [explainScores] so both take the same minimum-query gate,
-  /// the same splitter and the same term cap.
+  /// the same splitter, the same stop-word filter and the same term cap.
   List<String>? _queryTerms(String query) {
     // Min-query gate: 2 chars for non-CJK, 1 char for CJK (single kanji
-    // queries are legitimate).
+    // queries are legitimate). Unchanged: it runs before anything else and the
+    // filter below never sees a query it rejected.
     if (query.trim().length < 2 && !_cjk.hasMatch(query)) return null;
 
-    var terms = query
+    final raw = query
         .toLowerCase()
         .split(_wordSplitter)
         .where((t) => t.isNotEmpty)
         .toList();
-    if (terms.isEmpty) return null;
-    if (terms.length > _maxQueryTerms) {
-      terms = terms.sublist(0, _maxQueryTerms);
+    if (raw.isEmpty) return null;
+
+    // Drop one-character terms before anything else scores them. The splitter
+    // breaks on the apostrophe, so "week's" tokenises to ['week', 's']; `s` is
+    // not a stop word, and prefix matching turns it into a query for every
+    // indexed word that begins with `s`. In "what's in my shopping list" that is
+    // three of six terms spent on one letter.
+    //
+    // One character is kept when it is CJK, because a single kanji is a word:
+    // the gate above already admits a one-character CJK query for the same
+    // reason, so rejecting the term here would leave such a query admitted and
+    // then unsearchable.
+    final terms = raw.where((t) => t.length > 1 || _cjk.hasMatch(t)).toList();
+
+    // Drop the function words BEFORE the cap, not after. Capping first throws
+    // away the content of any question longer than [_maxQueryTerms] words: the
+    // cap takes the first six, so "can you please show me my food screenshots"
+    // was scored on `can you please show me my` and never reached `food`. See
+    // [_queryStopWords] for what each dropped group breaks.
+    //
+    // CJK takes the original list untouched. There are no whitespace-delimited
+    // words to recognise — the splitter hands back whole runs, so '咖啡店的菜单'
+    // is one term, not four — and a set of English function words could only
+    // remove real content there. The guard makes that path byte-identical
+    // instead of relying on the set happening to contain no CJK.
+    final filtered = _cjk.hasMatch(query)
+        ? terms
+        : terms.where((t) => !_queryStopWords.contains(t)).toList();
+
+    // A query made of nothing but stop words — "screenshot", "show me" — would
+    // filter down to an empty list and therefore match nothing at all, which a
+    // user cannot tell from "you have no such screenshot". Fall back to the
+    // unfiltered terms so those keep searching exactly as they did before.
+    // Falling back to [raw] rather than to [terms] also restores the one-character
+    // terms for a query that is nothing but one-character terms, so that query
+    // still searches rather than going quiet.
+    final kept = filtered.isEmpty ? raw : filtered;
+
+    // The cap is unchanged, and it is applied to the filtered list, so it only
+    // bites on a query with more than six *content* words.
+    if (kept.length > _maxQueryTerms) {
+      return kept.sublist(0, _maxQueryTerms);
     }
-    return terms;
+    return kept;
   }
 
   /// Score every record the terms reach and order them the way [search] ranks
