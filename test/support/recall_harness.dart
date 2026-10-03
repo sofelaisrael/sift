@@ -47,14 +47,19 @@ import 'package:screensort_lam/services/ocr_service.dart';
 //   * `fileName` -- real but thin. A screenshot's name is mostly a timestamp, so
 //     most of its tokens are either non-discriminative (the date half of every
 //     name) or already in the OCR or the labels.
-//   * `searchKeywords`, `description`, `recognitions`, `extractedData` -- never
-//     populated by the local analyzer, so their 11 weight units never fire.
+//   * `description` -- derived from the visual labels and indexed nowhere. It
+//     restates `objects`, so probing it would probe the same label twice, and
+//     since the index does not read it at all it is not a weighted field and
+//     cannot appear in `zeroContributionFields` either. It moves between the two
+//     lists rather than out of both.
+//   * `searchKeywords`, `recognitions`, `extractedData` -- never
+//     populated by the local analyzer, so their 7 weight units never fire.
 //     Probing them would measure an empty field. [RecallFieldPolicy] checks them
 //     against the records this run seeded, and that check is narrower than it
 //     looks: seeding goes through `addFromBulkIngest` only, so what is confirmed
 //     is "empty on the records seeded through `addFromBulkIngest`".
 //     `processScreenshot` is the other local write path and is NOT exercised
-//     here. Both are believed to leave these four fields empty, but that is a
+//     here. Both are believed to leave these three fields empty, but that is a
 //     review conclusion about code the harness does not run, not a measurement.
 //     See the note on `zeroContributionFields` for the one way a real run can
 //     legitimately show them firing.
@@ -266,7 +271,6 @@ const int recallOcrBlobCap = 2000;
 /// Per-(term, field) weights, the values the indexer currently uses.
 /// Unmeasured constants -- this harness records them, it does not change them.
 const Map<String, int> declaredIndexWeights = <String, int>{
-  'description': 4,
   'extractedData': 1,
   'fileName': 1,
   'objects': 2,
@@ -282,14 +286,14 @@ const Map<String, int> declaredIndexWeights = <String, int>{
 const Map<String, String> declaredTokenizerConfig = <String, String>{
   'cjkRange': r'4e00-9fff',
   'displayOnlyValues': 'no text found',
-  'indexedFields': 'summary description tags objects fileName ocrText',
+  'indexedFields': 'summary tags objects fileName ocrText',
   'lowercased': 'true',
   'matchMode': 'query-is-prefix-of-indexed-term',
   'maxQueryTerms': '6',
   'maxWordLength': '64',
   'minQueryChars': '2',
   'minQueryCharsCjk': '1',
-  'notIndexedFields': 'lamType',
+  'notIndexedFields': 'lamType description',
   'ocrBlobCap': '2000',
   'splitter': r'[^A-Za-z0-9\u4e00-\u9fff]+',
   'weightRule': 'once-per-term-per-field',
@@ -609,7 +613,9 @@ class RecallFieldPolicy {
   /// older build could legitimately carry these fields -- which is the one way a
   /// real-corpus run shows them contributing.
   static const Map<String, String> skippedFields = <String, String>{
-    'description': 'null on every record seeded through addFromBulkIngest',
+    'description': 'derived from the visual labels, and indexed nowhere: a word '
+        'it holds is already in `objects`, so probing it would probe the same '
+        'label twice',
     'extractedData': 'null on every record seeded through addFromBulkIngest',
     'fileName': 'indexed, but mostly a timestamp; its distinctive tokens are '
         'already in the OCR or the labels',
@@ -625,8 +631,12 @@ class RecallFieldPolicy {
   final List<String> probed;
   final Map<String, String> skipped;
 
-  /// Checked against the records this run seeded: every `description` null,
-  /// every `searchKeywords` / `recognitions` empty, every `extractedData` null.
+  /// Checked against the records this run seeded: every `searchKeywords` /
+  /// `recognitions` empty, every `extractedData` null. `description` is
+  /// deliberately not part of it — it is derived from the visual labels, so a
+  /// seeded record with labels carries one and the flag would read false on every
+  /// corpus. It is still refused as a probe source in [skippedFields], for being
+  /// a duplicate of `objects` rather than for being empty.
   ///
   /// Read it as "confirmed empty on the records seeded through
   /// `addFromBulkIngest`", which is all it can see. `processScreenshot` is the
@@ -676,7 +686,7 @@ enum RecallQueryClass {
 ///
 /// The score and the order come from
 /// `ScreenshotProvider.explainScores`, which shares its scoring path with
-/// `search()` — so [score] is the score that produced [rank], not a
+/// `search()` ΓÇö so [score] is the score that produced [rank], not a
 /// reconstruction of it. The split is a decomposition of that score, and
 /// [contributionsMatchScore] says whether it adds up; the harness counts the
 /// misses and reports them rather than printing a breakdown it cannot vouch for.
@@ -749,10 +759,10 @@ class RecallAttributedResult {
 /// Three views, because they answer three different questions and only one of
 /// them is the headline:
 ///
-///   * **top-10 slots** — every result that ranked 1..10 for a query. What the
+///   * **top-10 slots** ΓÇö every result that ranked 1..10 for a query. What the
 ///     ranking was made of.
-///   * **rank-1 slots** — the same for first place alone.
-///   * **expectations in the top 10** — only the records the observation was
+///   * **rank-1 slots** ΓÇö the same for first place alone.
+///   * **expectations in the top 10** ΓÇö only the records the observation was
 ///     looking for, when they landed in the top 10. What the *right answers*
 ///     were made of, which is the narrower and more damning number.
 ///
@@ -795,7 +805,7 @@ class RecallFieldAttribution {
 
   final Set<String> queries = <String>{};
 
-  /// Result rows read, at every rank — not just the top 10.
+  /// Result rows read, at every rank ΓÇö not just the top 10.
   int results = 0;
 
   /// Result rows that ranked 1..10 for their query.
@@ -848,13 +858,16 @@ class RecallFieldAttribution {
   /// is a real answer and not an artefact of the observation set. A field here
   /// holds weight units that have never decided a rank.
   ///
-  /// A non-empty list is NOT automatically a bug. `description`, `searchKeywords`,
+  /// A non-empty list is NOT automatically a bug. `searchKeywords`,
   /// `recognitions` and `extractedData` are empty on records seeded through
   /// `addFromBulkIngest`, which is the only write path this harness exercises --
   /// but `_seedCorpus` does not clear the box, so a run against a library with
   /// pre-existing records can legitimately see those legacy Hive rows credit
   /// these fields, and non-zero contribution is then the CORRECT reading of the
-  /// data in front of it.
+  /// data in front of it. A field the index never received cannot appear here at
+  /// all: the list is enumerated from [recallIndexedFieldNames], so `description`
+  /// is absent rather than dead, which is the distinction that keeps the list
+  /// meaningful.
   List<String> get zeroContributionFields => recallIndexedFieldNames
       .where((String f) => (top10SlotsByField[f] ?? 0) == 0)
       .toList();
@@ -1183,8 +1196,8 @@ class RecallReport {
 ///
 /// The box is not cleared first, so a caller that opens a box already holding a
 /// real library measures that library plus the seeded corpus. This matters for
-/// one report field in particular: `description`, `searchKeywords`,
-/// `recognitions` and `extractedData` are empty on everything seeded through
+/// one report field in particular: `searchKeywords`, `recognitions` and
+/// `extractedData` are empty on everything seeded through
 /// `addFromBulkIngest`, but a legacy Hive row written by an older build may
 /// carry them. A run over such a library can legitimately report non-zero
 /// contribution from those fields, and that is CORRECT behaviour, not a bug --
@@ -1564,7 +1577,12 @@ class RecallHarness {
     final Map<String, String> storedSummary = <String, String>{};
 
     for (final Screenshot s in provider.screenshots) {
-      if (s.description != null || s.searchKeywords.isNotEmpty) {
+      // `description` is not checked: it is derived from the visual labels, so a
+      // seeded record that carries labels carries one, and including it here
+      // would make this flag read false on every corpus that has labels at all.
+      // It is still refused as a probe source, for being a duplicate of
+      // `objects` rather than for being empty.
+      if (s.searchKeywords.isNotEmpty) {
         neverPopulated = false;
       }
       if (s.recognitions.isNotEmpty || s.extractedData != null) {
@@ -1940,9 +1958,19 @@ class RecallHarness {
     RecallFieldPolicy.skippedFields.forEach((String field, String why) {
       line('  skipped   $field -- $why');
     });
-    line('  confirmed description/searchKeywords/recognitions/extractedData '
+    line('  confirmed searchKeywords/recognitions/extractedData '
         'empty on the addFromBulkIngest-seeded records: '
         '${fieldPolicy.neverPopulatedConfirmed}');
+    line('  confirmed description is NOT in that list of three: it is '
+        'derived from the visual labels,');
+    line('    so a seeded record with labels carries one and the check would '
+        'read false on every corpus.');
+    line(
+        '    It is still refused as a probe source -- for being a duplicate of '
+        '`objects`, not for being');
+    line(
+        '    empty -- and it is indexed nowhere, so it earns nothing in search '
+        'either way.');
     line(
         '    ^ scoped to that write path. processScreenshot is the other local '
         'write path and is NOT');

@@ -245,12 +245,31 @@ void main() {
       final _Run r = await runFixture();
       expect(r.report.fieldPolicy.neverPopulatedConfirmed, isTrue);
 
+      // `description` is not in this group any more: it is derived from the
+      // visual labels by both local write paths, so a seeded record with labels
+      // carries one and the flag would read false on every corpus. It is still
+      // refused as a probe source -- for being a duplicate of `objects`, not for
+      // being empty -- so the field moves between the two lists, not out of both.
+      expect(
+        r.report.fieldPolicy.skipped['description'],
+        contains('derived from the visual labels'),
+      );
+      expect(
+        r.report.fieldPolicy.skipped['description'],
+        isNot(contains('addFromBulkIngest')),
+        reason: 'description is populated now, so an "empty on the seeded '
+            'records" reason would be a false statement about it',
+      );
+      expect(r.text, contains('description is NOT in that list'));
+      expect(r.text, contains('it is indexed nowhere, so it earns nothing'),
+          reason: 'the printed report has to state the new truth in words, not '
+              'only drop the field from the tables');
+
       // The flag only measures records seeded through addFromBulkIngest, so the
       // report has to say that rather than claiming a property of the app. A
       // reason that reads "on every locally written record" is a claim about
       // processScreenshot too, and the harness never calls it.
       for (final String field in <String>[
-        'description',
         'extractedData',
         'recognitions',
         'searchKeywords',
@@ -641,11 +660,19 @@ void main() {
                 '"zero contribution" is measuring nothing');
         expect(a.top10SlotsByField[f], anyOf(isNull, 0));
       }
-      expect(zero, contains('description'),
-          reason: 'the local write path never fills `description`, so it '
-              'cannot have decided a single top-10 rank. If this ever goes '
-              'green, a write path changed and the declared weight table is '
-              'stale.');
+      // `description` is not in the declared table at all: it restates `objects`,
+      // so indexing it would count the same label tokens twice. That makes it a
+      // field the index never received, not a weighted field that failed to fire
+      // — and the distinction is what makes this list mean anything. It must not
+      // show up in the denominator at all, and no observation may credit it.
+      expect(zero, isNot(contains('description')));
+      expect(declaredIndexWeights.containsKey('description'), isFalse,
+          reason: 'a prompt-only field has no weight to be dead');
+      expect(a.fieldsSeen, isNot(contains('description')),
+          reason: 'not one top-10 slot may be attributed to a field the index '
+              'never read');
+      expect(a.top10SlotsByField['description'], anyOf(isNull, 0));
+      expect(a.top10UnitsByField['description'], anyOf(isNull, 0));
       expect(zero, contains('searchKeywords'));
       expect(zero, contains('recognitions'));
       expect(zero, contains('extractedData'));
