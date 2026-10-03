@@ -6,6 +6,58 @@ import 'lam_service.dart';
 import 'local_chat_model.dart';
 import 'web_lookup.dart';
 
+/// Who wrote a [ChatReply]'s content.
+///
+/// This exists because a bool could not carry the fact. Local-only chat ends in
+/// [ChatEngine.buildLocalReply] on seven different paths and in the on-device
+/// model's own words on an eighth, and every one of them produces the same
+/// shape of answer with the same evidence thumbnails underneath. That is why a
+/// user who downloaded the model could report "same results as if I hadn't" and
+/// be right: nothing on screen could tell them apart either.
+///
+/// One case per real branch of [ChatEngine._localReply], and
+/// [ChatReply.source] has no default, so a branch that forgets to name one does
+/// not compile. The widget layer switches over the whole enum, so adding a case
+/// is a compile error there too.
+enum ChatAnswerSource {
+  /// A cloud provider wrote this. Provenance is not in doubt on that path -- the
+  /// user chose the provider and was asked for consent -- so the widget layer
+  /// says nothing extra about it.
+  cloudAnswer,
+
+  /// No cloud answer: the saved provider is not supported, or consent was
+  /// refused. Neither from a model nor from the index.
+  cloudUnavailable,
+
+  /// The on-device model wrote this, from the screenshot context it was given.
+  onDeviceModel,
+
+  /// Nothing matched, so nothing was asked. The model is never probed with no
+  /// context: it would spend a load on a question there is no evidence for.
+  noResults,
+
+  /// No on-device model is wired here: never downloaded, or no model service at
+  /// all.
+  noModel,
+
+  /// A model is on this device but the engine is not in memory, and the load
+  /// did not fail. Answered from the index with a model sitting right there,
+  /// which is the case most worth being honest about.
+  modelNotReady,
+
+  /// The engine could not be created on this device. [ChatReply.loadFailure]
+  /// carries the model's own fixed copy saying why.
+  modelLoadFailed,
+
+  /// The model threw while answering. The engine swallows that so a model
+  /// failure can never become a chat error, which also means nothing about it
+  /// reaches the user unless it is said here.
+  modelFailed,
+
+  /// The model answered with nothing usable.
+  modelEmpty,
+}
+
 /// Result of a chat reply build: the assistant text, any related links, and
 /// whether the reply was blocked (privacy consent denied).
 class ChatReply {
@@ -13,11 +65,32 @@ class ChatReply {
   final List<Map<String, String>> relatedLinks;
   final bool blocked;
 
+  /// Which path produced [content]. Required and undefaulted on purpose: the
+  /// defect was a branch that quietly rendered like another one, so forgetting
+  /// to name the path has to be a compile error rather than a silent default.
+  final ChatAnswerSource source;
+
+  /// The on-device model's own fixed explanation when the engine could not be
+  /// loaded, or null. It rides out with the reply rather than staying in the
+  /// settings row because the reply is where the user is looking when they
+  /// wonder why the answer reads like a keyword list. Never a raw plugin,
+  /// socket, or platform error -- that is what [LocalChatModel.statusMessage]
+  /// already refuses to be.
+  final String? loadFailure;
+
   const ChatReply({
     required this.content,
+    required this.source,
     this.relatedLinks = const [],
     this.blocked = false,
+    this.loadFailure,
   });
+
+  /// Whether a model wrote [content], rather than the plain keyword list. A
+  /// cloud provider counts: it is a model, and the user picked it.
+  bool get answeredByModel =>
+      source == ChatAnswerSource.onDeviceModel ||
+      source == ChatAnswerSource.cloudAnswer;
 }
 
 /// Builds a chat reply from a query and the matching screenshots, outside the
@@ -63,9 +136,16 @@ class ChatEngine {
     final embedded = _embeddedLinks(results, includeThumbs: !localOnly);
 
     if (localOnly) {
+      // Local-only is the mode where the two paths are indistinguishable, so
+      // the reply carries which one ran. Nothing here is conditional on it:
+      // every branch below already knew, and only the answer was being thrown
+      // away.
+      final local = await _localReply(text, results);
       return ChatReply(
-        content: await _localReply(text, results),
+        content: local.content,
         relatedLinks: embedded,
+        source: local.source,
+        loadFailure: local.loadFailure,
       );
     }
 
@@ -76,6 +156,7 @@ class ChatEngine {
     if (!lam.availableProviders.any((p) => p.name == providerName)) {
       return const ChatReply(
         content: LAMService.unsupportedProviderReply,
+        source: ChatAnswerSource.cloudUnavailable,
       );
     }
 
@@ -85,6 +166,7 @@ class ChatEngine {
         content:
             'Cloud chat needs your consent before it sends screenshot-derived text and context to the selected provider. Optional source lookup can also query the web. Local-only mode keeps both on-device. Screenshot images and OCR text stay on this device; Google Play services may download the small image-labeling model on first use. The optional on-device chat model is not bundled: SIFT downloads it once from Hugging Face when you set it up, then runs it on this device with LiteRT-LM.',
         blocked: true,
+        source: ChatAnswerSource.cloudUnavailable,
       );
     }
 
@@ -103,9 +185,19 @@ class ChatEngine {
     );
     final linksFuture = _lookupLinks(results);
     final joined = await Future.wait<Object>([replyFuture, linksFuture]);
+    final cloudText = joined[0] as String;
     return ChatReply(
-      content: joined[0] as String,
+      content: cloudText,
       relatedLinks: joined[1] as List<Map<String, String>>,
+      // `LAMService.chat` swallows its own errors and answers with fixed copy,
+      // so the only way to tell a provider that answered from a provider that
+      // could not be reached is to compare against that copy. Reporting the
+      // failure as [ChatAnswerSource.cloudAnswer] would be the same defect as
+      // the local one this field was added to fix: a failure rendered as though
+      // a model had written it.
+      source: cloudText == LAMService.unreachableProviderReply
+          ? ChatAnswerSource.cloudUnavailable
+          : ChatAnswerSource.cloudAnswer,
     );
   }
 
@@ -185,26 +277,100 @@ class ChatEngine {
   /// no model, not installed, still loading, failed, empty answer, or a throw
   /// — keeps the existing plain local reply. Nothing here reaches the network,
   /// and a missing model is never downloaded on the user's behalf.
-  Future<String> _localReply(
+  ///
+  /// Returns which of those it was next to the text, because the text alone is
+  /// the defect this whole change exists for: every branch below renders the
+  /// same way, so a user could not tell a model answer from a keyword list, and
+  /// neither could the screen. [ChatAnswerSource] carries one case per branch
+  /// and [ChatReply.source] is undefaulted, so a new branch cannot join that
+  /// list quietly.
+  ///
+  /// `loadFailure` is populated only where the model itself explained the
+  /// failure in fixed copy. A throw is not one of those: the engine has already
+  /// decided a raw error never reaches the user, so it stays swallowed and the
+  /// branch reports only that the model did not answer.
+  Future<({String content, ChatAnswerSource source, String? loadFailure})>
+      _localReply(
     String text,
     List<Screenshot> results,
   ) async {
     final fallback = buildLocalReply(results);
     final model = localModel;
-    if (model == null || results.isEmpty) return fallback;
+    // Decided before any load is attempted, for two separate reasons that were
+    // previously collapsed into one `||`. No model: there is nothing to try.
+    // No results: there is no context to ground an answer in, and a load would
+    // turn a question with no evidence into the most expensive thing SIFT can
+    // do. Which one it was is the difference between "you have not set the
+    // model up" and "there is nothing to answer", and the user is told which.
+    if (model == null) {
+      return (
+        content: fallback,
+        source: ChatAnswerSource.noModel,
+        loadFailure: null,
+      );
+    }
+    if (results.isEmpty) {
+      return (
+        content: fallback,
+        source: ChatAnswerSource.noResults,
+        loadFailure: null,
+      );
+    }
     try {
-      if (!await model.ensureLoaded()) return fallback;
-      if (!model.isUsable) return fallback;
+      if (!await model.ensureLoaded()) {
+        // A failed load leaves the model in `error` carrying fixed copy that
+        // says why in plain words. That copy is the only thing the user can act
+        // on, and without it the failure is invisible: the fallback looks
+        // exactly like a model that simply had nothing to add. A false here
+        // without `error` is a model that is not on this device at all.
+        final failed = model.status == LocalChatModelStatus.error;
+        return (
+          content: fallback,
+          source: failed
+              ? ChatAnswerSource.modelLoadFailed
+              : ChatAnswerSource.modelNotReady,
+          loadFailure: failed ? model.statusMessage : null,
+        );
+      }
+      if (!model.isUsable) {
+        return (
+          content: fallback,
+          source: ChatAnswerSource.modelNotReady,
+          loadFailure: model.status == LocalChatModelStatus.error
+              ? model.statusMessage
+              : null,
+        );
+      }
       final answer = await model.generate(
         prompt: _buildLocalPrompt(text),
         context: buildContextText(results),
       );
       final trimmed = answer.trim();
-      return trimmed.isEmpty ? fallback : trimmed;
+      // An empty answer is not an answer. Falling back to the keyword list
+      // rather than showing a blank bubble is right; labelling that blank as a
+      // model answer would not be.
+      if (trimmed.isEmpty) {
+        return (
+          content: fallback,
+          source: ChatAnswerSource.modelEmpty,
+          loadFailure: null,
+        );
+      }
+      return (
+        content: trimmed,
+        source: ChatAnswerSource.onDeviceModel,
+        loadFailure: null,
+      );
     } catch (_) {
       // The engine owns the fallback: a model failure must degrade to the
-      // plain local reply, never surface as a chat error.
-      return fallback;
+      // plain local reply, never surface as a chat error. The branch is still
+      // named, because "it degraded" and "the model wrote this" are different
+      // facts and the widget layer now says which one happened.
+      return (
+        content: fallback,
+        source: ChatAnswerSource.modelFailed,
+        loadFailure: null,
+      );
     }
   }
 

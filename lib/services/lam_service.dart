@@ -9,6 +9,18 @@ export 'action_model.dart';
 
 /// Hosted text chat service. Screenshot analysis stays on-device.
 class LAMService {
+  /// Every configured provider was tried and none answered.
+  ///
+  /// A named constant rather than a literal at the return site, because
+  /// `ChatEngine` compares the reply it got against this to decide whether a
+  /// cloud answer came from a model at all. A private literal would leave that
+  /// comparison silently wrong the first time the copy was reworded -- and it
+  /// would be wrong in the exact direction this whole change exists to prevent:
+  /// a failure rendered as though a model had answered.
+  static const String unreachableProviderReply =
+      'Sorry, I could not reach any AI provider right now. '
+      'Check your API key in Settings.';
+
   static const String unsupportedProviderReply =
       'Choose a supported provider in More to continue.';
 
@@ -67,14 +79,15 @@ class LAMService {
       if (p.requiresKey && (apiKey == null || apiKey.isEmpty)) continue;
       try {
         debugPrint('Chat: trying ${p.name}...');
-        final reply = await _chatCall(p, message: message, context: context, apiKey: apiKey);
+        final reply = await _chatCall(p,
+            message: message, context: context, apiKey: apiKey);
         if (reply != null && reply.isNotEmpty) return reply;
       } catch (e) {
         debugPrint('${p.name} chat failed: $e');
       }
     }
 
-    return 'Sorry, I could not reach any AI provider right now. Check your API key in Settings.';
+    return unreachableProviderReply;
   }
 
   Future<String?> _chatCall(
@@ -84,9 +97,11 @@ class LAMService {
     String? apiKey,
   }) async {
     if (provider.format == ProviderFormat.gemini) {
-      return _chatGemini(provider, message: message, context: context, apiKey: apiKey!);
+      return _chatGemini(provider,
+          message: message, context: context, apiKey: apiKey!);
     }
-    return _chatOpenAI(provider, message: message, context: context, apiKey: apiKey);
+    return _chatOpenAI(provider,
+        message: message, context: context, apiKey: apiKey);
   }
 
   Future<String?> _chatGemini(
@@ -135,7 +150,8 @@ class LAMService {
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final content = body['candidates']?[0]?['content']?['parts']?[0]?['text'] as String?;
+    final content =
+        body['candidates']?[0]?['content']?['parts']?[0]?['text'] as String?;
     return content?.trim();
   }
 
@@ -169,7 +185,8 @@ class LAMService {
     );
 
     if (response.statusCode != 200) {
-      debugPrint('${provider.name} chat error ${response.statusCode}: ${response.body}');
+      debugPrint(
+          '${provider.name} chat error ${response.statusCode}: ${response.body}');
       return null;
     }
 
@@ -198,7 +215,8 @@ RULES:
 Map<String, dynamic>? extractJsonObject(String content) {
   // 1. Strip markdown code fences (```json ... ```) if present.
   var cleaned = content.trim();
-  cleaned = cleaned.replaceAll(RegExp(r'^```(?:json)?\s*', multiLine: true), '');
+  cleaned =
+      cleaned.replaceAll(RegExp(r'^```(?:json)?\s*', multiLine: true), '');
   cleaned = cleaned.replaceAll(RegExp(r'\s*```$', multiLine: true), '');
   cleaned = cleaned.trim();
 

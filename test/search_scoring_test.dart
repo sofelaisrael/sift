@@ -89,16 +89,42 @@ void main() {
         path: '/g/tagged.png', day: 4, ocrText: 'Header line');
     await provider.addTag(tagged, 'noodle');
 
-    final hits = provider.search('noodle');
+    // Scores are read through the attribution accessor rather than taken from the
+    // result order, because two of these records now tie and the sort is not
+    // specified to be stable. What this file exists to pin is the arithmetic, and
+    // arithmetic is what a score is.
+    final Map<String, int> scores = {
+      for (final SearchScoreExplanation r
+          in provider.explainScores('noodle', limit: 10).results)
+        r.id: r.score,
+    };
 
-    // 3 and 2 come first. Counting occurrences would score `thrice` at 3, which
-    // pushes `labelled` (2) to third and leaves the tail a single record
-    // instead of the two equal OCR hits.
-    expect(hits.take(2).map((s) => s.id), [tagged, labelled]);
-    // The two OCR hits are equal, so they share the tail in either order.
-    expect(hits.skip(2).map((s) => s.id).toSet(), {once, thrice});
-    expect(hits.map((s) => s.id).toSet(), {once, thrice, labelled, tagged},
-        reason: 'every record mentions the term, so none is dropped outright');
+    // The subject: repetition inside one field changes nothing. `once` and
+    // `thrice` differ only in how often the word is said, and they are equal.
+    expect(scores[once], 1,
+        reason: 'second line only, so `ocrText` and nothing else');
+    expect(scores[thrice], scores[once],
+        reason:
+            'saying it three times must not score more than saying it once');
+
+    // Both controls still outrank a bare OCR hit, which is what they are for.
+    expect(scores[labelled], 2, reason: 'objects 2, the visual label');
+    expect(scores[tagged], 3, reason: 'tags 3');
+    expect(scores[labelled]! > scores[once]!, isTrue);
+    expect(scores[tagged]! > scores[once]!, isTrue);
+
+    // And the documented relationship between the two is the one that holds: a
+    // tag the user typed outranks a label the model guessed. It used to be the
+    // other way round. `description` was indexed at 4 and is derived from
+    // `objects`, so a label scored 6 against a tag's 3 — the same three tokens
+    // counted twice, which is the duplicate-field inflation this repo already
+    // rejected `summary` for, one field over. `description` is stored and
+    // rendered in the prompt and indexed nowhere, so the label is worth 2 again.
+    expect(scores[tagged]! > scores[labelled]!, isTrue);
+
+    // Every record mentions the term, so none is dropped outright.
+    expect(provider.search('noodle').map((s) => s.id).toSet(),
+        {once, thrice, labelled, tagged});
   });
 
   test('a term in both summary and ocrText scores the sum of both weights',
@@ -125,12 +151,32 @@ void main() {
         objects: const ['noodle']);
     await provider.addTag(labelled, 'noodle');
 
-    expect(
-      provider.search('noodle').map((s) => s.id),
-      [tagged, both, labelled],
-      reason: 'the cross-field double count is deliberate — a term in summary '
-          'and ocrText scores 5 + 1, which beats 3 + 2 and loses to 5 + 1 + 3. '
-          'Counting occurrences instead scores `both` at 12 and puts it first.',
-    );
+    // Read as scores, not as an order. `tagged` and `labelled` now tie at 9, and
+    // this index's sort is not specified to be stable, so an order assertion here
+    // would be asserting which of two equal records Dart happened to put first.
+    // The arithmetic is the subject of this file, so the arithmetic is what is
+    // asserted.
+    final Map<String, int> scores = {
+      for (final SearchScoreExplanation r
+          in provider.explainScores('noodle', limit: 10).results)
+        r.id: r.score,
+    };
+
+    // 5 (summary) + 1 (ocrText) = 6, with the word repeated inside the summary on
+    // purpose: that repetition is what this test neutralises, and it is what makes
+    // it fail if the index writer counts occurrences again.
+    expect(scores[both], 6,
+        reason: 'summary 5 + ocrText 1, and the repetition is worth nothing');
+    // The same summary copy plus a user tag: 5 + 1 + 3.
+    expect(scores[tagged], 9, reason: 'summary 5 + ocrText 1 + tags 3');
+    // 2 (objects) + 3 (tag). `description` carries the same label and is not
+    // indexed, so it contributes nothing here — that is the whole point of it
+    // being prompt-only.
+    expect(scores[labelled], 5, reason: 'objects 2 + tags 3');
+
+    // The relation this file was written to keep: a first-line OCR hit plus the
+    // body still sits below the same hit with a user tag on it.
+    expect(scores[both]! < scores[tagged]!, isTrue,
+        reason: '5 + 1 must lose to 5 + 1 + 3');
   });
 }

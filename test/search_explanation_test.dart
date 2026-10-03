@@ -56,12 +56,16 @@ void main() {
 
   /// Write one fully-populated row straight into the box.
   ///
-  /// The production write path cannot fill `description`, `searchKeywords`,
-  /// `recognitions` or `extractedData` — they are null / [] on every record the
-  /// local analyzer writes — so a test that wants every weighted field indexed
-  /// has to put the row there itself and let `loadScreenshots()` build the index
-  /// from the stored JSON. Every other record in this file is still written
-  /// through the production path.
+  /// The production write path cannot fill `searchKeywords`, `recognitions` or
+  /// `extractedData` — they are null / [] on every record the local analyzer
+  /// writes — so a test that wants every weighted field indexed has to put the
+  /// row there itself and let `loadScreenshots()` build the index from the stored
+  /// JSON. Every other record in this file is still written through the
+  /// production path.
+  ///
+  /// `description` is seeded too even though the index no longer reads it. That
+  /// is the point: a record that carries the field must attribute nothing to it,
+  /// or the double count is back.
   Future<void> putFullRecord({
     required String id,
     required String fileName,
@@ -116,13 +120,14 @@ void main() {
   }
 
   group('the breakdown adds up to the score', () {
-    test('every result of every query, over a record with all nine fields',
+    test('every result of every query, over a record with every stored field',
         () async {
       final provider = await buildProvider();
       // 'Albatross' is on the first line so it lands in both `summary` (5) and
-      // `ocrText` (1); 'Zeppelin' is only in `description` (4) and the OCR body;
-      // the rest give one field apiece, so the invariant is exercised on
-      // single-field, two-field and three-field results alike.
+      // `ocrText` (1); 'Zeppelin' is only in the OCR body, because `description`
+      // is stored but not indexed and earns nothing; the rest give one field
+      // apiece, so the invariant is exercised on single-field, two-field and
+      // three-field results alike.
       await putFullRecord(
         id: 'full',
         fileName: 'full.png',
@@ -254,6 +259,30 @@ void main() {
             'has to show both halves of it');
     expect(r.score, 6);
     expect(r.contributionsSum, 6);
+    expect(r.contributionsMatchScore, isTrue);
+  });
+
+  test('a word only in `description` is reachable through nothing at all',
+      () async {
+    final provider = await buildProvider();
+    // `description` is derived from the visual labels, so a word it holds is
+    // already in `objects` — and it is indexed nowhere itself. Crediting it
+    // would count the same label twice, which is the duplicate-field inflation
+    // `summary` was rejected for. This pins the removal from both sides: the
+    // field is on the record, and no score or breakdown anywhere mentions it.
+    final id = await ingest(provider,
+        path: '/x/one.png',
+        day: 1,
+        ocrText: 'no relation here',
+        objects: const ['zeppelin']);
+
+    final SearchScoreExplanation r =
+        provider.explainScores('zeppelin', limit: 5).results.single;
+    expect(r.id, id);
+    expect(r.fieldContributions, <String, int>{'objects': 2},
+        reason: 'the label, once. `description` is not an indexed field.');
+    expect(r.score, 2);
+    expect(r.contributionsSum, 2);
     expect(r.contributionsMatchScore, isTrue);
   });
 

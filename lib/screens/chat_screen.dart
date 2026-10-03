@@ -51,6 +51,16 @@ class _ChatScreenState extends State<ChatScreen> {
   List<ChatMessage> _messages = [];
   final Map<String, List<Screenshot>> _sources = {};
   final Set<String> _streamingIds = {};
+
+  /// Which path answered, per assistant message id, for the life of this screen.
+  ///
+  /// In memory only, and deliberately so. Chat history is restored from the
+  /// `chat` box as [ChatMessage]s with no provenance field, and a message
+  /// restored from disk gets no line rather than a guessed one -- the honest
+  /// state for an answer whose origin this process did not witness. Adding a
+  /// Hive field for it would mean a model migration for a caption.
+  final Map<String, ({ChatAnswerSource source, String? loadFailure})>
+      _answerOrigins = {};
   bool _sending = false;
   List<String> _recentQueries = [];
   ScreenshotProvider? _screenshotProvider;
@@ -102,6 +112,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _messages = [];
     _sources.clear();
     _streamingIds.clear();
+    _answerOrigins.clear();
     _recentQueries = [];
     _sending = false;
   }
@@ -276,6 +287,10 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() {
           _messages.add(blockedMsg);
           _sources[blockedMsg.id] = results;
+          _answerOrigins[blockedMsg.id] = (
+            source: replyResult.source,
+            loadFailure: replyResult.loadFailure,
+          );
         });
         await _saveMessages();
         return;
@@ -296,6 +311,10 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() {
         _messages.add(asstMsg);
         _sources[asstMsg.id] = results;
+        _answerOrigins[asstMsg.id] = (
+          source: replyResult.source,
+          loadFailure: replyResult.loadFailure,
+        );
       });
       await _saveMessages();
     } catch (e) {
@@ -344,6 +363,7 @@ class _ChatScreenState extends State<ChatScreen> {
         final removed = _messages.removeLast();
         _sources.remove(removed.id);
         _streamingIds.remove(removed.id);
+        _answerOrigins.remove(removed.id);
       }
     });
     await _saveMessages();
@@ -389,6 +409,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _messages = [];
         _sources.clear();
         _streamingIds.clear();
+        _answerOrigins.clear();
         _recentQueries = [];
       });
     }
@@ -567,6 +588,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }) {
     final sources = _sources[message.id];
     final relatedLinks = message.relatedLinksForDisplay(localOnly: localOnly);
+    final originLine = _answerOriginLine(_answerOrigins[message.id]);
 
     if (message.isUser) {
       return Padding(
@@ -597,6 +619,10 @@ class _ChatScreenState extends State<ChatScreen> {
             onRegenerate:
                 message.id == _messages.lastOrNull?.id ? _regenerate : null,
           ),
+          if (originLine != null) ...[
+            const SizedBox(height: 10),
+            _AnswerOriginLine(text: originLine),
+          ],
           if (relatedLinks.isNotEmpty) ...[
             const SizedBox(height: 16),
             RelatedLinksStrip(links: relatedLinks),
@@ -604,6 +630,54 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     );
+  }
+
+  /// The one quiet line under an answer, saying which of the two produced it.
+  ///
+  /// Plain words on purpose, and no praise. The report this answers was "same
+  /// results as if I hadn't downloaded the model", which was true: both paths
+  /// rendered the same evidence strip and the same text shape. So the line names
+  /// the difference in the terms the user acted on -- the model, or their own
+  /// screenshot text -- and on the fallback path there was no model to be
+  /// clever about, so nothing here implies otherwise.
+  ///
+  /// Null for a cloud answer. There the user picked the provider and was asked
+  /// for consent before anything was sent, so the provenance is not in doubt and
+  /// a second telling of it would just be noise. Null also when this process did
+  /// not witness the reply: a message restored from the chat history carries no
+  /// origin, and guessing one would be the same defect in a new place.
+  static String? _answerOriginLine(
+    ({ChatAnswerSource source, String? loadFailure})? origin,
+  ) {
+    if (origin == null) return null;
+    final failure = origin.loadFailure?.trim();
+    final line = switch (origin.source) {
+      ChatAnswerSource.cloudAnswer || ChatAnswerSource.cloudUnavailable => null,
+      ChatAnswerSource.onDeviceModel => 'Answered by the on-device model.',
+      ChatAnswerSource.noResults =>
+        'Nothing matched, so the model was never asked.',
+      ChatAnswerSource.noModel =>
+        'No on-device model is set up. This is a keyword list of your '
+            'screenshots.',
+      ChatAnswerSource.modelNotReady =>
+        'The on-device model was not ready. This is a keyword list of your '
+            'screenshots.',
+      ChatAnswerSource.modelLoadFailed =>
+        'The on-device model could not be loaded on this device. This is a '
+            'keyword list of your screenshots.',
+      ChatAnswerSource.modelFailed =>
+        'The on-device model stopped answering. This is a keyword list of your '
+            'screenshots.',
+      ChatAnswerSource.modelEmpty =>
+        'The on-device model had nothing to add. This is a keyword list of your '
+            'screenshots.',
+    };
+    if (line == null) return null;
+    // The model's own explanation, in its own vetted words. Appended rather
+    // than replacing the line above: the user needs both what answered and why
+    // the model did not, and the reason is the part they can act on.
+    if (failure == null || failure.isEmpty) return line;
+    return '$line $failure';
   }
 
   void _openDetail(Screenshot screenshot) {
@@ -827,6 +901,30 @@ class _SiftSendCircleState extends State<SiftSendCircle> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The provenance line under an answer: one sentence, meta-sized, in the
+/// quietest ink on the page.
+///
+/// Not an error banner and not a badge. Every branch of `_localReply` that is
+/// not the model reaching an answer is not an error either -- "you have not
+/// downloaded it" is a state, not a mistake -- and dressing the honest ones up
+/// as failures would train the reader to ignore the line that matters, the one
+/// saying the model did answer. Meta label rather than body copy because this
+/// qualifies the answer; it is not part of it.
+class _AnswerOriginLine extends StatelessWidget {
+  final String text;
+
+  const _AnswerOriginLine({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppTheme.of(context);
+    return Text(
+      text,
+      style: SiftType.metaLabel.copyWith(color: s.stone, height: 1.4),
     );
   }
 }
