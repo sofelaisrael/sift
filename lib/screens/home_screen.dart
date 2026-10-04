@@ -8,6 +8,7 @@ import '../models/screenshot.dart';
 import '../providers/screenshot_provider.dart';
 import '../services/ingest_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/brutal_tokens.dart';
 import '../theme/motion_tokens.dart';
 import '../widgets/brutal_button.dart';
 import '../widgets/brutal_chip.dart';
@@ -446,9 +447,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 4, 20, 4),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: s.errorSoft,
-        borderRadius: BorderRadius.circular(SiftRadii.rThumb),
+      decoration: brutalEdge(
+        fill: s.errorSoft,
+        isDark: Theme.of(context).brightness == Brightness.dark,
       ),
       child: Row(
         children: [
@@ -619,14 +620,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-      decoration: BoxDecoration(
-        color: s.paper,
-        borderRadius: BorderRadius.circular(SiftRadii.rField),
-        border: Border.all(
-          color: s.divider,
-          width: AppTheme.hairline(isDark),
-        ),
-        boxShadow: isDark ? SiftElevation.l4Dark : SiftElevation.l3,
+      decoration: brutalEdge(
+        fill: s.paper,
+        isDark: isDark,
       ),
       child: Row(
         children: [
@@ -809,8 +805,10 @@ class _SearchEmptyState extends StatelessWidget {
   }
 }
 
-/// Pinned flat Ask bar: paper field (r16, hairline) + accentDeep camera
-/// circle. Lifts a warm shadow once the user scrolls past 8px.
+/// Pinned flat Ask bar: hard-edged paper field + accentDeep camera circle.
+/// Carries the hard shadow always rather than only once scrolled, so the bar
+/// does not change weight as the user scrolls past it — a bar that gains an
+/// extruded edge on the first scroll reads as an animation, not as a surface.
 class _AskBarDelegateHeader extends StatelessWidget {
   final bool scrolled;
   final VoidCallback? onAsk;
@@ -863,14 +861,9 @@ class _AskBarDelegate extends SliverPersistentHeaderDelegate {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: MotionTokens.easeOutCubic,
-        decoration: BoxDecoration(
-          color: s.paper,
-          borderRadius: BorderRadius.circular(SiftRadii.rField),
-          border: Border.all(
-            color: s.divider,
-            width: AppTheme.hairline(isDark),
-          ),
-          boxShadow: scrolled && !isDark ? SiftElevation.l2 : null,
+        decoration: brutalEdge(
+          fill: s.paper,
+          isDark: isDark,
         ),
         padding: const EdgeInsets.all(6),
         child: Row(
@@ -880,17 +873,18 @@ class _AskBarDelegate extends SliverPersistentHeaderDelegate {
                 color: Colors.transparent,
                 child: InkWell(
                   onTap: onAsk,
-                  borderRadius: BorderRadius.circular(SiftRadii.rField),
+                  borderRadius: BorderRadius.circular(SiftRadii.rControl),
                   child: Container(
                     height: 44,
                     padding: const EdgeInsets.symmetric(horizontal: 14),
-                    decoration: BoxDecoration(
-                      color: s.paper,
-                      borderRadius: BorderRadius.circular(SiftRadii.rField),
-                      border: Border.all(
-                        color: s.divider,
-                        width: AppTheme.hairline(isDark),
-                      ),
+                    decoration: brutalEdge(
+                      fill: s.paper,
+                      isDark: isDark,
+                      // The nested ask target is a control inside a surface, so
+                      // it carries NO cast shadow: two stacked 4pt offsets read
+                      // as one thick smear. The edge is what separates it from
+                      // the bar it sits in.
+                      shadow: SiftBrutal.none,
                     ),
                     child: Row(
                       children: [
@@ -998,6 +992,16 @@ class _TimeGroupHeader extends StatelessWidget {
   }
 }
 
+/// The library card. `rControl`, the 2pt resting edge and the hard shadow —
+/// the surface the §2.5 reversal was about, and the one §6.1 predicted would
+/// read as a rendering fault while the brutal buttons sat inside warm cards.
+///
+/// The border was previously `divider` at 1pt: 1.42:1 on `paper` in light and
+/// 1.22:1 in dark. This card is an `InkWell`, so that hairline was a UI
+/// component boundary and was owed 3:1; it was drawing nothing. `stone` at 2pt
+/// is 4.72:1 light and 4.68:1 dark. The grid's `mainAxisExtent` is unchanged:
+/// a corner radius does not participate in layout and a `Border.all` paints
+/// inside the box, so no card moves.
 class _SiftCard extends StatelessWidget {
   final Screenshot screenshot;
   final VoidCallback onTap;
@@ -1021,14 +1025,20 @@ class _SiftCard extends StatelessWidget {
 
     return Container(
       clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: s.paper,
-        borderRadius: BorderRadius.circular(SiftRadii.rCard),
+      decoration: brutalEdge(
+        fill: s.paper,
+        isDark: isDark,
+        // Selection keeps the existing `accent` hue and only takes the app's one
+        // boundary weight: at 1.5pt it was a thinner version of the same 2.97:1
+        // on `paper`, and thickness is not contrast. The selection is not
+        // carried by this border alone — the barrier scrim over the image and
+        // the accent check badge both appear with it, neither of which is a
+        // border — so it stays legible without a new selection colour.
         border: Border.all(
-          color: selecting && selected ? s.accent : s.divider,
-          width: selecting && selected ? 1.5 : 1,
+          color:
+              selecting && selected ? s.accent : SiftBrutal.surfaceEdge(isDark),
+          width: SiftBrutal.borderW,
         ),
-        boxShadow: SiftElevation.card(isDark),
       ),
       child: Material(
         color: Colors.transparent,

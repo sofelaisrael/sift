@@ -3,12 +3,19 @@ import 'package:flutter/services.dart';
 import '../services/ingest_service.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
+import 'brutal_chip.dart';
 import 'widgets.dart';
 
 /// Live bulk-ingest banner: pulsing mark + indexed-so-far count, an ETA line
 /// once a rate is measurable, and pause/resume. Rebuilds off the
 /// [IngestService] notifier, so a long pass never drives `setState` storms
 /// through the provider.
+///
+/// Hard-edged since the §2.5 reversal, matching `ProcessingBanner` — they are
+/// the same surface with a different fill and a different mark, and leaving one
+/// soft beside the other hard is the incoherence §6.1 names. The paused state
+/// steps the fill down one step (`surfaceWarm2` → `surfaceWarm1`) rather than
+/// recolouring the edge, so the edge keeps the same 3.79:1 in both states.
 class IngestBanner extends StatelessWidget {
   final IngestService ingest;
 
@@ -26,17 +33,16 @@ class IngestBanner extends StatelessWidget {
     final s = AppTheme.of(context);
 
     final count = ingest.processedCount;
-    final digest = count == 0
-        ? 'Finding screenshots…'
-        : '$count indexed so far';
+    final digest =
+        count == 0 ? 'Finding screenshots…' : '$count indexed so far';
     final eta = ingest.estimatedRemaining;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 4, 20, 4),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: ingest.paused ? s.surfaceWarm1 : s.surfaceWarm2,
-        borderRadius: BorderRadius.circular(SiftRadii.rThumb),
+      decoration: brutalEdge(
+        fill: ingest.paused ? s.surfaceWarm1 : s.surfaceWarm2,
+        isDark: Theme.of(context).brightness == Brightness.dark,
       ),
       child: Row(
         children: [
@@ -49,7 +55,9 @@ class IngestBanner extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  ingest.paused ? 'Library index paused' : 'Indexing your library',
+                  ingest.paused
+                      ? 'Library index paused'
+                      : 'Indexing your library',
                   style: SiftType.bodySansMd.copyWith(
                     fontWeight: FontWeight.w600,
                     color: s.ink,

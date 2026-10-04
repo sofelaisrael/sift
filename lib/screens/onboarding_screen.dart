@@ -4,6 +4,7 @@ import '../models/screenshot.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
 import '../widgets/brutal_button.dart';
+import '../widgets/brutal_chip.dart';
 import '../widgets/chat_atoms.dart';
 import '../widgets/sift_mark.dart';
 import 'app_shell.dart';
@@ -196,13 +197,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             child: Container(
               width: MediaQuery.sizeOf(context).width * 0.9,
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: s.paper,
-                borderRadius: BorderRadius.circular(SiftRadii.rSheet),
-                border: Border.all(color: s.divider),
-                boxShadow: SiftElevation.sheet(
-                  Theme.of(context).brightness == Brightness.dark,
-                ),
+              // Hard-edged with the real surfaces rather than with a soft L4 and
+              // a hairline: this panel previews a chat turn, and after the §2.5
+              // reversal the things inside it (`UserPill`, `EvidenceStrip`,
+              // `EssayBlock`) are what it is previewing. A warm 24pt-radius box
+              // around hard-edged contents is the incoherence §6.1 names, and
+              // it would have taught the grammar backwards on the first screen
+              // a new user ever sees.
+              decoration: brutalEdge(
+                fill: s.paper,
+                isDark: Theme.of(context).brightness == Brightness.dark,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

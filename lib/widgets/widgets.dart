@@ -3,10 +3,18 @@ import '../theme/app_theme.dart';
 import '../theme/brutal_tokens.dart';
 import '../theme/motion_tokens.dart';
 import 'brutal_button.dart';
+import 'brutal_chip.dart';
 import 'sift_mark.dart';
 
 /// Neutral recognition type badge. Label differentiates, never color.
-/// Full pill, badgeBg/badgeText tokens.
+///
+/// A hard-edged label since the §2.5 reversal: `rControl` and the 2pt resting
+/// edge, built from [brutalEdge] so it cannot drift from the chips. What keeps
+/// it a LABEL rather than a chip is the missing cast shadow — an offset shadow
+/// needs a silhouette to cast from, and giving a label one promotes it to
+/// control weight, which is the same reasoning that denies `BrutalButton.text`
+/// a shadow (§4.3). It also has no focus node, no press and no ring, because it
+/// is not operable.
 class TypeBadge extends StatelessWidget {
   final String? type;
   final bool compact;
@@ -23,9 +31,10 @@ class TypeBadge extends StatelessWidget {
         horizontal: compact ? 8 : 10,
         vertical: compact ? 3 : 5,
       ),
-      decoration: BoxDecoration(
-        color: s.badgeBg,
-        borderRadius: BorderRadius.circular(999),
+      decoration: brutalEdge(
+        fill: s.badgeBg,
+        isDark: Theme.of(context).brightness == Brightness.dark,
+        shadow: SiftBrutal.none,
       ),
       child: Text(
         label,
@@ -38,12 +47,13 @@ class TypeBadge extends StatelessWidget {
   }
 }
 
-/// User-added tag chip. Hairline pill with optional delete affordance.
+/// User-added tag chip: hard-edged label with an optional delete affordance.
 ///
-/// A tag is a label, not a control, so the pill keeps its full radius and its
-/// hairline and stays outside the brutal set (DESIGN-BRUTALIST.md §2.5). The
-/// 40x40 delete target inside it is a control, and a focus ring is the only
-/// brutal change it gets (§4.6).
+/// The pill is gone (it was a 999-radius capsule on a hairline) but the chip
+/// body is still a LABEL, not a control — so it wears the same geometry as
+/// [TypeBadge] via [brutalEdge] and, like it, carries no cast shadow. The one
+/// control inside it, the 40x40 delete target, is a `BoxShape.circle` and keeps
+/// its own focus ring instead (§4.6).
 class TagChip extends StatefulWidget {
   final String label;
   final VoidCallback? onDeleted;
@@ -77,10 +87,10 @@ class _TagChipState extends State<TagChip> {
         compact ? 8 : (onDeleted != null ? 6 : 10),
         compact ? 3 : 5,
       ),
-      decoration: BoxDecoration(
-        color: s.paper,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: s.tagBorder),
+      decoration: brutalEdge(
+        fill: s.paper,
+        isDark: Theme.of(context).brightness == Brightness.dark,
+        shadow: SiftBrutal.none,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -98,10 +108,11 @@ class _TagChipState extends State<TagChip> {
               width: 40,
               height: 40,
               child: Center(
-                // The delete target is the control; the pill stays a label
-                // (§2.5). This 2pt ring is TagChip's only brutal change
-                // (§4.6). The target's own box is unfilled, so the ring lands
-                // on the `paper` pill: a page step, not a slab — hence [focus].
+                // The delete target is the control; the pill body is a label
+                // (§2.5, since reversed: the label keeps the hard EDGE but not
+                // a shadow). This 2pt ring is the target's own brutal state. The
+                // target's box is unfilled, so the ring lands on the `paper`
+                // pill: a page step, not a slab — hence [focus].
                 //
                 // The ring is driven by the InkWell's OWN focus rather than by a
                 // `Focus` wrapped around it. `InkResponse.build` is
@@ -227,7 +238,8 @@ class _PulsingMarkState extends State<PulsingMark>
 }
 
 /// Flat processing banner: surfaceWarm2 + pulsing mark. No gradient,
-/// no spinner, no shimmer.
+/// no spinner, no shimmer. Hard-edged since the §2.5 reversal; the mark keeps
+/// pulsing and the dismiss target keeps its tap target unchanged.
 class ProcessingBanner extends StatefulWidget {
   final String message;
   final VoidCallback? onDismiss;
@@ -250,9 +262,9 @@ class _ProcessingBannerState extends State<ProcessingBanner> {
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 4, 20, 4),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: s.surfaceWarm2,
-        borderRadius: BorderRadius.circular(SiftRadii.rThumb),
+      decoration: brutalEdge(
+        fill: s.surfaceWarm2,
+        isDark: Theme.of(context).brightness == Brightness.dark,
       ),
       child: Row(
         children: [

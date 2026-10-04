@@ -21,6 +21,43 @@ enum SiftChipRest {
   warm,
 }
 
+/// The one hard-edged box geometry, for every surface that wears it.
+///
+/// `SiftBrutalChip` is built from this, and so are the three read-only labels
+/// that the §2.5 reversal brought into the set — `TypeBadge`, `TagChip` and
+/// Detail's `_RecognitionChip`. It exists because after the reversal the
+/// 2pt / 4pt / 4pt-offset triple would otherwise be read in four files by hand,
+/// and four hand-written copies of one triple is how one hard edge becomes two
+/// (§6.3). The factory is the enforcement, the same way the absence of a second
+/// `borderW` is.
+///
+/// [border] and [shadow] default to the resting read-only edge and the resting
+/// hard shadow. A caller passes its own only when its state machine resolves a
+/// different value — the chip, whose border has a focus branch and whose shadow
+/// has a pressed and a disabled branch.
+///
+/// [borderRadius] exists for the bottom sheet, which is flush with the screen
+/// edge and must round its top corners only: rounding all four would show the
+/// modal barrier through four 4px notches at the bottom of the screen.
+BoxDecoration brutalEdge({
+  required Color fill,
+  required bool isDark,
+  Border? border,
+  List<BoxShadow>? shadow,
+  BorderRadiusGeometry borderRadius =
+      const BorderRadius.all(Radius.circular(SiftRadii.rControl)),
+}) =>
+    BoxDecoration(
+      color: fill,
+      borderRadius: borderRadius,
+      border: border ??
+          Border.all(
+            color: SiftBrutal.surfaceEdge(isDark),
+            width: SiftBrutal.borderW,
+          ),
+      boxShadow: shadow ?? SiftBrutal.hard(isDark),
+    );
+
 /// The app's one chip: the library filter, the actions filter, and the chat
 /// prompt/recent-query chip were three copies of the same 32dp capsule with
 /// three different borders, and this replaces all three.
@@ -46,8 +83,14 @@ enum SiftChipRest {
 /// - **The corner is [SiftRadii.rControl], not the old full pill.** A pill with
 ///   a 2pt border and a down-right shadow makes the border meet the shadow
 ///   sliver at a non-orthogonal angle on the curved leading edge; at 4pt the
-///   chip geometry matches the buttons. This is the single least-obvious change
+///   chip geometry matches the buttons and, since the §2.5 reversal, the
+///   cards, badges and banners too. This is the single least-obvious change
 ///   in the spec and is isolated to this phase for review (§6.11.2).
+///
+/// Since the reversal, [brutalEdge] is the shared geometry and this widget is
+/// one of its callers rather than its only one. It stays here rather than
+/// moving to a new file because the radius argument above — the reason a pill
+/// does not work with this border — is the reason the labels belong beside it.
 ///
 /// Like [BrutalButton] there is no Material or InkWell: the app sets NoSplash
 /// globally, a hard-edged control has no ink to draw, and the down-right
@@ -184,9 +227,9 @@ class _SiftBrutalChipState extends State<SiftBrutalChip> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: SiftSpacing.s14),
                   alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: _fill(s),
-                    borderRadius: BorderRadius.circular(SiftRadii.rControl),
+                  decoration: brutalEdge(
+                    fill: _fill(s),
+                    isDark: isDark,
                     // A `BoxDecoration` border paints inside the box, on top of
                     // the fill, so the border is scored against THIS chip's own
                     // fill. An unselected chip fills with a page step and keeps
@@ -205,7 +248,7 @@ class _SiftBrutalChipState extends State<SiftBrutalChip> {
                           : (slab ? SiftBrutal.edgeOnFill(isDark) : s.stone),
                       width: SiftBrutal.borderW,
                     ),
-                    boxShadow: _shadow(isDark),
+                    shadow: _shadow(isDark),
                   ),
                   child: Text(
                     widget.label,

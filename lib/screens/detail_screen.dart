@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../theme/brutal_tokens.dart';
 import '../theme/motion_tokens.dart';
 import '../widgets/brutal_button.dart';
+import '../widgets/brutal_chip.dart';
 import '../widgets/brutal_field.dart';
 import '../widgets/widgets.dart';
 
@@ -315,56 +316,65 @@ class _DetailScreenState extends State<DetailScreen> {
     final s = AppTheme.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // In scope since the §2.5 reversal: this was the ONE surface the spec
+    // explicitly excluded, on the reasoning that a cast shadow on a read-only
+    // mono block "would make the text look broken". That was overridden after a
+    // device review. The two mechanical concerns behind it were checked and are
+    // fine — the mono face and the truncation are untouched, and the 2pt edge is
+    // scored against this block's own fill rather than the page, where the old
+    // `divider`-family edges were arithmetically blind.
+    //
+    // `stone` on `codeBg` is 3.45:1 light and 5.74:1 dark, the tightest row in
+    // `SiftBrutal.surfaceEdge` and the reason the edge is a token rather than a
+    // per-surface guess. The mono text is unchanged on an unchanged fill:
+    // 13.06:1 light and 14.20:1 dark.
     return Container(
       width: double.infinity,
-      decoration: BoxDecoration(
-        color: s.codeBg,
-        borderRadius: BorderRadius.circular(SiftRadii.rThumb),
+      decoration: brutalEdge(
+        fill: s.codeBg,
+        isDark: isDark,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-            // The one deliberate exception in the app: this button sits inside
-            // the read-only mono OCR block, and a hard border plus a cast
-            // shadow on a copy affordance would make the text look broken.
-            // It keeps the Material TextButton and gains a focus ring as its
-            // ONLY brutal change (DESIGN-BRUTALIST.md §2.5, §7.3). The ring is
-            // the 2pt `SiftBrutal.focus` side, not the theme's 1.5pt `accent`
-            // one — `accent` is 2.85:1 on canvas and 2.97:1 on paper and clears
-            // neither, which is the failure this ring exists to fix. The OCR
-            // block itself is untouched.
-            child: TextButton.icon(
+            // The OCR copy button was the last Material button in the app and is
+            // now a `BrutalButton.outline`, so it carries the full hard edge and
+            // gains keyboard activation, a focus ring and button semantics that
+            // the Material `TextButton` was only partly providing. It is the
+            // `outline` variant rather than the ghost because a ghost's default
+            // `ink` label would measure 1.14:1 on this `codeBg` fill in light
+            // mode — the ghost has no fill to lift it, so it cannot be used on
+            // a near-black slab at all.
+            //
+            // Height stays 36 and horizontal padding stays `s12`, matching the
+            // `minimumSize: Size(0, 36)` / `EdgeInsets.symmetric(horizontal: 12,
+            // vertical: 6)` this button had, so the block does not grow. The
+            // label keeps `SiftType.metaLabel` rather than `buttonLabel`: it is
+            // meta copy and §9 forbids a typography change. The Material
+            // `TextButton` this replaced styled its child with `metaLabel`, so
+            // 12pt is the restored size, not a new one — `microLabel` here
+            // would have been a silent 1pt reduction. It sets no colour of its
+            // own, which is what lets `DefaultTextStyle.merge` supply the
+            // per-state label — a `codeText` label would be 1.00:1 on the
+            // outline variant's `paper` fill.
+            //
+            // 12pt/1.3 is 15.6dp, still under the 16dp icon, so the row's
+            // `height: 36` box does not grow.
+            child: BrutalButton.icon(
+              variant: BrutalVariant.outline,
+              height: 36,
+              padding: const EdgeInsets.symmetric(horizontal: SiftSpacing.s12),
               onPressed: _copyOcr,
               icon: Icon(
                 _copied ? Icons.check_rounded : Icons.copy_rounded,
                 size: 16,
               ),
-              label: Text(_copied ? 'Copied' : 'Copy'),
-              style: TextButton.styleFrom(
-                foregroundColor: s.codeText,
-                textStyle: SiftType.metaLabel.copyWith(
+              label: Text(
+                _copied ? 'Copied' : 'Copy',
+                style: SiftType.metaLabel.copyWith(
                   fontWeight: FontWeight.w600,
-                  color: s.codeText,
-                ),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                minimumSize: const Size(0, 36),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ).copyWith(
-                // BorderSide.none when unfocused, so the ring appears on focus
-                // and the button is a plain text button the rest of the time.
-                side: WidgetStateProperty.resolveWith(
-                  (states) => states.contains(WidgetState.focused)
-                      ? BorderSide(
-                          color: SiftBrutal.focus(isDark),
-                          width: SiftBrutal.borderW,
-                        )
-                      : BorderSide.none,
                 ),
               ),
             ),
@@ -406,17 +416,13 @@ class _DetailScreenState extends State<DetailScreen> {
         color: Colors.transparent,
         child: InkWell(
           onTap: () => _openUrl(url),
-          borderRadius: BorderRadius.circular(SiftRadii.rField),
+          borderRadius: BorderRadius.circular(SiftRadii.rControl),
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: s.paper,
-              borderRadius: BorderRadius.circular(SiftRadii.rField),
-              border: Border.all(
-                color: s.divider,
-                width: AppTheme.hairline(isDark),
-              ),
+            decoration: brutalEdge(
+              fill: s.paper,
+              isDark: isDark,
             ),
             child: Row(
               children: [
@@ -695,6 +701,11 @@ class _QuietCircle extends StatelessWidget {
   }
 }
 
+/// A recognition term from the on-device labeler. Same class as `TypeBadge` and
+/// the same [brutalEdge] geometry, hard-edged since the §2.5 reversal — it sits
+/// a few lines below `TypeBadge` on this screen, and leaving one of the two a
+/// warm 999 pill would have been visibly arbitrary. Not a control: no focus
+/// node, no press, and no cast shadow, for the reason `TypeBadge` has none.
 class _RecognitionChip extends StatelessWidget {
   final String label;
 
@@ -706,9 +717,10 @@ class _RecognitionChip extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: s.surfaceWarm1,
-        borderRadius: BorderRadius.circular(999),
+      decoration: brutalEdge(
+        fill: s.surfaceWarm1,
+        isDark: Theme.of(context).brightness == Brightness.dark,
+        shadow: SiftBrutal.none,
       ),
       child: Text(
         label,

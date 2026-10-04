@@ -7,6 +7,7 @@ import '../models/screenshot.dart';
 import '../theme/app_theme.dart';
 import '../theme/motion_tokens.dart';
 import 'brutal_button.dart';
+import 'brutal_chip.dart';
 import 'sift_mark.dart';
 import 'widgets.dart' show PulsingMark;
 
@@ -16,8 +17,17 @@ String formatClock(DateTime time) {
   return '$hour:$minute';
 }
 
-/// User message: soft pill (surfaceWarm1, full capsule, right-aligned,
-/// max 80% width, bodySans ink). Slides up 300ms on entrance.
+/// User message: hard-edged bubble (surfaceWarm1, rControl, 2pt edge, hard
+/// shadow), right-aligned, max 80% width, bodySans ink. Slides up 300ms on
+/// entrance.
+///
+/// The 999 capsule is gone. It is the only BUBBLE in the transcript, and the
+/// assistant's side is deliberately still a bare serif essay with no container
+/// at all ([EssayBlock]) — so the two are told apart by having a box and not
+/// having one, plus left/right alignment. Neither of those is colour, and a hard
+/// edge on the user side cannot collapse that: giving the assistant a matching
+/// boxed bubble would trade a learnable distinction for a symmetric pair, and it
+/// would put a hard slab behind the serif voice, which §9 protects.
 class UserPill extends StatefulWidget {
   final String text;
 
@@ -75,9 +85,9 @@ class _UserPillState extends State<UserPill>
         child: Container(
           constraints: BoxConstraints(maxWidth: maxWidth),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: s.surfaceWarm1,
-            borderRadius: BorderRadius.circular(999),
+          decoration: brutalEdge(
+            fill: s.surfaceWarm1,
+            isDark: Theme.of(context).brightness == Brightness.dark,
           ),
           child: Text(
             widget.text,
@@ -551,6 +561,11 @@ class TypingRow extends StatelessWidget {
 /// matched screenshots (YouTube / DuckDuckGo). Video links show a 16:9
 /// thumbnail + real title; everything else keeps the compact link row.
 /// Tapping opens the link in the browser.
+///
+/// Hard-edged card since the §2.5 reversal. The individual link ROWS inside stay
+/// soft — they are navigation affordances inside a scroll of identical rows, the
+/// §2.5 exclusion — so the card's edge is what separates this from the bare
+/// assistant essay directly above it.
 class RelatedLinksStrip extends StatelessWidget {
   final List<Map<String, String>> links;
 
@@ -576,10 +591,9 @@ class RelatedLinksStrip extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-      decoration: BoxDecoration(
-        color: s.paper,
-        borderRadius: BorderRadius.circular(SiftRadii.rField),
-        border: Border.all(color: s.divider),
+      decoration: brutalEdge(
+        fill: s.paper,
+        isDark: Theme.of(context).brightness == Brightness.dark,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

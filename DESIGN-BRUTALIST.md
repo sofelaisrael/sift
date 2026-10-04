@@ -1,44 +1,111 @@
-# DESIGN-BRUTALIST.md — Neobrutalism as Accent for SIFT
+# DESIGN-BRUTALIST.md — Neobrutalism for SIFT
 
-**Status:** IMPLEMENTED. The tokens are `lib/theme/brutal_tokens.dart`, the controls are `lib/widgets/brutal_{button,chip,field,activate}.dart`, and the grammar reaches the migrated call sites — 29 buttons, 5 fields, 3 chip classes, the capture sheet's `_SourceOption` pair, and `switchTheme` — backed by 6 `test/brutal_*_test.dart` files.
-**Scope:** visual treatment of interactive surfaces only. Everything else stays as built in `DESIGNSTATE.md` (v3, "Warm Paper Recall").
+**Status:** IMPLEMENTED, twice. The tokens are `lib/theme/brutal_tokens.dart`, the controls are `lib/widgets/brutal_{button,chip,field,activate}.dart` plus the shared `brutalEdge(...)` factory in `brutal_chip.dart`, and the grammar now reaches **30** buttons, 5 fields, 3 chip classes, the capture sheet's `_SourceOption` pair, `switchTheme`, **and** the read-only surfaces specified in §4.9–§4.16 — backed by 7 `test/brutal_*_test.dart` files.
+**Scope:** visual treatment of **all** surfaces, interactive and read-only. The first pass covered interactive surfaces only; §1 records that rule, why it was reversed, and what it cost. Colour personality is unchanged: the palette is still warm paper carrying hard edges.
 **Grounding:** every count, path, and line number below was read from the working tree. Every contrast ratio shows its arithmetic. Every Flutter API claim is marked VERIFIED or UNVERIFIED.
 
 ---
 
 ## 1. The rule
 
-> **Brutalism marks what you can touch. Warmth marks what you read.**
+> ### **The first rule, and why it is no longer the rule**
+>
+> > **Brutalism marks what you can touch. Warmth marks what you read.**
+>
+> This governed the first pass. **It has been reversed.** Read the reasoning
+> below before changing anything here again, because the reversal was made on
+> evidence rather than on taste.
 
-Interactive surfaces get the hard treatment. Read-only content keeps the warm-paper personality.
+### What the first pass believed
+
+The app originally had **no consistent signal for "tappable."** Look at what a
+user actually saw:
+
+- A screenshot card was a `paper`-filled 20pt-radius rect with a 1pt `divider`
+  hairline and an L1 shadow (`cardTheme`, `app_theme.dart:640-653`).
+- A FilledButton was an `accentDeep`-filled rounded rect with **no border at all**
+  (`filledButtonTheme`).
+- A filter chip was a `paper`-filled 999-radius capsule with a 0.5pt hairline.
+- A settings row was a bare `InkWell` with no fill, no border, no shadow.
+
+The narrow fix was to give hard edges exactly one meaning — *this is a
+control* — and to leave read-only content warm so the signal stayed legible. §6.1
+predicted, correctly, that this would look like a collision: a 2pt hard-edged
+terracotta button sitting inside a soft, 20pt-radius, hairline-bordered paper
+card reads as two design systems in one screen.
+
+### Why it was reversed
+
+The user reviewed the accent-only build **on a device** and rejected it: the
+remaining visual style of the app did not go with the buttons, and the design
+should go full on it. Two things were wrong with the narrow rule, and only one
+of them was visible in a screenshot:
+
+1. **The narrow rule was not neutral — it made a promise it did not keep.** "Hard
+   means operable" is only a grammar if hard is *rare*. In practice the hard
+   edges were concentrated in action rows, empty states and dialog footers,
+   which is not a distribution a reader learns; it is one they have to keep
+   checking. Meanwhile the hairlines it implicitly blessed were arithmetically
+   blind: `divider` on `paper` measured **1.42:1** light and **1.22:1** dark, on
+   a card that is an `InkWell`, i.e. a UI component boundary owed 3:1 (SC
+   1.4.11). The rule was not protecting a distinction; it was licensing a
+   defect.
+2. **A container and its contents came from different systems.** The §2.5
+   exclusion "a container is not a control" is true and irrelevant: nobody reads
+   a dialog's chrome as operable. What they read is *coherence*. A 24pt-radius
+   warm sheet around two hard-edged tiles, or a warm card around hard buttons,
+   is a visible seam — and a seam is the one thing a single visual language is
+   supposed to eliminate.
+
+### The rule now
+
+> **One hard-edged language across every surface. What you can touch still
+> differs from what you read — in depth, in fill, and in state — but never in
+> grammar.**
+
+Concretely, and this is the whole of it:
+
+| | Radius | Edge | Shadow |
+|---|---|---|---|
+| Read-only surface | `rControl` 4 | 2pt, scored against **its own fill** | hard, one direction |
+| Control | `rControl` 4 | 2pt, scored against **its own fill** | hard + press translate |
+| Read-only **label** | `rControl` 4 | 2pt | **none** — see §4.12 |
+| **Excluded** (§2.5) | unchanged | hairline | soft L1–L5 |
+
+The hierarchy is carried by *depth and state*, not by a second visual language:
+a read-only surface casts, a label does not; a control sinks and rings, a surface
+does not. Warm paper survives as the **fill** — every one of these surfaces is
+still cream, and the palette is untouched — so the app reads as warm paper
+carrying hard edges rather than as a generic brutalist skin.
 
 ### Why this is a grammar and not a decoration
 
-The app currently has **no consistent signal for "tappable."** Look at what a user actually sees:
+One direction of light, one corner radius, one edge weight, one shadow offset,
+everywhere. That is what makes the app look built rather than assembled, and it
+is checkable rather than arguable: `test/brutal_surface_test.dart` asserts that
+no `BoxShadow(` literal exists in `lib/` outside the two token files and that no
+visible surface still resolves a soft elevation. A design that can be verified
+by grep is worth more than a design that cannot.
 
-- A screenshot card is a `paper`-filled rounded rect with a 1pt hairline and an L1 shadow (`cardTheme`, `app_theme.dart:601-610`).
-- A FilledButton is an `accentDeep`-filled rounded rect with **no border at all** (`filledButtonTheme`, `app_theme.dart:687-692` returns `BorderSide.none` unless focused).
-- A filter chip is a `paper`-filled capsule with a 0.5pt hairline (`home_screen.dart:626-633`).
-- A settings row is a bare `InkWell` with no fill, no border, no shadow (`_flatRow`, `settings_screen.dart:745-784`).
+### One derivation that still makes the whole system work
 
-The only differences are position, fill tint, and text weight. A new user cannot tell a card from a button without tapping it. That is a learnability cost the current design pays silently, and it is the specific thing neobrutalism fixes when it is applied narrowly.
+A down-right offset hard shadow shows only a thin sliver on the bottom and right
+of a box. That sliver always sits on the **page surface** — `canvas` or `paper` —
+never on the box's own fill. So the shadow token only ever has to clear 3:1
+against the page surface, and is completely fill-agnostic. That is why one locked
+shadow token works for every surface in the app, in both modes, on saturated
+fills (`accentDeep`), light fills (`ink` in dark mode) and a near-black slab
+(`codeBg`) alike.
 
-Giving hard edges exactly one meaning — *this is a control* — turns a set of unrelated visual choices into a readable system. Warm surfaces say "read this." Hard-edged surfaces say "operate this." Once learned in the first screen, the rule holds everywhere, and every later screen is free.
-
-### Why it must stay narrow
-
-The request is a touch, not a restyle. Two reasons the narrow version is the correct one, not the timid one:
-
-1. **The warm paper is the product.** DESIGNSTATE.md's thesis is that SIFT's answers are typeset like a letterpress essay. A hard slab behind the essay block would contradict the voice, not reinforce it.
-2. **A grammar only survives if it is sparse.** If every surface is hard, "hard" carries no information and the app should have been a full restyle. Section 6.2 states the budget that keeps the signal alive.
-
-### One derivation that makes the whole system work
-
-A down-right offset hard shadow shows only a thin sliver on the bottom and right of a control. That sliver always sits on the **page surface** — `canvas` or `paper` — never on the control's own fill.
-
-So the shadow token only ever has to clear 3:1 against the page surface, and is completely fill-agnostic. That is why one locked shadow token works for all nine surfaces, in both modes, on saturated fills (`accentDeep`) and light fills (`ink` in dark mode) alike.
-
-**The derivation covers the shadow, and only the shadow.** A `BoxDecoration` border paints *inside* the box, **on top of** `decoration.color`. So a control's focus ring, its resting edge, and any label drawn on a fill are all scored against the control's **own box** — never against the page. An earlier version of this document asserted the opposite for the ring (that it "never sits on the fill") and concluded that one focus colour and one placement rule could serve every surface. Both claims were false. §6.10 states the rule that replaced them; §7.1 carries the arithmetic for both halves.
+**The derivation covers the shadow, and only the shadow.** A `BoxDecoration`
+border paints *inside* the box, **on top of** `decoration.color`. So a focus
+ring, a resting edge, and any label drawn on a fill are all scored against the
+box's **own fill** — never against the page. An earlier version of this document
+asserted the opposite for the ring (that it "never sits on the fill") and
+concluded that one focus colour and one placement rule could serve every surface.
+Both claims were false. §6.10 states the rule that replaced them; §7.1 carries
+the arithmetic for both halves, and **§4.9–§4.16 apply that same rule to the
+read-only surfaces** rather than inventing a parallel one.
 
 ---
 
@@ -69,22 +136,23 @@ Read from `git show HEAD:<file>`. The per-file split is not read off the total r
 
 > **Correction to the brief, and to an earlier version of this table.** The brief stated 26 call sites across 8 screens; the tree has **29 migratable across 11 files** (22 across 7 screen files, plus 7 in `lib/widgets/`). Migrate against this table, not the brief's number.
 
-**The 30th site, and why it is not in the table above.** `detail_screen.dart:324` is the OCR copy button — a `TextButton` carrying a `style:` override. §2.5 excludes it, so it is neither counted as migratable nor migrated. It is the single remaining Material button in the app.
+**The 30th site — the OCR copy button — was the one sanctioned exception, and it is no longer one.** `detail_screen.dart:324` (pre-migration) was a `TextButton` carrying a `style:` override, excluded by §2.5 as a "read-only mono block" exception. The §2.5 reversal retired it: it is now a `BrutalButton.outline` at height 36, and it is the **only** Material button left in the app at 0.
 
 | | Filled | Outlined | Text | Total |
 |---|---|---|---|---|
 | Pre-migration, all call sites | 15 | 2 | 13 | 30 |
-| Less the §2.5 OCR exception | −0 | −0 | −1 | −1 |
-| **Migratable** | **15** | **2** | **12** | **29** |
+| Less the §2.5 OCR exception (as built) | −0 | −0 | −1 | −1 |
+| **Migratable, as built** | **15** | **2** | **12** | **29** |
+| Plus the OCR exception, after the reversal | +0 | +1 | −1 | **30 of 30** |
 
-**Post-migration tree state, for the §8 exit check.** Line references in this table are post-migration.
+**Post-reversal tree state.** Line references in this table are post-migration.
 
 | | Filled | Outlined | Text | `BrutalButton` |
 |---|---|---|---|---|
-| Remaining in `lib/` | **0** | **0** | **1** (OCR, sanctioned) | **29** |
-| Migrated | 15 → 0 | 2 → 0 | 12 → 1 exempt | **29 of 29** |
+| After the §2.5 reversal | **0** | **0** | **0** | **30** |
+| Migrated | 15 → 0 | 2 → 0 | 13 → 0 | **30 of 30** |
 
-Of the 29 `BrutalButton`s: 10 `filled`, 1 `destructive` (`settings_screen.dart:1030` pre-migration, `settings_screen.dart:1035` post-migration), 2 `outline` (both `.icon` forms), 12 `text`, 4 `.icon` filled. Every per-file row above reconciles exactly against the current tree — the same 4 / 7 / 3 / 2 / 2 / 2 / 2 / 2 / 2 / 2 / 1 split — which is the check that the migration moved call sites and neither added nor dropped any. The three tables reconcile in that order: 15 + 2 + 13 = **30** call sites pre-migration, less the one sanctioned OCR `TextButton`, leaves **29** migratable, and the tree as built contains exactly 29 `BrutalButton` call sites and exactly one Material button.
+Of the 30 `BrutalButton`s: 10 `filled`, 1 `destructive` (`settings_screen.dart:1030`), 3 `outline` (two `.icon` plus the OCR copy button), 12 `text`, 4 `.icon` filled. Every per-file row in the pre-migration table reconciles against that — the same 4 / 7 / 3 / 2 / 2 / 2 / 2 / 2 / 2 / 2 / 1 split — which is the check that the migration moved call sites and neither added nor dropped any. The tables reconcile in that order: 15 + 2 + 13 = **30** pre-migration, and the tree as built now contains exactly 30 `BrutalButton` call sites and **zero** Material buttons.
 
 ### 2.2 Text inputs — 5
 
@@ -106,7 +174,7 @@ All five are the same shape: a `Container` with a `BoxDecoration` wrapping a `Te
 | `_FilterChip` | `actions_history_screen.dart:387-431` | `surfaceWarm1`/`accentSoft` fill, **no border**, 32dp | Note: this one has no border at all today |
 | `_PromptChip` | `chat_screen.dart:780-814` | `surfaceWarm1` fill, **no border**, 32dp | Example prompts and recent queries |
 
-`TypeBadge` (`widgets.dart:8-37`) and `TagChip` (`widgets.dart:40-103`) are **not** in this list. They are data labels, not controls — see §2.5.
+`TypeBadge` and `TagChip` are **not** in this list, because they are data labels, not controls. Since the §2.5 reversal they *are* hard-edged, but as labels rather than as chips: same 2pt edge and `rControl`, **no cast shadow**, and no focus or press machinery. §4.12 specifies them and says why the missing shadow is the thing that keeps them from looking pressable.
 
 ### 2.4 Switches — 1 helper, 3 call sites
 
@@ -114,24 +182,39 @@ All five are the same shape: a `Container` with a `BoxDecoration` wrapping a `Te
 
 ### 2.5 Explicitly OUT of the brutal set
 
-Each exclusion is a direct application of the §1 rule, not a separate opinion.
+**Amended.** This table used to hold fourteen rows; **nine of them were
+reversed** after the device review (§1), and **one more — the chat bubble — is
+newly in scope**. Those ten are now specified in §4.9–§4.16 and are marked
+**IN SCOPE** below. What remains is the current exclusion list, and every
+remaining row is still a live constraint.
 
-| Surface | File:line | Why it stays warm |
+| Surface | File | Status |
 |---|---|---|
-| Screenshot cards | `home_screen.dart`, `skeleton.dart:39-49` | Read-only content. This is the essay surface. |
-| `TypeBadge` | `widgets.dart:8-37` | A label, not a control. Full pill stays. |
-| `TagChip` body | `widgets.dart:40-103` | A label, not a control. Only its 40×40 delete target gets a focus ring (§4.6). |
-| Evidence-strip thumbnails | `chat_atoms.dart:227-250` | 48dp, `cacheWidth: 96`. Read-only provenance, not a control surface. |
-| OCR block + copy button | `detail_screen.dart:310-356` | Read-only mono block. The copy button at `:324` stays a Material `TextButton` and receives a focus ring only. **This is the single known exception in the app** — see §6.9. |
-| Circular icon buttons | `_CameraCircle` `home_screen.dart:964`, `SiftSendCircle` `chat_screen.dart:723`, `_AddCircle` `detail_screen.dart:798`, `_AddItemCircle` `shopping_list_screen.dart:330`, `_QuietCircle` `detail_screen.dart:625` | A hard cast shadow fights a circle's curvature, and a 2pt border on a 40dp circle reads as a rendering artifact. These keep their existing press-scale. |
-| `_ThemeSegmented` | `settings_screen.dart:1279` | Its selected state is a *sliding thumb*. A hard shadow on a sliding thumb means animating a shadow — out of scope (§9). |
-| Snackbar | `app_theme.dart:611-623` | Not a control; a system surface. |
-| Bottom-sheet chrome | `widgets/bottom_sheet.dart:34-58` | Not a control. The **contents** are — see §4.10. |
-| Dialog chrome | `app_theme.dart:632-640` | Not a control. The **action row** is — see §4.9. |
-| Processing / ingest / error banners | `widgets.dart:177-228`, `ingest_banner.dart:34-95`, `home_screen.dart:449-482` | Status, not control. |
-| `_flatRow`, `_infoRow`, `_linkRow`, `_FeatureRow`, `_licenseRow` | `settings_screen.dart:733-826`, `about_dialog.dart:90-163` | Tappable rows, but they are **navigation affordances inside a scroll of identical rows**. Brutalizing them turns the Settings list into a wall of hard edges — the §6.2 misuse. They get a focus ring only. |
-| Nav bar, evidence strip rows, related-link rows | `app_shell.dart`, `chat_atoms.dart:142-250`, `chat_atoms.dart:592-626` | Same reason. |
-| Skeletons, `EmptyState` chrome, dividers, OCR mono, all typography | — | Outside the token scope (§9). |
+| Screenshot cards | `home_screen.dart`, `skeleton.dart` | **IN SCOPE (reversed)** → §4.10 |
+| `TypeBadge` | `widgets.dart` | **IN SCOPE (reversed)** → §4.12. Kept non-interactive: hard edge, no shadow. |
+| `TagChip` body | `widgets.dart` | **IN SCOPE (reversed)** → §4.12. Its 40×40 delete target keeps its own ring (§4.6). |
+| OCR block + copy button | `detail_screen.dart` | **IN SCOPE (reversed)** → §4.16. The copy button is now `BrutalButton.outline`; **the app has zero Material buttons.** |
+| Snackbar | `app_theme.dart` | **IN SCOPE (reversed)** → §4.11 |
+| Bottom-sheet chrome | `widgets/bottom_sheet.dart`, `app_theme.dart` | **IN SCOPE (reversed)** → §4.11 |
+| Dialog chrome | `app_theme.dart` | **IN SCOPE (reversed)** → §4.11 |
+| Processing / ingest / error banners | `widgets.dart`, `ingest_banner.dart`, `home_screen.dart` | **IN SCOPE (reversed)** → §4.13 |
+| Skeletons | `skeleton.dart` | **IN SCOPE (reversed)** → §4.15. (Row separators and OCR **mono type** in the same old row did **not** reverse.) |
+| ~~User chat bubble~~ | `chat_atoms.dart` | **IN SCOPE (new)** → §4.14. Never listed here before, and it was inconsistent the moment the bubble's neighbours hardened. |
+
+**Still excluded, each with its reason unchanged:**
+
+| Surface | File | Why it stays warm |
+|---|---|---|
+| Evidence-strip thumbnails | `chat_atoms.dart:161-251` | 48dp image boxes read at `cacheWidth: 96`. A 2pt edge there is 4% of the image and lands ON the photograph; the fill already separates them from the page. Bare image containers, not surfaces. |
+| Circular icon buttons | `_CameraCircle`, `SiftSendCircle`, `_AddCircle`, `_AddItemCircle`, `_QuietCircle` | A hard cast shadow fights a circle's curvature. **Still honoured** — the shape exclusion over-reached onto FOCUS once and that was fixed in §7.7; it has not been fixed back. |
+| `_ThemeSegmented` | `settings_screen.dart` | Its selected state is a *sliding thumb*. A hard shadow on a sliding thumb means animating a shadow. |
+| `_flatRow`, `_infoRow`, `_linkRow`, `_FeatureRow`, `_licenseRow`, nav bar, evidence rows, related-link **rows** | `settings_screen.dart`, `app_shell.dart`, `chat_atoms.dart` | Tappable rows, but they are **navigation affordances inside a scroll of identical rows**. Brutalizing them turns a Settings list into a wall of hard edges — §6.2. They get a focus ring only. Note the asymmetry that this creates and that it is deliberate: the *container* is hard (§4.9), the *rows* inside it are not. |
+| The assistant essay block | `chat_atoms.dart` `EssayBlock` | It is **bare text on the page** and stays that way. §4.16 explains why adding a bubble would be the one place the reversal should stop. |
+| Photo overlays — the card's timestamp pill, `_QuietCircle` back/pin | `home_screen.dart`, `detail_screen.dart` | These sit ON a screenshot. A hard edge there competes with the image for attention and reads as part of the screenshot. |
+| Status pills — the chat header's Local/Cloud chip, `_quietTag` ("Recommended") | `chat_screen.dart`, `settings_screen.dart` | Small status indicators whose whole job is a hue plus an icon. A 2pt edge on a 12pt-radius pill of `accentSoft` would be mostly border. Not containers. |
+| **Row separators** — all 8 `Divider(...)` call sites | `actions_history_screen.dart:219,292`, `detail_screen.dart:282`, `onboarding_screen.dart:289,291`, `settings_screen.dart:502`, `shopping_list_screen.dart:226`, `about_dialog.dart:171` | Every one separates two rows of the **same table**. §4.15 argues this with the arithmetic. |
+| Edge-to-edge screen rules — the nav bar's top border, the detail/shopping bars' top and left borders | `app_shell.dart:112`, `detail_screen.dart:479,507`, `shopping_list_screen.dart:64,146` | A 2pt line across the full width of a screen is a page border, not a component edge. |
+| `EmptyState` chrome, all typography, `SiftSpacing` | — | §9. |
 
 ---
 
@@ -144,13 +227,17 @@ New tokens **extend** the existing system. No existing constant changes value. T
 ```dart
 import 'package:flutter/material.dart';
 
-/// Neobrutalism-as-accent tokens.
+/// Neobrutalism tokens.
 ///
-/// SIFT is a warm-paper reading app. These tokens do not restyle it. They add
-/// one visual grammar — "hard edge means this is a control" — to interactive
-/// surfaces only, so tappability is learnable without tapping. Read-only
-/// content keeps the paper personality; see DESIGN-BRUTALIST.md §2.5 for the
-/// surfaces that are deliberately excluded.
+/// SIFT is a warm-paper reading app, and this is now the app's surface language
+/// rather than a control accent. The §1 rule that governed the first pass —
+/// "brutalism marks what you can touch, warmth marks what you read" — was
+/// REVERSED after a device review: brutal buttons were landing inside warm
+/// containers and the user judged the remainder not to belong to them. The
+/// grammar is now one system across every surface, interactive and read-only
+/// alike. DESIGN-BRUTALIST.md §1 records the reversal and the reason; the
+/// colour personality of the palette is unchanged, so the app still reads as
+/// warm paper carrying hard edges.
 ///
 /// Every value here is locked. Per-component overrides are a bug, not a
 /// variation: two different shadow directions is the fastest way to make a
@@ -299,6 +386,27 @@ abstract final class SiftBrutal {
   static Color edgeOnFill(bool isDark) =>
       isDark ? edgeOnFillDark : edgeOnFillLight;
 
+  /// RESTING 2pt edge on a hard-edged READ-ONLY surface: the card, the
+  /// dialog and sheet boxes, the chat bubble, the badge, the tag, the banners,
+  /// the skeleton, and the OCR block.
+  ///
+  /// This is `stone`, already the resting edge on every page-filled
+  /// interactive control, so the §2.5 reversal cost no new colour in either
+  /// mode. The old edge could not be kept for the same reason the control edge
+  /// could not: a `BoxDecoration` border is painted on top of the fill, so the
+  /// card's 1pt `divider` was 1.42:1 light / 1.22:1 dark on a box that is an
+  /// `InkWell`.
+  ///
+  ///   light  paper 4.72 · canvas 4.53 · surfaceWarm1 4.15 · surfaceWarm2 3.79
+  ///         · errorSoft 3.90 · codeBg 3.45  <- the OCR block, tightest row
+  ///   dark   paper/surfaceWarm1 4.68 · canvas 5.28 · surfaceWarm2 3.83
+  ///         · errorSoft 3.78 · codeBg 5.74
+  static const Color surfaceEdgeLight = Color(0xFF7A6E61); // == stone (light)
+  static const Color surfaceEdgeDark = Color(0xFF998D80); // == stone (dark)
+
+  static Color surfaceEdge(bool isDark) =>
+      isDark ? surfaceEdgeDark : surfaceEdgeLight;
+
   /// Press timing. Mirrors MotionTokens.press / MotionTokens.pressRelease
   /// rather than restating them, so the brutal press obeys the app's single
   /// reduced-motion gate for free: under reduced motion both durations
@@ -309,14 +417,16 @@ abstract final class SiftBrutal {
 }
 ```
 
-`brutal_tokens.dart` imports `motion_tokens.dart` and nothing else. The control radius lives in exactly one place — `SiftRadii.rControl` — and `SiftBrutal` has **no** `radius` constant. Every brutal control that has a corner to round reads that one name: `BrutalButton` (`brutal_button.dart:280`), `SiftBrutalChip` (`brutal_chip.dart:189`), `BrutalField` (`brutal_field.dart:169`) and the sheet's `_SourceOption` (`bottom_sheet.dart:188`). The one brutal surface without a corner is `TagChip`'s 40pt delete target, which is `BoxShape.circle` and has no radius to set — not an oversight. A second copy of the value is how one hard edge becomes two, so the absence is the enforcement.
+`brutal_tokens.dart` imports `motion_tokens.dart` and nothing else. The control radius lives in exactly one place — `SiftRadii.rControl` — and `SiftBrutal` has **no** `radius` constant. Every hard-edged surface that has a corner to round reads that one name: `BrutalButton`, `SiftBrutalChip`, `BrutalField`, the sheet's `_SourceOption`, and — since the §2.5 reversal — the card, dialog, sheet chrome, snackbar, chat bubble, badge, tag, banners, skeleton and OCR block. The two hard-edged surfaces without a corner are `TagChip`'s 40pt delete target and the chat send circle, and both are `BoxShape.circle`, so neither has a corner radius to set. A second copy of the value is how one hard edge becomes two, so the absence is the enforcement.
+
+**The four values a read-only surface needs are built in one function, not sixteen.** `brutalEdge(...)` lives in `brutal_chip.dart` beside `SiftBrutalChip` — beside it deliberately, because the reason a pill cannot carry this border (§4.6) is the reason the labels belong in the same file. It takes `fill`, `isDark`, and optional `border` / `shadow` / `borderRadius` overrides, and returns the `BoxDecoration` for a `rControl` corner, the 2pt edge and the hard shadow. `SiftBrutalChip` is its first caller, passing both overrides because it has focus, press and disabled branches. The rest — `TypeBadge`, `TagChip`, `_RecognitionChip`, `_SiftCard`, `ScreenshotCardSkeleton`, `ProcessingBanner`, `IngestBanner`, the home error banner, the home batch bar, the home Ask bar, Detail's web-result tile, the OCR block, `UserPill`, `RelatedLinksStrip`, the onboarding mock panel, `PremiumBottomSheet` — take the defaults.
 
 ```dart
-// In SiftRadii, appended. Interactive surfaces only; the values below it are
-// unchanged and remain correct for their read-only surfaces.
-/// Control radius (buttons, inputs, chips, sheet options). Lower than
-/// rField (16) because a hard 2pt border on a 16pt corner reads as a chip
-/// mended with tape. Cards/sheets/thumbs/OCR are NOT affected.
+// In SiftRadii. Interactive surfaces AND read-only surfaces; the values below
+// it are unchanged and remain correct for what still uses them.
+/// The one hard-edged radius: buttons, inputs, chips, sheet options, and — since
+/// the §2.5 reversal — cards, dialogs, sheets, snackbars, chat bubbles, badges,
+/// tags, banners, skeletons and the OCR block.
 static const double rControl = 4;
 ```
 
@@ -324,16 +434,45 @@ static const double rControl = 4;
 
 ### 3.2 What this does NOT touch
 
-Explicit, and each is load-bearing for the review:
+**Amended for the §2.5 reversal.** The original list said "interactive surfaces
+only". It no longer says that. What is still true, and load-bearing:
 
-- **Serif families.** `SiftType.serifFamily = 'SourceSerif4'` and every `serif*` role are unchanged. The assistant voice is the product.
-- **Canvas / paper / surface colors.** `SiftColors.canvas`, `paper`, `surfaceWarm1`, `surfaceWarm2` are unchanged in both `light` and `dark`.
-- **The accent itself.** `accent #D97757` is unchanged. `accentDeep #B04F2B` is unchanged. `accentSoft` is unchanged. `accentPressed #BE6242` stays in the palette but is retired for brutal buttons (§4.1 explains why).
-- **Soft shadow levels L1–L5 and `l4Dark`.** Untouched, alpha and offset unchanged. `SiftElevation.card()` and `SiftElevation.sheet()` unchanged.
-- **Every radius except the new `rControl`.** `rCard 20`, `rSheet 24`, `rThumb 12`, `rField 16` (still used by non-brutal surfaces: `RelatedLinksStrip` `chat_atoms.dart:578`, `_flatRow` `settings_screen.dart:747`, `_batchBar` `home_screen.dart:655`, `_ThemeSegmented`), `rInline 4`, and the 999 pills on `TypeBadge` / `TagChip` are all unchanged.
-- **`SiftSpacing`.** No spacing value changes. See §6.5 for the touch-target reasoning that this implies.
-- **`AppTheme.hairline(isDark)`.** Unchanged. Still 0.5 / 1.0, still used by cards, banners, and the untouched surfaces.
-- **No new hex outside `app_theme.dart` / `brutal_tokens.dart`.** The only two new colors are `Color(0x8C281E14)` and `Color(0x73E8E0D2)`, both declared in `brutal_tokens.dart`. This preserves the invariant recorded in DESIGNSTATE.md:128 ("all hexes in app_theme.dart") in spirit — `brutal_tokens.dart` joins it as the second sanctioned home for hex literals.
+- **Serif families.** `SiftType.serifFamily = 'SourceSerif4'` and every
+  `serif*` role are unchanged. **The assistant voice is the product** — §4.16 is
+  the surface where the reversal stops rather than continue, precisely so this
+  stays true.
+- **Canvas / paper / surface colours.** `SiftColors.canvas`, `paper`,
+  `surfaceWarm1`, `surfaceWarm2` are unchanged in both `light` and `dark`.
+  **No read-only surface in §4.9–§4.16 changed its fill.** Every contrast figure
+  in §7.1 that concerns body text is therefore carried over unchanged, and the
+  only new numbers are for the EDGES — which is why the work could be done
+  without re-auditing any copy.
+- **The accent itself.** `accent #D97757` is unchanged. `accentDeep #B04F2B` is
+  unchanged. `accentSoft` is unchanged. `accentPressed #BE6242` stays in the
+  palette but is retired for brutal buttons (§4.1 explains why).
+- **Soft shadow levels L1–L5 and `l4Dark`.** Untouched, alpha and offset
+  unchanged, and §9 forbids removing them — they are the ramp for non-surface
+  work. **What changed is that no visible surface reads them any more**;
+  `test/brutal_surface_test.dart` asserts that too. `SiftElevation.card()` and
+  `SiftElevation.sheet()` are kept as superseded helpers, not deleted, with
+  comments saying so.
+- **`SiftSpacing`.** No spacing value changes. See §6.5 for the touch-target
+  reasoning that this implies.
+- **`AppTheme.hairline(isDark)`.** Unchanged at 0.5 / 1.0, and still read by the
+  screen-edge rules, the row separators, and the surfaces §2.5 still excludes.
+- **Every radius except `rControl`.** `rCard 20`, `rSheet 24`, `rThumb 12`,
+  `rField 16`, `rInline 4` and the 999 pills are all unchanged as tokens. What
+  changed is that `rCard`, `rSheet` and `rField` now have far fewer callers:
+  `rCard` has **none**, `rSheet` has **none**, and `rField` survives only on
+  `_flatRow` / `_infoRow` / `_linkRow` in Settings, which are §2.5 exclusions.
+- **No new hex outside `app_theme.dart` / `brutal_tokens.dart`.** The colours
+  introduced by the reversal are `surfaceEdgeLight/Dark`, and both are aliases of
+  `SiftColors.stone`, which both instances already had — the same pattern as
+  `edgeOnFill` → `bone` and `edgeOnTrack` → `divider` / `ink`. The only true
+  literals remain `Color(0x8C281E14)` and `Color(0x73E8E0D2)`. This preserves
+  the invariant recorded in DESIGNSTATE.md:128 ("all hexes in app_theme.dart") in
+  spirit — `brutal_tokens.dart` is the second sanctioned home.
+- **No copy.** Not one runtime string literal changed. See §6.9.
 
 ---
 
@@ -446,7 +585,7 @@ The accepted cost: ghost buttons are the one interactive class that does not car
 - **The border does move, and only because the border is painted on the fill.** The selected `ink` fill is a slab, so it takes `E` at rest and `F'` on focus; the unselected chip fills with a page step and keeps `stone` + `F`. The press never changes the chip's fill, so the ring has no press term here. Old `stone`-on-selected-`ink` measured 3.03:1 in light and would have been fine — the defect was the ring (2.86:1 in light, 2.38:1 in dark), and carrying the edge through the same rule is what keeps one control from having two border vocabularies. `E` on the selected fill is 6.64:1 light / 6.08:1 dark.
 - **32dp chips and the 4dp translate.** `home_screen.dart:568-575` wraps the 32dp chip in a `SizedBox(height: 40)` and centres it, leaving exactly 4dp of slack above and below — the translate fits without overflow. Verify this at build time; it is the one place the chip translate can clip.
 - `actions_history_screen.dart:387-431` and `chat_screen.dart:780-814` have **no border today**. Adding the 2pt border grows each chip by 4px total in each dimension. Both sit in wrapping/clipped rows; confirm no row reflows in Phase 3 review.
-- `TagChip`'s 40×40 delete target (`widgets.dart:80-97`) gets a focus ring of `F` @ B and nothing else. Its pill body is unchanged. The delete target's own box carries no fill, so the ring is scored against the `paper` pill beneath it — a page step, hence `F` and not `F'`.
+- `TagChip`'s 40×40 delete target (`widgets.dart`) gets a focus ring of `F` @ B and nothing else. **Superseded in part by the §2.5 reversal:** its pill body is now hard-edged too, as a *label* — `rControl`, 2pt `surfaceEdge`, and deliberately **no shadow** (§4.12). The target itself is unchanged: a `BoxShape.circle` carries no radius to set, and its own box has no fill, so the ring is scored against the `paper` pill beneath it — a page step, hence `F` and not `F'`.
 
 ### 4.7 Switch — `switchTheme` only, no new widget
 
@@ -510,6 +649,278 @@ Four things this fixes, all arithmetic:
 `app_theme.dart:660` sets `maximumSize: Size.fromHeight(48)`. Under Material, `shape`'s border is painted *inside* the widget's bounds, so a 2pt border at height 48 leaves a 44dp interior. That is above Material's 40dp minimum and preserves the 48dp touch target exactly. No `maximumSize` change is needed and none should be made.
 
 The one thing to watch: `BrutalButton` is a custom widget, so the theme's `maximumSize` no longer applies to it. `BrutalButton` must therefore set its own `height: SiftSpacing.btnH` (48) for the default filled/outlined variants and must not read `maximumSize` from the theme. `textButtonTheme` currently sets `minimumSize: Size(0, 40)` (`app_theme.dart:724`); `BrutalButton.text` should match at 40 to keep the 12 ghost call sites' row heights identical.
+
+---
+
+### 4.9 Read-only containers — the shared contract
+
+Every surface in §4.10 through §4.16 is built by `brutalEdge(...)` and obeys this
+table. It is stated once because it is true once.
+
+| | Fill | Border | Shadow | Press / focus |
+|---|---|---|---|---|
+| Read-only surface | unchanged | `surfaceEdge(isDark)` @ B | `hard(isDark)` | **none** |
+| Read-only **label** (§4.12) | unchanged | `surfaceEdge(isDark)` @ B | **`none`** | **none** |
+
+The two things that are *not* state-dependent, and why:
+
+- **The edge is scored against the surface's own fill, never the page.** A
+  `BoxDecoration` border paints inside the box on top of `decoration.color`, so
+  `surfaceEdge` had to clear 3:1 against every fill these surfaces actually
+  use. It does, in both modes, on the tightest row being the OCR block at
+  **3.45:1** (§7.1). The edge it replaced was `divider` at 1.42:1 / 1.22:1 — and
+  the card was an `InkWell`, so that was a live SC 1.4.11 failure, not a
+  preference.
+- **No press, no focus, no translate.** None of these surfaces is operable. The
+  focus machinery is not repeated here because there is nothing to focus: the
+  one focusable thing inside a read-only surface — the OCR copy button, the tag
+  delete target, the `_SourceOption` tiles, the Licenses row — is a **control**
+  and is specified in §4.1–§4.7.
+
+**Layout is untouched, and that is not luck.** A corner radius does not
+participate in layout, and `Border.all` paints inside the existing bounds, so no
+box changes size. The one exception is a chip that previously had **no** border
+and grew by 4px per axis when it got one — already noted in §4.6 — and none of
+the surfaces here was in that position except `TypeBadge` / `TagChip`, whose
+padding already left room for a 2pt border inside their existing bounds.
+
+### 4.10 Cards — `_SiftCard`, `ScreenshotCardSkeleton`, `cardTheme`
+
+| | Fill | Border | Shadow | Radius |
+|---|---|---|---|---|
+| card at rest | `paper` (unchanged) | `surfaceEdge` @ B | `hard(isDark)` | `rControl` |
+| card selected (selection mode) | `paper` | **`accent`** @ B | `hard(isDark)` | `rControl` |
+
+**Before → after:** `rCard 20` → `rControl 4`; `divider` @ 1 → `surfaceEdge` @
+2; `SiftElevation.card(isDark)` (L1 light, none in dark) → `hard(isDark)`.
+
+Two decisions worth defending:
+
+- **The selected border keeps the `accent` hue and only takes the weight.** It
+  measured 2.97:1 on `paper` in light and 4.86:1 in dark before and after —
+  thickness is not contrast — and selection is not carried by that border
+  anyway: the barrier scrim over the image and the accent check badge both
+  appear with it. Spending a new selection colour to move 0.03:1 would have been
+  a palette change dressed as a restyle, and §9 forbids that.
+- **`cardTheme` carries no hard shadow, and that is not an oversight.** Nothing
+  in the app mounts a `Card`; `_SiftCard` and `ScreenshotCardSkeleton` are
+  `Container`s and get the real `boxShadow`. `cardTheme` is the fallback for a
+  future `Card`, and `Card` has no `boxShadow` — so on a `Card` this language is
+  a border and a radius only. Its `elevation: 0` is load-bearing: a `Card` paints
+  its shadow through Material's `elevation`, and Material elevation always blurs
+  (§5.1), so leaving it on would put a soft Gaussian under a 2pt hard border.
+
+### 4.11 Dialogs, sheets, snackbars — theme chrome
+
+| | Fill | Border | Corner | Shadow |
+|---|---|---|---|---|
+| `dialogTheme` | `paper` (unchanged) | `surfaceEdge` @ B | `rControl` | **none** — `elevation: 0` |
+| `bottomSheetTheme` | `paper` (unchanged) | `surfaceEdge` @ B | `rControl`, **top corners only** | none — `elevation: 0` |
+| `PremiumBottomSheet` chrome | `paper` (unchanged) | `surfaceEdge` @ B | `rControl`, top corners only | **`hard(isDark)`** |
+| `snackBarTheme` | `ink` (unchanged) | **`edgeOnFill`** @ B | `rControl` | none — `elevation: 0` |
+
+**Before → after:** dialog `rCard 20` + no side → `rControl 4` + `surfaceEdge` @
+2, and the M3 default `elevation: 6` **removed**; sheet chrome `rSheet 24` +
+`SiftElevation.sheet` → `rControl 4` + `surfaceEdge` @ 2 + `hard`; snackbar
+`rThumb 12` + no side → `rControl 4` + `edgeOnFill` @ 2.
+
+Three things here are load-bearing and one is a **reported gap**:
+
+1. **The snackbar takes the SLAB edge, not `surfaceEdge`.** It fills with `ink`
+   in **both** modes, which is one of the four fills §6.10 defines a slab as, so
+   the border is scored against `ink`: `edgeOnFill` (`bone`) is **6.64:1** light
+   and **6.08:1** dark. The page-step `surfaceEdge` would have been 3.03:1 light
+   and **0.40:1** dark — in dark mode this box is a cream `ink` fill and `stone`
+   is a mid-warm grey, so the border would have been arithmetically absent. One
+   line of state, resolved by the same rule as the controls, not a new one.
+2. **The sheet rounds its top corners only.** It is flush with the bottom of the
+   screen; rounding all four would show the modal barrier through four 4px
+   notches. That is the reason `brutalEdge` takes a `borderRadius` override
+   rather than a `double`.
+3. **Removing `elevation` is the substantive part of the dialog change.**
+   `Dialog`/`AlertDialog`/`SnackBar` paint their shape through a `Material`, and
+   a `Material`'s only shadow is the blurred `elevation` one. Those boxes shipped
+   with a soft 24px-blur shadow; leaving it under a 2pt hard border would put two
+   shadow languages in the app, one of them a different direction — §6.3.
+4. **GAP, reported rather than papered over: a dialog gets NO hard offset
+   shadow.** The same Material wall is why §5.1 had to build `BrutalButton` from
+   scratch, and it holds for `Dialog`: a `Material` cannot take a `boxShadow`.
+   Getting one would mean hand-painting it at each of the eight `AlertDialog`
+   call sites, which is the "29 chances to get the gutter wrong" problem §5.1
+   already rejected for buttons — and unlike buttons, the `Dialog` box's own
+   `Material` would still draw over the wrapper. **The dialog therefore carries
+   a 2pt edge, a 4pt corner and no shadow, and that is the state that shipped.**
+   `PremiumBottomSheet` gets its real shadow because it is a `Container`, not a
+   themed `BottomSheet`. A reviewer who wants the dialog shadow has one option
+   and no others: a shared wrapper widget applied to all eight sites, which is a
+   new spec, not a local patch.
+
+### 4.12 Labels — `TypeBadge`, `TagChip`, `_RecognitionChip`
+
+| | Fill | Border | Corner | Shadow | Focus / press |
+|---|---|---|---|---|---|
+| label at rest | unchanged (`badgeBg` / `paper` / `surfaceWarm1`) | `surfaceEdge` @ B | `rControl` | **none** | **none** |
+
+**Before → after:** 999-radius pill, no border (badge) or a 1pt `tagBorder`
+hairline (tag) → `rControl` 4 with the 2pt `surfaceEdge`.
+
+**The missing shadow is the whole design of this row.** A hard offset shadow
+needs a silhouette to cast from, and it is what makes a hard box read as an
+extruded object — that is, as something you can press. A label that casts would
+be indistinguishable from an unselected `SiftBrutalChip` at a glance. §4.3
+already established the principle for ghost buttons ("giving a ghost a shadow
+means giving it a fill, which promotes a quiet secondary action to primary
+visual weight"); §4.12 applies the same reasoning one step further down, to
+something that is not a control at all. `brutal_chip_test`-style parity is
+asserted directly: the label and the chip share a radius and a border width and
+differ **only** in shadow.
+
+`TagChip`'s 40×40 delete target is unaffected — it is a `BoxShape.circle`
+control with its own ring (§4.6), and §4.12 is about the body.
+
+### 4.13 Banners — `ProcessingBanner`, `IngestBanner`, the home error banner
+
+| | Fill | Border | Corner | Shadow |
+|---|---|---|---|---|
+| processing | `surfaceWarm2` (unchanged) | `surfaceEdge` @ B | `rControl` | `hard(isDark)` |
+| ingest, running | `surfaceWarm2` (unchanged) | `surfaceEdge` @ B | `rControl` | `hard(isDark)` |
+| ingest, **paused** | `surfaceWarm1` (unchanged) | `surfaceEdge` @ B | `rControl` | `hard(isDark)` |
+| error | `errorSoft` (unchanged) | `surfaceEdge` @ B | `rControl` | `hard(isDark)` |
+
+**Before → after:** `rThumb 12`, no border, no shadow → `rControl` 4 + 2pt +
+`hard`. The paused state steps the fill down one step rather than recolouring
+the edge, so the edge keeps 3.79:1 light / 3.83:1 dark in both states.
+
+The home error banner was not on the original list but is the same class of
+surface as the two banners next to it; leaving it soft would have been the
+§6.1 incoherence on the very screen the reversal was about. It is called out in
+§10 so a reviewer can see it was a decision rather than a drift.
+
+**Both animated affordances survive untouched:** `PulsingMark`'s 1.0 → 1.15
+pulse and each banner's dismiss / pause-resume `IconButton` keep their tap
+target and their callback. The banner has no hover or press state of its own —
+it is not operable.
+
+### 4.14 Chat bubbles — `UserPill`
+
+| | Fill | Border | Corner | Shadow |
+|---|---|---|---|---|
+| user turn | `surfaceWarm1` (unchanged) | `surfaceEdge` @ B | `rControl` | `hard(isDark)` |
+
+**Before → after:** 999-radius capsule, no border, no shadow → `rControl` 4 + 2pt
++ `hard`. Alignment (right), max width (80%), padding (16/10) and the 300ms
+entrance slide are unchanged.
+
+**The assistant side was NOT given a bubble, and that is the decision a reviewer
+should check first.** `EssayBlock` remains bare serif text on the page. Two
+arguments, and they point the same way:
+
+1. **The distinction is already structural, and hardening the user side did not
+   weaken it.** The user turn has a box; the assistant turn has none. That is a
+   difference in *presence*, not in hue, and it survives a colour-blind reader, a
+   greyscale screenshot and a dark-mode render identically. Adding a matching
+   bubble to the assistant would have replaced a structural difference with a
+   symmetric pair that only fill could still separate — strictly worse.
+2. **The serif voice has no container in DESIGNSTATE.md and still has none.**
+   §9 protects the typography; §4.16's whole content is that protecting the
+   voice and the boxed bubble are the same decision taken twice.
+
+`RelatedLinksStrip`, the assistant's one card-like container, **was** given the
+hard edge (§4.9's shared contract) — it is a container, not text. Its individual
+link rows stay soft, for the §2.5 reason.
+
+### 4.15 Skeletons and row separators
+
+**Skeleton.** `ScreenshotCardSkeleton` now resolves the *same* `brutalEdge(...)`
+call as `_SiftCard`: `rControl` 4, `surfaceEdge` @ 2, `hard(isDark)`. Before:
+`rCard 20`, a `divider` hairline, `SiftElevation.card(isDark)`. This is not
+cosmetic — a skeleton at the old radius while the real card lands at 4pt is a
+visible pop at the exact moment data arrives, on the screen the user waits
+longest on, and it reads as a rendering fault rather than as a load finishing.
+The inner `SkeletonLoader` blocks keep `surfaceWarm2` with **no** edge and **no**
+shadow: they are fills, not surfaces, and an edged block inside an edged card
+would be noise. Their corner default moved from a bare `8` to `SiftRadii.rInline`
+so the text-line blocks match the card they stand in for.
+
+**Row separators — the deliberate non-change, with the arithmetic.** All eight
+`Divider(...)` call sites pass an explicit `thickness: 1` and **keep it**. The
+themed `dividerTheme.thickness` **was** raised to `SiftBrutal.borderW` so that a
+`Divider` which does not override it is a deliberate rule.
+
+The argument against propagating it, in one line: what makes these rules quiet is
+their **colour**, not their weight. `divider` measures **1.42:1** on `paper` and
+**1.37:1** on `canvas` in light — a whisper. A 2pt rule in that colour is the
+same whisper drawn twice as thick, which reads as *heavier*, not as *more
+visible*. And every one of the eight is an **intra-surface row separator**:
+Settings checklist rows, Detail's File/Scanned/Type table, shopping items,
+action-history rows, the About feature rows, the Onboarding trust rows. A 2pt
+line between two rows of one table marks a boundary that is not there, while the
+2pt edges around every actual container get quieter by comparison.
+
+The alternative the brief raises — "short rules or gaps instead" — was considered
+and rejected: removing them is a layout change (§9), and a short rule would need
+a width that is a design decision with no user benefit over a full-width hairline
+at this contrast.
+
+`test/brutal_surface_test.dart` pins the count (8) so "we raised the theme and
+forgot the call sites" cannot be mistaken for "we decided this".
+
+### 4.16 The OCR block
+
+| | Fill | Border | Corner | Shadow | Copy control |
+|---|---|---|---|---|---|
+| OCR block | `codeBg` (unchanged) | `surfaceEdge` @ B | `rControl` | `hard(isDark)` | `BrutalButton.outline`, height 36 |
+
+**Before → after:** `rThumb 12`, no border, no shadow → `rControl` 4 + 2pt
+`surfaceEdge` + `hard`. This was the ONE surface the spec explicitly excluded,
+on the reasoning that "a hard border plus a cast shadow on a copy affordance
+would make the text look broken". Both mechanical concerns behind that were
+checked and neither survives:
+
+- **The text does not move and does not change.** The block is still
+  `SelectableText` in `SiftType.ocrMono` at 13pt/1.6, `codeText` on `codeBg`, at
+  the same 16/16 padding. Its contrast is unchanged because its **fill** is
+  unchanged: **13.06:1** light, **14.20:1** dark.
+- **The truncation is untouched.** The 500-character cap is
+  `ChatEngine._ocrCharsPerScreenshot` in `chat_engine.dart`, not the detail
+  screen; neither file was edited in that respect, and the test file asserts
+  both halves so a future edit cannot quietly add a second truncation.
+- **The edge is the tightest row in the whole system and still clears 3:1:**
+  `stone` on `codeBg` is **3.45:1** light and **5.74:1** dark. `codeBg` is a
+  near-black slab in *both* modes, so it is neither a page step nor one of the
+  four slab fills; `surfaceEdge` was extended to cover it rather than a
+  per-surface colour being invented. (`bone` would also have cleared it, at
+  7.57:1 in light, but from a different palette step than every other surface's
+  edge — which is the one thing the token exists to prevent.)
+
+**The copy button is now `BrutalButton.outline`, and the variant is forced:**
+
+- Not the **ghost**: a ghost has no fill to lift it, so its default `ink` label
+  would measure **1.14:1** on this `codeBg` fill. A ghost cannot be used on a
+  near-black slab at all.
+- Not `filled`: an `accentDeep` slab floating in a dark block would be a second,
+  unrelated accent mass in the middle of a read-only surface.
+- `outline` gives `paper` on `codeBg` — 16.27:1, and the button becomes the
+  brightest thing in the block, which is correct: it is the only thing in there
+  you can touch.
+
+Height stays **36** and horizontal padding stays `SiftSpacing.s12`, matching the
+`minimumSize: Size(0, 36)` and `EdgeInsets.symmetric(horizontal: 12, vertical: 6)`
+the Material button had, so the block does not grow. The label keeps
+`SiftType.metaLabel` rather than `buttonLabel` — it is meta copy and §9 forbids
+a typography change. 12pt is the *restored* size, not a new one: the Material
+`TextButton` styled its child with `metaLabel`, so the reversal must match it
+(`microLabel` here would have been a silent 1pt reduction). At 12pt/1.3 the text
+is 15.6dp, still under the 16dp icon, so `height: 36` does not grow. The label
+also sets **no colour of its own**, which is what lets
+`DefaultTextStyle.merge` supply the per-state label. A `codeText` label would
+have been 1.00:1 on the outline variant's `paper` fill.
+
+The migration is a net accessibility gain, not just a style change: the Material
+`TextButton` gave the control a `TextButton`-level focus side and no explicit
+`Actions`, and `BrutalButton` brings `brutalActivate`, a 2pt ring that clears
+3:1 against its own fill, and `Semantics(button: true)`. **The app now contains
+zero Material buttons.**
 
 ---
 
@@ -673,7 +1084,7 @@ Preserve at each site: the `onPressed` body verbatim, the `Text`/`label` string 
 
 Two `FilledButton.icon` sites carry a `CircularProgressIndicator` as their icon while a long action runs — `detail_screen.dart:526-535` and `:876-881`. `BrutalButton` must accept an arbitrary icon widget, and the pressed fill inversion must **not** run while that indicator is showing (the control is busy, not pressed). The `onPressed: _running ? () {} : _runAction` pattern already prevents a press; keep it.
 
-Do **not** migrate `detail_screen.dart:324` (OCR copy). See §2.5.
+~~Do **not** migrate `detail_screen.dart:324` (OCR copy). See §2.5.~~ **Superseded by the §2.5 reversal.** The OCR copy button is migrated as the 30th `BrutalButton`, as an `outline` variant; §4.16 gives the three-part argument for why `outline` rather than `text` or `filled`, and why the height and label typography were pinned to what they were.
 
 After migration, the three button theme blocks at `app_theme.dart:657-736` become dead for the app's own widgets. Leave them in place: they are the fallback for any Material button a dependency or a future screen introduces, and deleting them would be an unrequested change. Add a one-line comment to each saying so.
 
@@ -686,23 +1097,26 @@ Likelihood: **H** high · **M** medium · **L** low.
 ### 6.1 Incoherence — hard controls on soft cards read as a rendering fault
 
 - **What goes wrong.** A 2pt hard-edged terracotta button sitting inside a soft, 20pt-radius, hairline-bordered paper card looks like two design systems in one screen. Users read it as a rendering error, not a choice, and the app feels unfinished.
-- **How it shows up.** In Phase 1, the Detail action bar is the worst case: a brutal `FilledButton` (`detail_screen.dart:506`/`:524`) directly under a 20pt-radius `paper` card stack. In Settings, three brutal buttons inside flat borderless rows (`settings_screen.dart:888-929`) is the second worst.
-- **Likelihood.** **H** — this is the single most likely way the change fails, and it is why §2.5 exists.
-- **Fix.** (a) The §1 grammar, so the pairing is a *system* (paper = read, hard = operate) rather than a collision. (b) Restraint: 29 buttons out of a large surface area, and the loudest read-only surfaces (cards, essay, evidence, OCR) are untouched. (c) Phase 1 is buttons alone and is reviewable in isolation precisely so this can be caught before it spreads. (d) The mitigation for *this specific risk* is not more restraint — it is the reserved surface: brutal controls sit in **rows, sheets, dialogs, and empty states**, never inside a card. If Phase 1 review finds a brutal button nested inside a `Card`, that placement is the bug, not the treatment.
+- **How it shows up.** The Detail action bar was the worst case: a brutal `BrutalButton` directly under a 20pt-radius `paper` stack. Settings, with three brutal buttons inside flat borderless rows, was the second worst.
+- **Likelihood.** **H** — and **it happened.** This was not a hypothetical that the §2.5 exclusion list successfully prevented; it is what the user saw on the device and rejected.
+- **Fix, as originally specified.** (a) The §1 grammar, so the pairing is a *system* (paper = read, hard = operate) rather than a collision. (b) Restraint: 29 buttons out of a large surface area.
+- **Why (a) and (b) failed.** The grammar needed a *rare* signal to be learnable, and the hard edges did not land in a rare distribution — they clustered in action rows, empty states and dialog footers, which is not something a reader learns once. Restraint also has a cost that was not counted: the surfaces the rule implicitly blessed carried `divider` hairlines at **1.42:1** light and **1.22:1** dark, and a screenshot of that looks *fine*. The rule was licensing an invisible defect and calling the result coherent.
+- **The fix that shipped.** Reverse the rule and put one language on every surface (§1, §4.9–§4.16). The containment strategies the old fix relied on were: **card**, **dialog**, **bottom sheet**, **snackbar**, **banners**, **skeletons**, **the user bubble**, **the OCR block**, **badges/tags**, and the three floating bars. Six rows inside a hard container stay soft (§2.5), which is what keeps a Settings list from becoming a wall.
+- **What this risk now looks like.** Inverted. The failure mode is *half* — a card updated and the sheet beside it not, or the three banners updated and the error banner not. That is why every one of the sixteen surfaces builds through `brutalEdge(...)` and why `brutal_surface_test.dart` walks them.
 
 ### 6.2 Overuse — the distinction collapses
 
-- **What goes wrong.** As more surfaces get hard, "hard" stops meaning "operable." At that point the app should have been a full brutalist restyle, and half-doing it is worse than either extreme.
-- **How it shows up.** The Settings tab: if `_flatRow` ever gets brutal, the screen becomes a wall of hard edges and the eye can no longer find the controls that matter.
-- **Likelihood.** **M** at the specified scope (it takes a deliberate scope expansion, not drift, to trigger it); **H** if the exclusion list is treated as advisory.
-- **Fix.** §2.5 is a **budget, not a suggestion** — 12 named surfaces with a reason each. It is the deliverable's main restraint mechanism and a reviewer should treat any addition to it as requiring a spec change. One escape hatch, if Phase 1 review finds the ghost-button hole (§4.3) too wide: change `BrutalButton.text` to render as `outline`. One line, one class, reversible, and it is the *first* thing to try and the *last* thing to adopt.
+- **What goes wrong.** If every surface is hard, "hard" stops meaning "operable" — but under the new §1 that is no longer the failure, because "hard" no longer claims to mean operable. What would collapse instead is **depth**: surfaces, controls and labels must stay tellable apart.
+- **How it shows up.** If a label grows a cast shadow, it reads as pressable and the user taps a `TypeBadge`. If a `BrutalButton.text` gains one, a "Skip" button acquires primary visual weight.
+- **Likelihood.** **L**, and it is now structural rather than budgetary: §4.9's table is the rule (surface casts, label does not, control casts *and* sinks), and the test asserts that a label and a chip differ **only** in shadow.
+- **Fix.** The distinction is carried by **three channels, none of them hue**: (1) shadow — surface casts, label does not, control casts and collapses it on press; (2) state — a control translates, rings and inverts its fill, a surface never does; (3) alignment and typography — the chat bubble is right-aligned and sans, the assistant essay is left-aligned and serif. §6.2's escape hatch (make the ghost an outline) was **not** taken.
 
 ### 6.3 Inconsistent shadow direction
 
 - **What goes wrong.** One button's shadow at `(4, 4)`, a chip's at `(3, 3)`, a sheet option's at `(4, 2)`. Two different light directions in one app reads as a bug far more strongly than either direction alone.
-- **How it shows up.** As a single off-spec button. It is the most visible possible single-surface error, because the eye is trained by the other nine.
+- **How it shows up.** As a single off-spec surface. It is the most visible possible single-surface error, because the eye is trained by the others — and after the reversal it is trained by *sixteen* of them.
 - **Likelihood.** **L** if the token is used as specified; **H** if anyone writes a `BoxShadow` literal.
-- **Fix.** One constant, `SiftBrutal.offset`, with no per-component override and no second offset value anywhere in the codebase. Enforce mechanically: after implementation, `grep -n "BoxShadow" lib/` must return hits **only** in `app_theme.dart` and `brutal_tokens.dart`. Add that grep to the Phase 5 coherence review. `SiftBrutal.hard(bool)` and `hardPressed(bool)` are the only sanctioned constructors.
+- **Fix, and it is now enforced mechanically rather than by review.** One constant, `SiftBrutal.offset`, with no per-component override. `brutalEdge(...)` (§3.1) is the single constructor for every read-only surface's decoration, so a per-surface shadow is a function argument rather than a literal. **`test/brutal_surface_test.dart` asserts that no `BoxShadow(` literal exists in `lib/` outside `app_theme.dart` and `brutal_tokens.dart`,** and a second test asserts that no visible surface still resolves a `SiftElevation` step. The old instruction — "add that grep to the Phase 5 coherence review" — is now a test that fails the build.
 
 ### 6.4 Dark-mode invisibility
 
@@ -740,8 +1154,8 @@ Likelihood: **H** high · **M** medium · **L** low.
 - **What goes wrong.** A 2pt border dominating a surface that renders small.
 - **How it shows up.** At chip size, or in any future image-export path.
 - **Likelihood.** **L**, and the risk is currently nil.
-- **Assessment — no target surface renders below 100dp, and there is no print path.** The smallest brutalized surface is the 32dp filter chip (`SiftSpacing.chipH`), where a 2pt border is 6.25% of the height — visible, not dominant, and the `rControl` corner is what keeps it from reading as heavy at that size. Nothing else goes below 36dp: the OCR copy button (36dp) is excluded (§2.5), `TypeBadge` (~20dp) is excluded, and `TagChip` (~22dp) is excluded.
-  The app has **no print pipeline and no image export** — DESIGNSTATE.md:122 records the Share affordances as removed for lack of a dependency, and there is no rendering-to-bitmap path for any brutal surface. The 96px `cacheWidth` thumbnails (`chat_atoms.dart:241`) are read-only evidence and are excluded. So the only place this risk could materialise is a future screenshot-to-image feature, at which point it is a new problem. Re-check it if such a feature lands.
+- **Assessment — no target surface renders below 20dp, and there is no print path.** The smallest brutalized surface is now `TypeBadge`, at ~20–28dp depending on `compact`, where a 2pt border is 7–10% of the height. That is heavier than the 32dp chip's 6.25%, and it is the one place this risk is not "visible but not dominant": at 20dp with `microLabel` at 11pt, the border is the same visual order as the type. It was accepted because a badge is a *label*, it has no shadow to amplify the edge, and the interior still clears the 11pt/1.3 line box (20.3dp interior against a 14.3dp line at `compact`). **If a device review disagrees, the fix is a thinner badge edge, not a smaller radius** — and a badge is a label, so it would be the one surface allowed a 1pt edge. Nothing else goes below 36dp: the OCR copy button is 36dp and is now inside the brutal set, and the chat send circle and the other circular controls remain excluded.
+  The app has **no print pipeline and no image export** — DESIGNSTATE.md:122 records the Share affordances as removed for lack of a dependency, and there is no rendering-to-bitmap path for any brutal surface. The 96px `cacheWidth` thumbnails (`chat_atoms.dart:241`) are read-only evidence and are excluded (§2.5). So the only place this risk could materialise is a future screenshot-to-image feature, at which point it is a new problem. Re-check it if such a feature lands.
 
 ### 6.9 Test breakage
 
@@ -753,12 +1167,14 @@ Likelihood: **H** high · **M** medium · **L** low.
   | Test file | Reads source? | Risk |
   |---|---|---|
   | `test/widget_test.dart` | no | **None.** Placeholder (`1+1==2`); cannot break. |
-  | `test/screenshot_analyzer_test.dart` | yes — `home_screen.dart`, `settings_screen.dart`, `onboarding_screen.dart`, `chat_screen.dart`, `privacy_gate.dart`, `about_dialog.dart`, `actions_history_screen.dart` | **None, provided no copy changes.** All assertions are on *string literals* ('Local-only mode', 'images and OCR text stay on this device', 'image-labeling model on first use', 'screenshot-derived text and context', 'source lookup'). Swapping `FilledButton` → `BrutalButton` does not touch a single one. Also asserts `settings` contains `bool _localOnly = true;` — untouched. |
-  | `test/delete_everything_test.dart` | yes — `settings_screen.dart`, `chat_screen.dart`, `main.dart` | **Low, but the one to watch.** `:391` asserts `source.substring(callIndex, callIndex + 40)` contains `'catch'` immediately after `await provider.deleteEverything();` — a **positional** assertion. Button migration does not move that line, but if the migration reorders members in `settings_screen.dart` (e.g. moving `_flatSwitch` or a dialog helper), the 40-char window can shift. Also asserts `isNot(contains('Nothing was deleted'))` and two `indexOf` orderings. Do not reorder members while migrating this file. |
+  | `test/screenshot_analyzer_test.dart` | yes — `home_screen.dart`, `settings_screen.dart`, `onboarding_screen.dart`, `chat_screen.dart`, `privacy_gate.dart`, `about_dialog.dart`, `actions_history_screen.dart` | **None.** All assertions are on *string literals* ('Local-only mode', 'images and OCR text stay on this device', 'image-labeling model on first use', 'screenshot-derived text and context', 'source lookup'). Swapping `FilledButton` → `BrutalButton` does not touch a single one, and neither does the §2.5 reversal. Also asserts `settings` contains `bool _localOnly = true;` — untouched. |
+  | `test/delete_everything_test.dart` | yes — `settings_screen.dart`, `chat_screen.dart`, `main.dart` | **Low, and it is a live hazard unrelated to this work.** `:391` asserts `source.substring(callIndex, callIndex + 40)` contains `'catch'` immediately after `await provider.deleteEverything();` — a **positional** assertion with a hard-coded window length. It passes on an LF checkout and **fails on a CRLF checkout** (Windows), because 40 characters after the call is then `\r\n    ` and nothing else. It also asserts `isNot(contains('Nothing was deleted'))` and two `indexOf` orderings. None of the files it reads was touched by the §2.5 reversal. |
   | `test/local_model_arch_gate_test.dart` | yes — `settings_screen.dart` | **None.** Asserts `service.unsupportedDeviceNote` present and `indexOf('service.startDownload()') > indexOf('if (!service.isSupportedDevice) {')`. Untouched by visuals. |
-  | All other 21 test files | no | **None.** No test in the repo asserts on `FilledButton`, `OutlinedButton`, `TextButton`, `ButtonStyle`, `BorderRadius`, or any value in `app_theme.dart`. The single import of `app_theme.dart` in the whole test suite is `delete_everything_test.dart:15`, used only for `AppTheme.lightTheme` as a test wrapper. |
+  | All other test files | no | **None.** No test asserts on a widget type, a radius, a colour, or a shadow — with the single exception the reversal forced: `test/brutal_dialog_test.dart`, below. |
 
-  **No test asserts on a widget type, a radius, a colour, or a shadow.** The visual change is invisible to the suite. The one real hazard is positional source scanning in `delete_everything_test.dart`, and it is a code-organisation risk, not a design one. Expect `23/23` before and after (per DESIGNSTATE.md:137); if the count moves, the migration touched copy or logic, which it must not.
+  **The one existing test the §2.5 reversal had to change, and why.** `brutal_dialog_test.dart` contained a test named *"the dialog chrome itself stays warm"*, which asserted `rCard 20` and `BorderSide.none` — the §2.5 exclusion, written down and pinned. It was **inverted**, not deleted: it now asserts `rControl`, a non-`none` side at `SiftBrutal.borderW` in `SiftBrutal.surfaceEdgeLight`, `elevation: 0`, and that the edge clears 3:1 against the `paper` fill — and a dark-mode case was added beside it. Its sibling assertion, that the *action row* carries the hard edge, was left untouched and still runs against the real `privacy_gate.dart` dialog. **A test that pins a decision must be changed when the decision is reversed; that this one existed is a point in favour of having written it.**
+
+  **New source-scanning tests added by this phase** are in `test/brutal_surface_test.dart`: the OCR copy button is migrated, `SelectableText` + `SiftType.ocrMono` survive, `ChatEngine._ocrCharsPerScreenshot == 500` is untouched, and no `BoxShadow(` literal exists outside the two token files. No runtime string literal was added or changed anywhere.
 
 ### 6.10 Focus ring invisible on the accent — the named risk
 
@@ -808,6 +1224,12 @@ Three, in order:
 1. **The ghost-button hole (§4.3).** Twelve of the 29 call sites are ghost text buttons and they get *no* mark. That is a fifth of the brutalization budget spent on the one class that does not carry the grammar, and it is the most likely source of "this doesn't feel like neobrutalism yet." I have judged restraint to be correct here, but this is the decision most likely to be wrong, and it is one line to change.
 2. **The chip radius change (§4.6).** Moving three chip classes from `BorderRadius.circular(999)` to `rControl` changes a shape the eye has already learned, in three files, at once. It is the largest single visual delta in the whole spec after the buttons, and the least obviously an improvement. It is isolated in Phase 3 for that reason. If Phase 3 review dislikes it, the fix is to keep the pill and drop the hard shadow on chips — but that breaks §6.3's single-token rule, so it would need a spec amendment, not a local patch.
 3. **Dark-mode switch thumb (§4.7).** Changing the dark unselected thumb from `paper` to `stone` and the dark selected thumb from `paper` to `canvas` is a *behaviour* fix, not a style change: today the thumb is at 1.22:1 against its own track and is effectively invisible. Bundling it into a "brutalism" change will make it look like scope creep, and a reviewer may try to revert it. Do not revert it. It is in this spec because the 2pt track outline is what makes the thumb's position legible, and the thumb had to be fixed before the outline could be judged.
+
+### 6.12 What the §2.5 reversal did to these three risks
+
+- **The ghost-button hole (§6.11.1) is now much wider, and it still exists.** Twelve ghost buttons still carry no mark — but they now sit inside hard-edged dialogs, sheets and bars, so their *container* says "operate this" while their *type* says nothing. That is a real hole and it got worse. It did not get fixed because the honest fix is the one §6.2 rejected: giving a quiet secondary action a fill to cast from promotes it to primary weight. The dialogs are where it shows, and they are where a device review should look.
+- **The chip radius change (§6.11.2) is no longer isolated, and no longer the largest delta.** `999 → 4` now happens on `TypeBadge`, `TagChip`, `_RecognitionChip` and the chat bubble as well as on three chip classes. The judgement that produced it — a 2pt border meeting a shadow sliver at a non-orthogonal angle on a curved leading edge — applies identically to each, and it is now asserted per surface in `brutal_surface_test.dart` rather than argued once.
+- **§6.11.3 is unaffected.** The switch thumb fix was never about style and nothing in this phase touched it.
 
 ---
 
@@ -914,6 +1336,87 @@ The two press rows are in the table because a keyboard user holding Space is foc
 | `accent` / `paper` light — the existing 1.5pt focus ring | 0.99793 / 0.33636 = **2.97:1** | ✗ fails 3:1 |
 | `accent` / `canvas` light — the existing focus ring on canvas | 0.95775 / 0.33636 = **2.85:1** | ✗ fails 3:1 |
 
+**The §2.5 reversal: `surfaceEdge` on every fill a read-only surface uses.**
+
+No fill changed, so every text ratio below is carried over unchanged. What is new
+is the **edge**, because the edge is scored against its own fill (§6.10). This is
+the full measured set; operands are `L + 0.05`.
+
+Luminances used that are not in the table above: `errorSoft` light `#F3E0DC` =
+**0.775436** (0.89623 / 0.74542 / 0.71574), `errorSoft` dark `#4A2E28` =
+**0.035628** (0.06847 / 0.027323 / 0.021194), `codeBg` dark `#161210` =
+**0.0064089** (0.0080135 / 0.0060553 / 0.0051860).
+
+| Surface / mode | Fill | Edge | Ratio | Verdict |
+|---|---|---|---|---|
+| card, light | `paper` | `surfaceEdgeLight` | 0.99793 / 0.21152 = **4.72:1** | ✓ |
+| card, dark | `paper` | `surfaceEdgeDark` | 0.32382 / 0.06921 = **4.68:1** | ✓ |
+| dialog / sheet, light | `paper` | `surfaceEdgeLight` | **4.72:1** | ✓ |
+| dialog / sheet, dark | `paper` | `surfaceEdgeDark` | **4.68:1** | ✓ |
+| badge (`TypeBadge`), light | `badgeBg` `surfaceWarm2` | `surfaceEdgeLight` | 0.80123 / 0.21152 = **3.79:1** | ✓ |
+| badge, dark | `badgeBg` | `surfaceEdgeDark` | 0.32382 / 0.08449 = **3.83:1** | ✓ |
+| tag (`TagChip`), light | `paper` | `surfaceEdgeLight` | **4.72:1** | ✓ |
+| tag, dark | `paper` | `surfaceEdgeDark` | **4.68:1** | ✓ |
+| recognition chip, light | `surfaceWarm1` | `surfaceEdgeLight` | 0.87832 / 0.21152 = **4.15:1** | ✓ |
+| recognition chip, dark | `surfaceWarm1` | `surfaceEdgeDark` | **4.68:1** | ✓ |
+| processing banner, light | `surfaceWarm2` | `surfaceEdgeLight` | **3.79:1** | ✓ |
+| processing banner, dark | `surfaceWarm2` | `surfaceEdgeDark` | **3.83:1** | ✓ |
+| ingest banner, running | as banner | `surfaceEdge(isDark)` | **3.79 / 3.83:1** | ✓ |
+| ingest banner, **paused** | `surfaceWarm1` | `surfaceEdge(isDark)` | **4.15 / 4.68:1** | ✓ |
+| error banner, light | `errorSoft` | `surfaceEdgeLight` | 0.82544 / 0.21152 = **3.90:1** | ✓ |
+| error banner, dark | `errorSoft` | `surfaceEdgeDark` | 0.32382 / 0.08563 = **3.78:1** | ✓ |
+| chat bubble, light | `surfaceWarm1` | `surfaceEdgeLight` | **4.15:1** | ✓ |
+| chat bubble, dark | `surfaceWarm1` | `surfaceEdgeDark` | **4.68:1** | ✓ |
+| related-links card, light | `paper` | `surfaceEdgeLight` | **4.72:1** | ✓ |
+| related-links card, dark | `paper` | `surfaceEdgeDark` | **4.68:1** | ✓ |
+| **OCR block, light** | `codeBg` #1F1B16 | `surfaceEdgeLight` | 0.21152 / 0.06133 = **3.45:1** | ✓ tightest in the app |
+| **OCR block, dark** | `codeBg` #161210 | `surfaceEdgeDark` | 0.32382 / 0.05641 = **5.74:1** | ✓ |
+
+**Snackbar — a slab, so it takes the slab edge.**
+
+| Surface / mode | Fill | Edge | Ratio | Verdict |
+|---|---|---|---|---|
+| snackbar, light | `ink` | `edgeOnFillLight` `bone` | 0.46409 / 0.06987 = **6.64:1** | ✓ |
+| snackbar, dark | `ink` | `edgeOnFillDark` `bone` | 0.80123 / 0.13182 = **6.08:1** | ✓ |
+| snackbar, light | `ink` | ~~`surfaceEdgeLight`~~ | 0.21152 / 0.06987 = **3.03:1** | ✗ **rejected** |
+| snackbar, dark | `ink` | ~~`surfaceEdgeDark`~~ | 0.32382 / 0.80123 = **0.40:1** | ✗ **rejected** |
+
+The two crossed rows are the reason this is the one theme block that does not
+take `surfaceEdge`. A snackbar fills with `ink` in **both** modes, so in dark
+mode the box is a *cream* fill and `stone` — the palette's mid-warm grey — lands
+at 0.40:1 against it. Had the reversal copied the dialog's rule instead of
+applying §6.10, every snackbar in dark mode would have shipped with no border.
+This is the clearest single argument for §6.10's page-step/slab split surviving
+the reversal intact.
+
+**Text on the reversal's surfaces — unchanged, and recomputed anyway.**
+
+| Pair | Ratio | Verdict |
+|---|---|---|
+| `badgeText` / `badgeBg` light (11pt/600) | 0.80123 / 0.13182 = **6.08:1** | ✓ |
+| `badgeText` / `badgeBg` dark | 0.46409 / 0.08449 = **5.49:1** | ✓ |
+| `tagText` / `paper` light (11pt/600) | **4.72:1** | ✓ |
+| `tagText` / `paper` dark | **4.68:1** | ✓ |
+| `ink` / `surfaceWarm1` — chat bubble, light (16pt) | 0.87832 / 0.06987 = **12.57:1** | ✓ |
+| `ink` / `surfaceWarm1` — chat bubble, dark | 0.80123 / 0.06921 = **11.58:1** | ✓ |
+| `ink` / `surfaceWarm2` — banner, light (15pt/500) | 0.80123 / 0.06987 = **11.47:1** | ✓ |
+| `ink` / `surfaceWarm2` — banner, dark | 0.80123 / 0.08449 = **9.48:1** | ✓ |
+| `graphite` / `surfaceWarm2` — ingest ETA line, light (13pt) | 0.80123 / 0.13182 = **6.08:1** | ✓ |
+| `codeText` / `codeBg` light — OCR mono, 13pt | 0.80123 / 0.06133 = **13.06:1** | ✓ |
+| `codeText` / `codeBg` dark — OCR mono, 13pt | 0.80123 / 0.05641 = **14.20:1** | ✓ |
+| `paper` / `ink` — snackbar text, light (14pt) | **14.28:1** | ✓ |
+| `canvas` / `ink` — snackbar text, dark | **13.06:1** | ✓ |
+| `onAccent` / `paper` — OCR copy button label (outline) | **14.28:1** | ✓ |
+
+**One PRE-EXISTING failure on a surface the reversal touched, reported and not
+fixed.** `error` on `errorSoft` in **dark** — the home error banner's 15pt/500
+message — is 0.37401 / 0.08563 = **4.37:1**, below SC 1.4.3's 4.5:1. It is **not**
+a regression: the banner's fill is untouched and `error`/`errorSoft` are both out
+of scope for a visual restyle (§9 forbids a palette change), so the reversal had
+no hand in it. It is listed because the reversal is the moment anyone will look
+at that banner closely, and a reviewer should not have to diff two commits to
+find out this was already there. The light-mode row is 4.53:1 and passes.
+
 **Two more that this spec shipped before it fixed them, recorded because they were live in the tree as built and are the reason §6.10 exists:**
 
 | Pair (as built, before the §6.10 correction) | Ratio | Status |
@@ -984,15 +1487,16 @@ Why those two fills, both verified rather than assumed:
 - `SiftBrutalChip`: 32dp content height. **This is below 48dp and is a documented exception**, not an oversight. It matches the app's existing `SiftSpacing.chipH` and the 3 chip classes already ship at 32dp. WCAG 2.2 SC 2.5.8 (Target Size Minimum, 24×24 CSS px) is met at 32dp; the 44×44 AAA criterion (2.5.5) is not, and was not met before this change either. The horizontal row spacing (8dp between chips) means adjacent targets are separated, which SC 2.5.8's "spacing" exception also permits. **Do not enlarge chips in this spec** — it would reflow three screens and is a layout change (§9).
 - `Switch`: Material default ≥48dp; `materialTapTargetSize` left at default. Note that `_flatSwitch` sits as a `trailing` in a tappable `_flatRow`/`_checklistStep`, so its effective target is larger still.
 - `TagChip` delete target: 40×40 (`widgets.dart:80-97`), unchanged.
+- **OCR copy button: 36dp** (`detail_screen.dart:365-369`), overriding `BrutalButton`'s 48dp `height` default. **This is below 48dp and is a documented exception**, not an oversight. It is not a regression: the Material `TextButton` it replaced already carried `minimumSize: Size(0, 36)`, and 36 is carried over unchanged so the OCR block does not grow (§4.16). WCAG 2.2 SC 2.5.8 is met at 36dp; the 44×44 AAA criterion (2.5.5) is not, and was not met before this change either. The 40x40 icon box sits inside it, and the button is the only target in the block, so the 24px minimum is clear in both axes. **Do not enlarge it in this spec** — that would grow the OCR block and is a layout change (§9).
 
 ### 7.3 Focus-visible
 
 - 2dp ring in the control's own box, replacing that box's resting edge in place (§5.4). The colour is `SiftBrutal.focus(isDark)` on a **page step** and `SiftBrutal.focusOnFill(isDark: isDark, pressed: …)` on a **slab**, whose resting edge is `SiftBrutal.edgeOnFill(isDark)` — page step or slab is decided by what the box is filled with, not by which widget it is (§6.10).
 - Present on keyboard focus, switch access, and any focusable control. **Absent on tap.** Implement with an explicit `Focus` widget and `onFocusChange` (as specced in §5.2), not with the theme's `focusColor` — Flutter's `focusColor` fires on pointer focus too, which would flash a ring on every tap.
-- `app_theme.dart:590` sets `focusColor: accent @ 0.18`. `BrutalButton` must set `focusColor: Colors.transparent` locally so no Material wash appears under the hard ring. The theme value stays for the non-brutal Material buttons that remain (`detail_screen.dart:324`).
+- `app_theme.dart:590` sets `focusColor: accent @ 0.18`. `BrutalButton` must set `focusColor: Colors.transparent` locally so no Material wash appears under the hard ring. The theme value stays for Material components, of which the app now has **none** — §4.16 retired the last one.
 - All figures in §7.1. Every slab clears 3:1 against its own fill in both modes; the tightest is the dark switch track at 3.26:1. On a page step both modes clear 3:1 with margin. One ring is weak against the page — the light filled button at 1.04:1, §6.10 — which is conformant because 1.4.11 scores the adjacent fill, and is stated rather than hidden.
 - Enter and Space must reach the control, not just Tab. A `GestureDetector` is announced and reachable but is inert to a keyboard; `brutalActivate` (`brutal_activate.dart`) wraps every brutal control in the `Actions` ancestor that Material's `InkWell` used to supply, and is what makes the ring mean something for a keyboard user. A ring that cannot be acted on is a SC 2.4.7 failure wearing a pass.
-- The `TagChip` delete target and the OCR copy button receive a focus ring as their **only** brutal change (§2.5, §4.6). Both are page steps, so both take `focus`, not `focusOnFill`.
+- **After the reversal this section covers more controls, not fewer.** The OCR copy button (§4.16) gained the ring it previously only approximated, the `TypeBadge` / `TagChip` / `_RecognitionChip` bodies gained **no** focus machinery at all because they are not operable (§4.12), and the six rows inside hard containers keep the rings they had (§2.5). The invariant is unchanged: **a focusable thing has a ring that clears 3:1 against its own fill; a non-focusable thing has no ring machinery to get wrong.**
 
 ### 7.4 The press effect is never the sole state indicator
 
@@ -1009,6 +1513,8 @@ Recorded, not fixed. Line references in this subsection are **post-migration** (
 1. **The Material button themes still carry the pre-migration focus side.** `app_theme.dart:733-738` — `filledButtonTheme`'s focus `side` is a 1.5pt `accent`, which is 2.97:1 on `paper` and 2.85:1 on `canvas`; `app_theme.dart:762-768` — `outlinedButtonTheme`'s is `accent` at 1.5pt, 2.97:1 on `paper`. Neither clears 3:1, and neither is read by anything in the app: all 29 migrated call sites use `BrutalButton`, which resolves its own border from `SiftBrutal` and never touches the theme. These blocks are the fallback for a Material button a dependency or a future screen introduces, and §5.5 says to leave them in place — so the sub-3:1 side is still in the file. If that fallback is ever actually used, it needs the §6.10 rule, not `focus`.
 2. **The switch ON track's resting outline is still `stone`.** 1.06:1 in light, 1.62:1 in dark against the `accentDeep` track — the same defect as the light filled button's resting edge, on the one slab the `switchTheme` does not give an `E` to. `app_theme.dart:689-695` only branches the outline on `focused`; a selected-and-unfocused track falls through to `s.stone`. The focused state is correct (3.26:1 dark, 4.99:1 light) because focus is the indicator. Fixing it means teaching `trackOutlineColor` a third branch, which is why it was left out of the §6.10 change rather than slipped into it.
 3. **`brutal_button.dart:152-155` prints its own arithmetic in a form that invites a misread.** The block quotes `dark ink / paper 0.80120 / 0.06920 = 11.58:1`. The value is right — those operands are `L + 0.05` and the quotient is the WCAG ratio — but the comment does not say so, and a reader who takes them for raw luminances and adds 0.05 again gets 7.14:1, which is wrong. The code has no behaviour to fix; only the comment's labelling. §7.1's ghost-pressed table now labels its operand column `L_lighter + 0.05` for the same reason.
+4. **NEW: the dark-mode error banner is 4.37:1** — `error` on `errorSoft`, 15pt/500, below SC 1.4.3's 4.5:1. Pre-existing and untouched by the §2.5 reversal, which changed the banner's *edge* and not its fill. Recorded here as well as in §7.1 because §7.6 is where a reviewer looks for known defects, and this one is now on a hard-edged surface where the 2pt border makes the box look more finished than its text is legible. Fixing it is a palette decision, not a restyle decision.
+5. **NEW: a dialog carries no hard shadow.** §4.11 item 4 and §10.1 item 1. A `Material` has no `boxShadow`, so `elevation: 0` removes the blur and nothing replaces it. Shipped deliberately, listed here so nobody reads the absence as an oversight.
 
 ### 7.7 Fixed since this spec was written
 
@@ -1026,6 +1532,8 @@ The widget is public (`SiftSendCircle`, formerly `_SendCircle`) so it can be mou
 
 Five phases. Each is independently reviewable and shippable. **A phase that reads as noise is reverted, not compensated for by the next phase.** If Phase 1 fails, do not proceed to Phase 2 hoping the combination works — a full-restyle decision is a different spec.
 
+> **These five rows are history, kept verbatim.** Their gates, counts and the `23/23` in them describe the tree **as it stood during that phase**, and two of them ("every one of the 12 §2.5 exclusions is confirmed still warm", "paper = read, hard = operate") record decisions that Phase 6 **reversed** — see §1, §2.5 and §4.9–§4.16. The current counts are in §8.1. Nothing below has been edited to pretend otherwise.
+
 | Phase | Contents | Files touched | Review gate |
 |---|---|---|---|
 | **1 — Tokens + buttons** | `brutal_tokens.dart`; `SiftBrutalButton` widget; `rControl` in `SiftRadii`; `switchTheme` untouched. Migrate all **29** Material button call sites. `destructive` variant exists but is adopted at **one** site (`settings_screen.dart:1030`). | `theme/brutal_tokens.dart`, `theme/app_theme.dart` (radii + 3 comments), `widgets/brutal_button.dart`, 11 call-site files | Light **and** dark, on Detail (worst case for §6.1), Settings, and Onboarding. Confirm: the hard shadow is visible in dark (§6.4); the 4dp chip slack is not yet relevant; TalkBack reaches all 29 in order (§6.5); reduced-motion press still reads (§7.4). `flutter analyze` clean, `23/23` tests. |
@@ -1036,24 +1544,82 @@ Five phases. Each is independently reviewable and shippable. **A phase that read
 
 **Rollback.** Each phase is a separate commit and independently revertible. Phases 1 and 2 are the ones worth keeping even if 3–5 are abandoned; a spec that lands only buttons and inputs is already a net accessibility improvement, because it fixes the hairline-boundary and focus-ring contrast failures in §7.1.
 
+### 8.1 Phase 6 — the §2.5 reversal (shipped)
+
+Phases 1–5 are history. This is what actually shipped on top of them, and it is
+recorded here rather than in a new document because the thing a reviewer most
+needs is the diff *against the decision above*, and that diff is only legible in
+one place.
+
+| | |
+|---|---|
+| **Contents** | Cards, dialog chrome, sheet chrome, snackbars, chat bubbles, the OCR block, `TypeBadge` / `TagChip` / `_RecognitionChip`, all three banners, the three floating bars, Detail's web-result tile, `RelatedLinksStrip`, the onboarding mock panel, skeletons. Plus `SiftBrutal.surfaceEdge`, `brutalEdge(...)`, and the migration of the OCR copy button to `BrutalButton.outline`. |
+| **Files** | `theme/brutal_tokens.dart`, `theme/app_theme.dart`, `widgets/brutal_chip.dart`, `widgets/widgets.dart`, `widgets/ingest_banner.dart`, `widgets/skeleton.dart`, `widgets/bottom_sheet.dart`, `widgets/chat_atoms.dart`, `screens/home_screen.dart`, `screens/detail_screen.dart`, `screens/onboarding_screen.dart`, `test/brutal_surface_test.dart`, `test/brutal_dialog_test.dart` |
+| **Review gate — passed** | `dart format --set-exit-if-changed`: 0 changed. `flutter analyze`: the 5 pre-existing issues, 0 new. `flutter test` on the whole suite except `delete_everything_test.dart`: **399/399**. The six original `brutal_*` files plus the new one: **106/106**. `delete_everything_test.dart --plain-name "Settings removes the model first, then resets the screen"`: pass. |
+| **Deliberately NOT done** | No dialog hard shadow (§4.11, item 4). No hard shadow on a `TagChip` / `TypeBadge` / `_RecognitionChip` body (§4.12). No 2pt row separators (§4.15). No change to the six row-inside-a-container exclusions (§2.5). No assistant bubble (§4.14). The pre-existing 4.37:1 `error`-on-`errorSoft` dark-mode banner text (§7.1), which is a palette matter and out of scope for a visual restyle. |
+
 ---
 
 ## 9. Explicit non-goals
 
-- **No layout change.** No `SiftSpacing` value changes. No new `Padding`, `SizedBox`, `Row`, `Column`, or `Wrap`. No grid, breakpoint, or inset change. The only geometry delta is the chip radius (999 → 4), which is a corner treatment, not layout, and `BrutalButton` keeps the exact heights the Material themes already imposed (48 / 40).
-- **No spacing change.** `SiftSpacing` is untouched. `SiftRadii` gains one constant and changes no existing one.
-- **No copy change.** Not one string literal. `test/screenshot_analyzer_test.dart` asserts on privacy and onboarding copy across seven files; every one of those assertions must pass unchanged.
-- **No typography change.** `SiftType` is untouched. The serif assistant voice and the sans chrome split are untouched. No font size, weight, letter-spacing, or family change.
-- **No canvas or paper colour change.** `SiftColors.canvas`, `paper`, `surfaceWarm1`, `surfaceWarm2` are unchanged in both instances.
-- **No accent change.** `accent`, `accentDeep`, `accentSoft`, `accentPressed` are all unchanged. `accentPressed` is retired *for brutal buttons* only and remains in the palette.
-- **No soft shadow change.** `SiftElevation.l1`–`l5` and `l4Dark` keep their exact alpha, offset, and blur. `card()` and `sheet()` are unchanged.
-- **No navigation change.** No route, tab, deep-link, or back-behaviour change. `IndexedStack` untouched.
-- **No new pub dependencies.** `brutal_tokens.dart` and `brutal_button.dart` use only `flutter/material.dart` and existing local imports. This preserves the DESIGNSTATE.md:17 constraint.
-- **No animation beyond the press translation.** No scale, no rotation, no spring, no bounce, no new curves, no new `AnimationController`. The press reuses `MotionTokens.press` / `pressRelease` / `easeOutCubic` and adds no duration of its own. Nothing loops. The only idle motion in the app remains the mark pulse and the streaming caret.
-- **No haptics added.** The press now carries its own feedback. `MotionTokens.canHaptic` calls stay exactly where they are.
-- **No change to `MotionTokens`.** Not one line. The brutal press reads it; it never writes it.
-- **No change to the 12 §2.5 exclusions**, and no addition to that list without a spec amendment.
-- **No `BrutalTheme`.** The change is deliberately *not* a `ThemeExtension` and *not* a `ThemeData` block. Brutalism is applied at the identified call sites — 30 buttons, 5 inputs, 3 chip classes, 3 switch call sites — plus one new widget, not by flipping a theme switch. A theme switch would make it impossible to hold the grammar line against future code, which is the whole point of §2.5.
+**Amended for the §2.5 reversal.** Two rows below are no longer true as written;
+they are corrected rather than deleted, because the correction is the point.
+
+- **No layout change.** No `SiftSpacing` value changes. No new `Padding`,
+  `SizedBox`, `Row`, `Column`, or `Wrap`. No grid, breakpoint, or inset change.
+  The corner-radius delta (20 → 4, 24 → 4, 12 → 4) is a corner treatment, not
+  layout, and a `Border.all` paints inside the existing bounds. `BrutalButton`
+  keeps the exact heights the Material themes already imposed (48 / 40), and the
+  OCR copy button keeps the 36dp its `minimumSize` already imposed.
+- **No spacing change.** `SiftSpacing` is untouched. `SiftRadii` gains one
+  constant and changes no existing one.
+- **No copy change.** Not one string literal. `test/screenshot_analyzer_test.dart`
+  asserts on privacy and onboarding copy across seven files; every one of those
+  assertions passes unchanged. The privacy paragraphs in `privacy_gate.dart`,
+  `about_dialog.dart`, `chat_screen.dart`, `onboarding_screen.dart` and
+  `settings_screen.dart` were not touched, reflowed, or moved.
+- **No typography change.** `SiftType` is untouched. The serif assistant voice
+  and the sans chrome split are untouched. No font size, weight, letter-spacing,
+  or family change — including on the OCR copy button, which keeps the 12pt
+  `metaLabel` the Material `TextButton` gave it.
+- **No canvas or paper colour change.** `SiftColors.canvas`, `paper`,
+  `surfaceWarm1`, `surfaceWarm2` are unchanged in both instances. **No read-only
+  surface changed its fill**, which is why no body-text ratio needed re-auditing.
+- **No accent change.** `accent`, `accentDeep`, `accentSoft`, `accentPressed`
+  are all unchanged. `accentPressed` is retired *for brutal buttons* only and
+  remains in the palette. The card's selected edge keeps its existing `accent`.
+- **No soft shadow token removed.** `SiftElevation.l1`–`l5` and `l4Dark` keep
+  their exact alpha, offset and blur, and §9 requires it: the ramp is for
+  non-surface work. `card()` and `sheet()` are kept as superseded helpers rather
+  than deleted. **What changed is that no visible surface reads them**, which is
+  asserted by a test rather than by review.
+- **No navigation change.** No route, tab, deep-link, or back-behaviour change.
+  `IndexedStack` untouched.
+- **No new pub dependencies.** The reversal uses only `flutter/material.dart` and
+  existing local imports. This preserves the DESIGNSTATE.md:17 constraint.
+- **No animation beyond the press translation.** No scale, no rotation, no
+  spring, no bounce, no new curves, no new `AnimationController`. The press reuses
+  `MotionTokens.press` / `pressRelease` / `easeOutCubic` and adds no duration of
+  its own. Nothing loops. The only idle motion in the app remains the mark pulse
+  and the streaming caret — and the reversal touched neither, which is asserted.
+- **No haptics added.** The press now carries its own feedback.
+  `MotionTokens.canHaptic` calls stay exactly where they are.
+- **No change to `MotionTokens`.** Not one line.
+- ~~**No change to the 12 §2.5 exclusions**~~ **Reversed.** Nine of them moved
+  into scope and one more was added (§2.5, §4.9–§4.16). The remaining rows still
+  stand, and the list is still the restraint mechanism — just a shorter one, and
+  now about *rows inside a hard container* rather than about containers
+  themselves.
+- **No `BrutalTheme`.** The change is deliberately *not* a `ThemeExtension` and
+  *not* a `ThemeData` switch for surfaces. The five theme blocks that were
+  updated (`cardTheme`, `snackBarTheme`, `bottomSheetTheme`, `dialogTheme`,
+  `dividerTheme`) are updated to the same tokens the widgets read, not to new
+  values; a theme switch would make it impossible to hold the grammar line
+  against future code, which is the whole point of §2.5.
+- **No goldens, no `toImage`.** No pixel test was added. A previous attempt at
+  this work hung the whole suite on 300s+ timeouts; every assertion in the new
+  `brutal_surface_test.dart` is a property read off a widget tree or a source
+  file.
 
 ---
 
@@ -1068,5 +1634,54 @@ Five phases. Each is independently reviewable and shippable. **A phase that read
    - §4.7 — the switch keeps its stadium track; radius is not controllable.
    - §4.1 — the pressed fill inverts to `ink`/`canvas` rather than tinting toward `accentPressed`, because `accentPressed` fails 4.5:1 (§7.1).
    - §6.8 — the 32dp chip is left below 48dp rather than enlarged, because enlarging reflows three screens.
-4. **Not specified, deliberately:** the `filledButtonTheme` / `outlinedButtonTheme` / `textButtonTheme` blocks are left in `app_theme.dart` (dead for the app's own widgets, live for any Material button a dependency introduces). Removing them is a separate decision.
+4. **Not specified, deliberately:** the `filledButtonTheme` / `outlinedButtonTheme` / `textButtonTheme` blocks are left in `app_theme.dart` (dead for the app's own widgets, live for any Material button a dependency introduces). Removing them is a separate decision. The app now mounts **zero** Material buttons of its own (§4.16), which makes them dead code in the strict sense — they are kept anyway, because §5.5 says to keep them and deleting a fallback is not part of a restyle.
 5. **Deliberately absent:** no screenshot or visual reference. Every value in this document is a number with a derivation, a constraint, or a labelled judgement call. Where a value could not be derived, §10.3 says so rather than inventing a rationale.
+
+### 10.1 Added by the §2.5 reversal — for a reviewer to check first
+
+1. **THE GAP: a dialog has no hard shadow.** §4.11 item 4. `Material` cannot
+   take a `boxShadow`, and the eight `AlertDialog` sites are not wrapped. Shipped
+   state: 2pt edge + `rControl` + `elevation: 0`, no shadow. The one-line remedy
+   does not exist; the real remedy is a shared wrapper applied to all eight sites,
+   which is a new spec.
+2. **Three surfaces beyond the literal enumeration were also restyled**, and each
+   is called out so a reviewer can object individually rather than discover them:
+   the home **error banner** (§4.13 — same class as the two banners beside it),
+   Detail's **web-result tile** and the **onboarding mock panel** (both
+   `paper`-filled rounded containers with a hairline, i.e. the same class as a
+   card), and the home **batch bar** / **Ask bar** (§4.9's contract). Leaving any
+   of them soft is the §6.1 incoherence on a screen the reversal was about.
+3. **`delete_everything_test.dart:391` fails on this Windows checkout**, for a
+   reason that predates and is unrelated to this work: it asserts a 40-character
+   source window contains `'catch'`, and the working tree uses CRLF, so the window
+   is `\r\n    `. Not fixed here — it is a test bug in a file this phase did not
+   need to touch, and fixing it would mean changing a test unrelated to the
+   restyle. Named so nobody re-diagnoses it.
+4. **The pre-existing 4.37:1 dark-mode error-banner text** (§7.1) was found while
+   auditing the reversal, and deliberately left. Fixing it means choosing a
+   different palette step, which §9 forbids for a visual restyle. It is a real
+   SC 1.4.3 failure and it is not going away by being written down here.
+5. **UNVERIFIED, and it is the one claim that could be wrong on device:** that the
+   hard edge on a `paper` card at 2pt is not *too* strong next to a `paper` sheet,
+   where both now carry `stone` at the same weight. Both edges are on the same
+   fill with the same colour, so where a card sits on a sheet the two 2pt lines
+   are 8dp apart and read as a double rule. The stacking the app actually
+   produces is card-on-canvas and sheet-over-scrim, never card-on-sheet, so this
+   is a theoretical collision — but it is the one to look at first on a device,
+   and the fix if it is real is a different edge step for one of the two.
+6. **Judgement calls made by this phase, flagged so a reviewer can overrule
+   them:**
+   - §4.12 — labels get the hard edge but **no** shadow. This is the single
+     decision that keeps the reversal from making every badge look pressable,
+     and it is the one most likely to be reversed back.
+   - §4.14 — the assistant essay gets **no** bubble.
+   - §4.15 — row separators stay at the hairline even though `dividerTheme` was
+     raised. §4.15 states the colour arithmetic for it.
+   - §4.10 — the selected card keeps `accent` at 2.97:1 rather than taking a new
+     selection colour.
+   - §4.11 — `snackBarTheme` takes the slab edge (`edgeOnFill`), not
+     `surfaceEdge`, because `ink` in dark mode is a cream fill.
+   - §4.16 — the OCR copy button is `outline` at height 36 with the restored 12pt
+     `metaLabel`,
+     which is a *lot* of pinning for a copy affordance; all of it is there to
+     keep the block from growing and the label from turning 1.00:1.

@@ -12,9 +12,9 @@ import 'brutal_tokens.dart';
 /// Screen code reads colors via `AppTheme.of(context)` (the [SiftColors]
 /// ThemeExtension) and type via [SiftType], avoiding M3 defaults entirely.
 
-/// Radius lock: 0 nav/hairlines, 4 inline code + hard-edged controls,
-/// 12 thumbs/OCR/banners, 16 fields/buttons, 20 cards/dialogs, 24 sheet top,
-/// full pills/chips.
+/// Radius lock: 0 nav/hairlines, 4 every hard edge (controls AND read-only
+/// surfaces), 12 thumbs, 16 fields, 20 legacy dialogs, 24 sheet top,
+/// full pills.
 abstract final class SiftRadii {
   SiftRadii._();
 
@@ -25,9 +25,17 @@ abstract final class SiftRadii {
   static const double rCard = 20;
   static const double rSheet = 24;
 
-  /// Control radius (buttons, inputs, chips, sheet options). Lower than
-  /// rField (16) because a hard 2pt border on a 16pt corner reads as a chip
-  /// mended with tape. Cards/sheets/thumbs/OCR are NOT affected.
+  /// The one hard-edged radius: buttons, inputs, chips, sheet options, and —
+  /// since the §2.5 reversal — cards, dialogs, sheets, snackbars, chat
+  /// bubbles, badges, tags, banners, skeletons and the OCR block.
+  ///
+  /// Lower than rField (16) because a hard 2pt border on a 16pt corner reads as
+  /// a chip mended with tape, and a 20pt corner under the same border reads as
+  /// a bug: at that radius the border and the 4pt shadow sliver meet at a
+  /// visibly non-orthogonal angle. `rThumb`, `rField`, `rCard` and `rSheet`
+  /// remain correct for the surfaces that still use them (image thumbnails,
+  /// `_flatRow`/`_infoRow`/`_linkRow` in Settings, the settings segmented
+  /// control's pill), which are all §2.5 exclusions or bare image boxes.
   static const double rControl = 4;
 }
 
@@ -87,9 +95,19 @@ abstract final class SiftElevation {
   ];
 
   /// Cards: L1 in light, none in dark.
+  ///
+  /// No longer read by the app's own cards — the §2.5 reversal moved those to
+  /// [SiftBrutal.hard]. Kept because the soft ramp is not only a surface scale:
+  /// §9 forbids removing l1–l5, and a helper that still names the old card
+  /// treatment is what a reader needs in order to see that it was superseded
+  /// rather than forgotten.
   static List<BoxShadow> card(bool isDark) => isDark ? const [] : l1;
 
   /// Sheets and dialogs: L4 in light, L4Dark in dark.
+  ///
+  /// Superseded on the two surfaces that used it — `PremiumBottomSheet` and the
+  /// onboarding mock panel now take [SiftBrutal.hard]. Kept for the same reason
+  /// as [card].
   static List<BoxShadow> sheet(bool isDark) => isDark ? l4Dark : l4;
 }
 
@@ -585,9 +603,6 @@ class AppTheme {
       ),
     ).apply(bodyColor: s.ink, displayColor: s.ink);
 
-    final borderColor = s.divider;
-    final borderWidth = hairline(isDark);
-
     return ThemeData(
       useMaterial3: true,
       brightness: brightness,
@@ -610,18 +625,45 @@ class AppTheme {
         iconTheme: IconThemeData(color: s.ink),
         titleTextStyle: SiftType.chromeTitle.copyWith(color: s.ink),
       ),
+      // The card surface, since the §2.5 reversal. Nothing in the app mounts a
+      // `Card` — `_SiftCard` (home) and `ScreenshotCardSkeleton` are Containers
+      // that read the same tokens — so this block is the fallback for any
+      // `Card` a future screen introduces, and leaving it soft while every
+      // visible card is hard would be exactly the incoherence §6.1 describes.
+      //
+      // `elevation: 0` is required, not inherited: a `Card` paints its shadow
+      // through Material's `elevation`, and Material elevation ALWAYS blurs
+      // (§5.1). Leaving it on would put a soft Gaussian shadow under a 2pt hard
+      // border. For the same reason there is NO hard shadow here — `Card` has
+      // no `boxShadow`, so a hard edge on a `Card` is a border only, and the
+      // visible cards get the offset shadow because they are Containers.
       cardTheme: CardThemeData(
         elevation: 0,
         color: s.paper,
         surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(SiftRadii.rCard),
-          side: BorderSide(color: borderColor, width: 1),
+          borderRadius: BorderRadius.circular(SiftRadii.rControl),
+          side: BorderSide(
+            color: SiftBrutal.surfaceEdge(isDark),
+            width: SiftBrutal.borderW,
+          ),
         ),
         margin: EdgeInsets.zero,
       ),
+      // A snackbar is a slab, not a page step: it fills with `ink` in BOTH
+      // modes, which is one of the four fills §6.10 defines a slab as. The
+      // border is painted on top of that fill, so it is scored against `ink`
+      // and takes `edgeOnFill` — 6.64:1 light, 6.08:1 dark. The page-step edge
+      // would have been arithmetically blind here: `stone` on `ink` is 3.03:1
+      // in light and **0.40:1** in dark, because in dark mode this box is a
+      // cream `ink` fill and `stone` is a mid-warm grey.
+      //
+      // `elevation: 0` for the same reason as `cardTheme`: SnackBar's Material
+      // shadow is a blurred elevation and cannot be a 4pt zero-blur offset.
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
+        elevation: 0,
         backgroundColor: s.ink,
         contentTextStyle: TextStyle(
           color: isDark ? s.canvas : s.paper,
@@ -629,32 +671,86 @@ class AppTheme {
           height: 1.4,
         ),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(SiftRadii.rThumb),
+          borderRadius: BorderRadius.circular(SiftRadii.rControl),
+          side: BorderSide(
+            color: SiftBrutal.edgeOnFill(isDark),
+            width: SiftBrutal.borderW,
+          ),
         ),
         insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       ),
+      // Sheet chrome. `rSheet` 24 was the warm reading of a sheet that only
+      // ever held soft controls; with the two `_SourceOption` tiles already
+      // hard, a 24pt-radius sheet around them was the incoherence §6.1 names.
+      //
+      // The shape carries the 2pt edge but no shadow, for the same Material
+      // reason as the dialog below. `PremiumBottomSheet` supplies the real hard
+      // offset shadow because it is a Container, not a themed `BottomSheet`.
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: s.paper,
         surfaceTintColor: Colors.transparent,
         modalBackgroundColor: s.paper,
-        shape: const RoundedRectangleBorder(
-          borderRadius:
-              BorderRadius.vertical(top: Radius.circular(SiftRadii.rSheet)),
+        elevation: 0,
+        shadowColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(SiftRadii.rControl)),
+          side: BorderSide(
+            color: SiftBrutal.surfaceEdge(isDark),
+            width: SiftBrutal.borderW,
+          ),
         ),
       ),
+      // Dialog chrome, reversed. §2.5 previously excluded this on the reasoning
+      // that a container is not a control; that reasoning was overridden after a
+      // device review (DESIGN-BRUTALIST.md §1, §2.5). `rControl` 4 and the 2pt
+      // edge clear 3:1 on the `paper` fill — 4.72:1 light, 4.68:1 dark — so the
+      // 15–16pt sans body text keeps a hard-edged field to sit on without any
+      // contrast change: the FILL is untouched.
+      //
+      // `elevation: 0` is the substantive part of this change. `Dialog` and
+      // `AlertDialog` paint their shape through a `Material`, and a `Material`'s
+      // only shadow is the blurred `elevation` one (default 6), so the boxes
+      // shipped with a soft 24px-blur shadow today. Removing it is what makes
+      // the 2pt edge read as the only boundary; leaving it would put two shadow
+      // languages under every dialog, one of them a different direction (§6.3).
+      //
+      // There is consequently NO hard offset shadow on a dialog, and that is a
+      // reported gap rather than an oversight — see DESIGN-BRUTALIST.md §4.9.
       dialogTheme: DialogThemeData(
         backgroundColor: s.paper,
         surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        shadowColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(SiftRadii.rCard),
+          borderRadius: BorderRadius.circular(SiftRadii.rControl),
+          side: BorderSide(
+            color: SiftBrutal.surfaceEdge(isDark),
+            width: SiftBrutal.borderW,
+          ),
         ),
         titleTextStyle: SiftType.serifHeadline.copyWith(color: s.ink),
         contentTextStyle: SiftType.bodySansMd.copyWith(color: s.graphite),
       ),
+      // Default `Divider` geometry, raised from the hairline to the app's one
+      // boundary weight so a divider that does not override it is a deliberate
+      // rule rather than a layer separator.
+      //
+      // Nothing in the app reads it: all eight `Divider(...)` call sites pass an
+      // explicit `thickness: 1`, and they stay there. Every one of them is an
+      // INTRA-SURFACE row separator — Settings checklist rows, the Detail
+      // File/Scanned/Type table, shopping items, action-history rows, the About
+      // feature rows, the Onboarding trust rows — and a 2pt rule between two
+      // rows of the same table marks a boundary that is not there while the
+      // 2pt edges around every actual container get quieter by comparison.
+      // `divider` measures 1.42:1 on `paper` and 1.37:1 on `canvas` (light), so
+      // what makes these rules quiet is the COLOUR, not the weight: at 1pt they
+      // are a whisper, and at 2pt they would be a whisper drawn twice as
+      // thick, which is not more visible so much as heavier.
       dividerTheme: DividerThemeData(
         color: s.divider,
-        thickness: borderWidth,
-        space: borderWidth,
+        thickness: SiftBrutal.borderW,
+        space: SiftBrutal.borderW,
       ),
       // Switches are themed, not re-wrapped in a custom widget: Flutter's
       // SwitchThemeData already carries a track outline, so the 2pt hard edge is

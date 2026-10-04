@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 
 import 'motion_tokens.dart';
 
-/// Neobrutalism-as-accent tokens.
+/// Neobrutalism tokens.
 ///
-/// SIFT is a warm-paper reading app. These tokens do not restyle it. They add
-/// one visual grammar — "hard edge means this is a control" — to interactive
-/// surfaces only, so tappability is learnable without tapping. Read-only
-/// content keeps the paper personality; see DESIGN-BRUTALIST.md §2.5 for the
-/// surfaces that are deliberately excluded.
+/// SIFT is a warm-paper reading app, and this is now the app's surface language
+/// rather than a control accent. The §1 rule that governed the first pass —
+/// "brutalism marks what you can touch, warmth marks what you read" — was
+/// REVERSED after a device review: brutal buttons were landing inside warm
+/// containers and the user judged the remainder not to belong to them. The
+/// grammar is now one system across every surface, interactive and read-only
+/// alike. DESIGN-BRUTALIST.md §1 records the reversal and the reason; the
+/// colour personality of the palette is unchanged, so the app still reads as
+/// warm paper carrying hard edges.
 ///
 /// Every value here is locked. Per-component overrides are a bug, not a
 /// variation: two different shadow directions is the fastest way to make a
@@ -16,19 +20,21 @@ import 'motion_tokens.dart';
 abstract final class SiftBrutal {
   SiftBrutal._();
 
-  /// Control border weight. The existing hairline (0.5 light / 1.0 dark,
+  /// Border weight for a hard edge. The existing hairline (0.5 light / 1.0 dark,
   /// AppTheme.hairline) is a *layer separator*; this is a *boundary marker* and
   /// needs enough weight to survive at 3:1 legibility against a light fill.
   /// 1.5 was tried and reads as a hairline at chip size.
   ///
-  /// The control CORNER radius is deliberately NOT here. It lives once, as
-  /// `SiftRadii.rControl`, and every brutal control that has a corner to round
-  /// reads that name: `BrutalButton`, `SiftBrutalChip`, `BrutalField`, and the
-  /// bottom sheet's `_SourceOption` pair. The one brutal surface that does not
-  /// is `TagChip`'s 40pt delete target, and it is not an oversight — that one is
-  /// `BoxShape.circle`, so it has no corner radius to set. Restating the value
-  /// in this file is what would let one hard edge become two, and the deletion
-  /// is the enforcement: there is no second copy here to drift.
+  /// The CORNER radius is deliberately NOT here. It lives once, as
+  /// `SiftRadii.rControl`, and every hard-edged surface that has a corner to
+  /// round reads that name: `BrutalButton`, `SiftBrutalChip`, `BrutalField`, the
+  /// bottom sheet's `_SourceOption` pair, and — since the §2.5 reversal — the
+  /// card, dialog, snackbar, sheet chrome, chat bubble, badge, tag, banner and
+  /// OCR blocks. The two hard-edged surfaces that do not are `TagChip`'s 40pt
+  /// delete target and the chat send circle, and neither is an oversight: both
+  /// are `BoxShape.circle`, so they have no corner radius to set. Restating the
+  /// value in this file is what would let one hard edge become two, and the
+  /// deletion is the enforcement: there is no second copy here to drift.
   static const double borderW = 2.0;
 
   /// The one hard shadow offset. Direction is down-right on the assumption of
@@ -164,6 +170,44 @@ abstract final class SiftBrutal {
 
   static Color edgeOnFill(bool isDark) =>
       isDark ? edgeOnFillDark : edgeOnFillLight;
+
+  /// The RESTING 2pt edge on a hard-edged READ-ONLY surface: the card, the
+  /// dialog and sheet boxes, the snackbar's slab neighbour, the chat bubble,
+  /// the badge, the tag, the banners, the skeleton, and the OCR block.
+  ///
+  /// This is `stone`, which is already the resting edge on every page-filled
+  /// interactive control (§4.1–§4.6), so the reversal of §2.5 cost no new
+  /// colour in either mode — a read-only surface and a control that fills with
+  /// the same page step now draw the identical edge.
+  ///
+  /// The reason the OLD edge could not be kept is arithmetic, and it is the
+  /// same arithmetic that forced the control edge off `divider`: a
+  /// `BoxDecoration` border paints inside the box, ON TOP OF `decoration.color`,
+  /// so this 2pt line is scored against the surface's own fill and not the page.
+  /// The card's 1pt `divider` measured **1.42:1** on `paper` in light and
+  /// **1.22:1** in dark — and a card here is an `InkWell`, so that hairline WAS
+  /// a UI component boundary and was owed SC 1.4.11's 3:1. It was drawing
+  /// nothing.
+  ///
+  /// `stone` clears 3:1 against every fill a hard-edged read-only surface is
+  /// actually filled with, in both modes (`L + 0.05` operands):
+  ///
+  ///   light  paper 4.72 · canvas 4.53 · surfaceWarm1 4.15 · surfaceWarm2 3.79
+  ///         · errorSoft 3.90 · codeBg 3.45  ← the OCR block, the tightest row
+  ///   dark   paper/surfaceWarm1 4.68 · canvas 5.28 · surfaceWarm2 3.83
+  ///         · errorSoft 3.78 · codeBg 5.74
+  ///
+  /// The OCR block is the interesting row and it is why this token is `stone`
+  /// rather than [edgeOnFill]: `codeBg` is a near-black slab in BOTH modes, so
+  /// it is not a page step and not one of the four slab fills either. Scoring
+  /// the shared `bone` against it would have produced 0.46409 / 0.06133 =
+  /// **7.57:1** in light — visible, but from a different palette step than every
+  /// other surface's edge, which is the one thing this token exists to prevent.
+  static const Color surfaceEdgeLight = Color(0xFF7A6E61); // == stone (light)
+  static const Color surfaceEdgeDark = Color(0xFF998D80); // == stone (dark)
+
+  static Color surfaceEdge(bool isDark) =>
+      isDark ? surfaceEdgeDark : surfaceEdgeLight;
 
   /// The RESTING 2pt edge on the switch's ON track. Deliberately NOT
   /// [edgeOnFill], and this is the one place the shared-value rule above is

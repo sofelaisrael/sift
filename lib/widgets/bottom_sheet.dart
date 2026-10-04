@@ -3,13 +3,22 @@ import '../theme/app_theme.dart';
 import '../theme/brutal_tokens.dart';
 import '../theme/motion_tokens.dart';
 import 'brutal_activate.dart';
+import 'brutal_chip.dart';
 
 /// Capture source picker. Paper sheet, neutral icons, no tinted wells.
 ///
-/// The SHEET is not a control, so its chrome keeps `rSheet` and the soft L4
-/// shadow and is deliberately outside the brutal set (DESIGN-BRUTALIST.md
-/// §2.5, §8 Phase 4). The two source tiles inside it are, and carry the hard
-/// edge.
+/// The SHEET is hard-edged since the §2.5 reversal: `rControl`, the 2pt resting
+/// edge and the hard offset shadow, from the same [brutalEdge] the labels use.
+/// It previously kept `rSheet` 24 and a soft L4 shadow on the reasoning that a
+/// container is not a control; that reasoning was overridden after a device
+/// review, and leaving it would have put a 24pt-radius warm sheet around two
+/// hard-edged tiles — §6.1 exactly. The two source tiles are unchanged, so the
+/// sheet and its contents now share one geometry instead of two.
+///
+/// This Container is also why the sheet has a real cast shadow where the themed
+/// `Dialog` / `SnackBar` cannot: a themed Material box has only a blurred
+/// `elevation`, so the theme blocks carry the edge and this one carries the
+/// shadow too.
 class PremiumBottomSheet extends StatelessWidget {
   final VoidCallback onCamera;
   final VoidCallback onGallery;
@@ -40,13 +49,14 @@ class PremiumBottomSheet extends StatelessWidget {
     final s = AppTheme.of(context);
 
     return Container(
-      decoration: BoxDecoration(
-        color: s.paper,
+      decoration: brutalEdge(
+        fill: s.paper,
+        isDark: Theme.of(context).brightness == Brightness.dark,
+        // Top corners only: the sheet is flush with the bottom of the screen,
+        // and rounding all four would show the modal barrier through four 4px
+        // notches there.
         borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(SiftRadii.rSheet),
-        ),
-        boxShadow: SiftElevation.sheet(
-          Theme.of(context).brightness == Brightness.dark,
+          top: Radius.circular(SiftRadii.rControl),
         ),
       ),
       child: SafeArea(
