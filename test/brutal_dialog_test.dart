@@ -6,22 +6,27 @@ import 'package:screensort_lam/theme/brutal_tokens.dart';
 import 'package:screensort_lam/widgets/brutal_button.dart';
 import 'package:screensort_lam/widgets/privacy_gate.dart';
 
-/// Phase 4 gate, in both directions.
+import 'wcag_contrast.dart';
+
+/// Both halves of the dialog surface, asserted in both directions.
 ///
-/// The spec puts the hard edge on a dialog's ACTION ROW, not on the dialog:
-/// chrome is a container, so it keeps `rCard` 20 and stays borderless
-/// (DESIGN-BRUTALIST.md §2.5, §8 Phase 4 — "if the sheet itself grew a hard
-/// edge, that is a Phase 4 failure"). A test that only checked the action row
-/// would pass a build that had also hard-edged the dialog box, and one that only
-/// checked the box would pass a build with no brutal control in it, so both are
-/// asserted.
+/// This file previously asserted the opposite of what it asserts now. The spec
+/// put the hard edge on a dialog's ACTION ROW and left the chrome warm, because
+/// "chrome is a container, not a control". That was reversed after a device
+/// review — brutal buttons were landing inside a warm box — so the chrome now
+/// carries the 2pt edge and [SiftRadii.rControl] as well, and the second test
+/// below asserts exactly that.
+///
+/// Both directions are still asserted on purpose. The action-row test alone
+/// would pass a build that had reverted the chrome, and the chrome test alone
+/// would pass a build with no brutal control in it.
 ///
 /// Both assertions run against a REAL production dialog — `privacy_gate.dart`,
-/// one of the nine `showDialog` sites — rather than a dialog the test builds
+/// one of the eight `showDialog` sites — rather than a dialog the test builds
 /// itself. The previous version of this file constructed its own `AlertDialog`
 /// with its own `BrutalButton`s, so "the action row carries the 2pt border" was
 /// a statement about the test's own widgets and would have held if every one of
-/// the nine real sites had been left as a Material `TextButton`.
+/// the eight real sites had been left as a Material `TextButton`.
 ///
 /// Copy is not asserted beyond the title, which exists to prove the production
 /// dialog really is the one on screen: the body string literals in these files
@@ -90,18 +95,76 @@ void main() {
     );
   });
 
-  testWidgets('the dialog chrome itself stays warm', (tester) async {
+  testWidgets('the dialog chrome now carries the hard edge too',
+      (tester) async {
     final context = await openRealDialog(tester);
     final dialogTheme = Theme.of(context).dialogTheme;
 
-    // rCard, not rControl: a hard-edged dialog box would be a container wearing
-    // a control's grammar, which is the §1 rule inverted.
+    // rControl, not rCard: this is the reversal of the old rule, and it is
+    // asserted rather than assumed so a revert cannot pass quietly.
     final shape = dialogTheme.shape! as RoundedRectangleBorder;
     expect(
       shape.borderRadius,
-      BorderRadius.circular(SiftRadii.rCard),
+      BorderRadius.circular(SiftRadii.rControl),
     );
-    expect(shape.side, BorderSide.none);
+    expect(shape.side, isNot(BorderSide.none));
+
+    // The 2pt edge is scored against the `paper` fill it is painted on, so it
+    // takes the page-step `surfaceEdge`, and both operands are read off the
+    // PUMPED theme rather than restated as two palette constants — reading the
+    // constants would pass even if the side had been left at `divider`, which is
+    // 1.42:1 on `paper` and the exact failure the edge exists to prevent.
+    expect(shape.side.width, SiftBrutal.borderW);
+    expect(shape.side.color, SiftBrutal.surfaceEdgeLight);
     expect(dialogTheme.backgroundColor, SiftColors.light.paper);
+    expect(
+      wcagContrast(shape.side.color, dialogTheme.backgroundColor!),
+      greaterThanOrEqualTo(kNonTextContrast),
+    );
+
+    // `elevation: 0`, because a `Material`'s only shadow is the blurred
+    // elevation one. Left at the M3 default of 6 this dialog carries a 24px-blur
+    // shadow under a 2pt hard border — two shadow languages, one of them in a
+    // different direction.
+    expect(dialogTheme.elevation, 0);
+    expect(dialogTheme.shadowColor, Colors.transparent);
+  });
+
+  testWidgets('dark mode swaps the dialog edge, and nothing else',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'localOnly': false,
+      'privacy_consent': false,
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.darkTheme,
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showPrivacyConsentIfNeeded(context),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.text('One thing before we start'), findsOneWidget);
+
+    final dialogTheme =
+        Theme.of(tester.element(find.byType(AlertDialog))).dialogTheme;
+    final shape = dialogTheme.shape! as RoundedRectangleBorder;
+
+    expect(shape.side.color, SiftBrutal.surfaceEdgeDark);
+    expect(shape.side.width, SiftBrutal.borderW);
+    expect(dialogTheme.backgroundColor, SiftColors.dark.paper);
+    // 4.68:1 — the fill is untouched by this change, so the 15pt body text on
+    // `paper` is exactly where it was.
+    expect(
+      wcagContrast(shape.side.color, dialogTheme.backgroundColor!),
+      greaterThanOrEqualTo(kNonTextContrast),
+    );
   });
 }
