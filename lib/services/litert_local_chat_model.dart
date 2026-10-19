@@ -7,6 +7,7 @@ import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
 
 import 'local_chat_model.dart';
 import 'local_model_spec.dart';
+import 'device_memory.dart';
 
 /// One open chat over the loaded engine. Closed after every question so no
 /// screenshot text survives into the next turn's context.
@@ -111,6 +112,15 @@ enum LiteRtFailure {
   /// model itself when it finds a bundle on a device it cannot run, so that
   /// case reports this same sentence rather than a second one.
   unsupportedArchitecture,
+
+  /// The OS classes this device as low on memory, so the engine cannot hold the
+  /// weights and the KV cache at the same time and reading them fails. The
+  /// transfer would also succeed, and the cost is already paid by then, so
+  /// [unsupportedDeviceNote]'s sibling sentence is raised from the setup action
+  /// before anything moves. Raised by the model itself as well, for a bundle
+  /// that reached the device by another route, so that case reports this same
+  /// sentence rather than a second one.
+  insufficientMemory,
 }
 
 /// The user asked to stop. Not a failure: nothing is installed and the row
@@ -144,10 +154,12 @@ class LiteRtLocalChatModel implements LocalChatModel {
     PreferredBackend backend = PreferredBackend.cpu,
     this.contextTokens = defaultContextTokens,
     bool? isSupportedDevice,
+    bool? isLowRamDevice,
   })  : _gateway = gateway ?? FlutterGemmaLiteRt(),
         _backend = backend,
         _isSupportedDevice =
-            isSupportedDevice ?? LiteRtLocalChatModel.isSupportedDevice;
+            isSupportedDevice ?? LiteRtLocalChatModel.isSupportedDevice,
+        _isLowRamDevice = isLowRamDevice ?? DeviceMemory.isLowRam;
 
   /// KV-cache budget. A 0.6B bundle on a phone answers acceptably here, and a
   /// large window is the fastest way to run a device out of memory. The
@@ -170,6 +182,18 @@ class LiteRtLocalChatModel implements LocalChatModel {
   static const String unsupportedDeviceNote =
       'On-device chat needs an arm64-v8a device, which this is not. SIFT keeps '
       'using the plain local reply.';
+
+  /// The one sentence SIFT shows for a device the OS classes as low on memory.
+  ///
+  /// Fixed copy like every other reason here, and deliberately a statement of
+  /// the consequence rather than of the verdict: the platform reports a device
+  /// class, not a failure it observed, so the sentence names what the user
+  /// cannot do instead of repeating a classification they did not ask for. It
+  /// blames neither the network, the host, nor the transfer, because none of
+  /// those is why a phone is short on memory.
+  static const String lowRamDeviceNote =
+      'On-device chat needs more memory than this phone has. SIFT keeps using '
+      'the plain local reply.';
 
   /// Whether this device's architecture can run the runtime at all.
   ///
@@ -209,6 +233,14 @@ class LiteRtLocalChatModel implements LocalChatModel {
   /// runtime cannot run on. Production always asks [isSupportedDevice], the only
   /// thing that knows which architectures the native library ships for.
   final bool _isSupportedDevice;
+
+  /// The memory answer, injectable for the same reason, and read from the
+  /// warmed cache rather than from the platform: a `build` cannot await a
+  /// channel message, and the load path below does not need a fresher answer
+  /// than the cache holds. [LocalModelService] asks [DeviceMemory.check]
+  /// itself before it starts a transfer, so the read this field skips is one
+  /// the setup path has already made.
+  final bool _isLowRamDevice;
 
   /// Context budget for the engine. Injectable so a test can shrink it.
   final int contextTokens;
@@ -398,6 +430,8 @@ class LiteRtLocalChatModel implements LocalChatModel {
             'track it. Removing the app frees the space.';
       case LiteRtFailure.unsupportedArchitecture:
         return unsupportedDeviceNote;
+      case LiteRtFailure.insufficientMemory:
+        return lowRamDeviceNote;
     }
   }
 
@@ -436,6 +470,20 @@ class LiteRtLocalChatModel implements LocalChatModel {
       _setStatus(
         LocalChatModelStatus.error,
         _failureCopy(LiteRtFailure.unsupportedArchitecture),
+      );
+      return false;
+    }
+    // The same sideloaded-bundle case, asked about memory instead of
+    // architecture: the engine would read a 614 MB bundle into a phone the OS
+    // classes as low on memory and fail partway through, which is the vague
+    // "could not be loaded" above the fixed sentence is for. Not flagged as a
+    // failed load to retry around either, and for the same reason: a device does
+    // not stop being low on memory while the app runs.
+    if (_isLowRamDevice) {
+      _loadFailed = true;
+      _setStatus(
+        LocalChatModelStatus.error,
+        _failureCopy(LiteRtFailure.insufficientMemory),
       );
       return false;
     }

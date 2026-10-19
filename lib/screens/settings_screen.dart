@@ -842,6 +842,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!service.isSupportedDevice) {
       return 'Unavailable here. ${service.unsupportedDeviceNote}';
     }
+    // The same refusal, for the same reason: no setup was ever started here, so
+    // "Not downloaded" below would promise one that cannot work on this phone.
+    // Read from the warmed cache, so this is a plain synchronous answer in a
+    // build; the setup action still asks the platform before it transfers.
+    if (service.isLowRamDevice) {
+      return 'Unavailable here. ${service.lowRamDeviceNote}';
+    }
     switch (service.status) {
       case LocalChatModelStatus.downloading:
         final percent = service.downloadPercent;
@@ -885,6 +892,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
         builder: (context) => AlertDialog(
           title: const Text('On-device chat model'),
           content: Text(service.unsupportedDeviceNote),
+          actions: [
+            BrutalButton.text(
+              onPressed: () => Navigator.pop(context),
+              label: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // Same shape as the gate above it, and for the same reason: there is no
+    // setup to offer on a phone the OS classes as low on memory, so the dialog
+    // carries no Download action and the service would refuse a transfer anyway.
+    if (service.isLowRamDevice) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('On-device chat model'),
+          content: Text(service.lowRamDeviceNote),
           actions: [
             BrutalButton.text(
               onPressed: () => Navigator.pop(context),

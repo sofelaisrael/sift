@@ -500,10 +500,22 @@ number to justify it.
   native asset for `android_x86_64` and still succeeds.
 - **Low-end devices are a real audience.** 2–4 GB RAM is not an edge case. A
   0.6B model at 614 MB, plus KV cache, plus ML Kit, plus a screenshot library is
-  tight. Consider a smaller model tier (a 350M-class bundle) and scale the
-  context window down on `ActivityManager.isLowRamDevice()`.
-  *Proposal — there is no `isLowRamDevice` call in `lib/` today; the engine's
-  context is a fixed 2048 tokens (`litert_local_chat_model.dart:155`).*
+  tight.
+  *Partly in scope now.* `DeviceMemory.check()` asks Android's own
+  `ActivityManager.isLowRamDevice()` through a `MethodChannel`
+  (`device_memory.dart`), and `LocalModelService.startDownload` refuses the
+  transfer before any request with `lowRamDeviceNote`. This is deliberately
+  **not** the proposal below: SIFT declines to offer the model rather than
+  offering a smaller version of it, because a scaled-down context on a phone
+  that cannot hold the weights still fails at load, and a user who paid 614 MB
+  for that is worse off than one who was never offered it.
+  *Still deferred, both of them:* a smaller model tier (a 350M-class bundle)
+  and scaling the context window down on a low-RAM device. The engine's context
+  remains a fixed 2048 tokens (`litert_local_chat_model.dart:167`), which is
+  now unreachable on those devices because the model is not offered there at
+  all. The check fails open — a missing plugin, a host error, or a null answer
+  all mean "not low-RAM" — so a device SIFT cannot classify keeps today's
+  behaviour rather than losing the feature.
 - **On-device multimodal on Android is effectively Pixel-class hardware only.**
   ML Kit GenAI Image Description is Android-only, API 26+, needs its own model
   download, and is restricted to a Pixel-class device list. It is not a general

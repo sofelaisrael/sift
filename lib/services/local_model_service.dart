@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import 'device_memory.dart';
 import 'litert_local_chat_model.dart';
 import 'local_chat_model.dart';
 
@@ -13,10 +14,16 @@ import 'local_chat_model.dart';
 class LocalModelService extends ChangeNotifier {
   /// [isSupportedDevice] exists so a test can drive a device the runtime cannot
   /// run on; production always asks the runtime, the only thing that knows
-  /// which architectures it ships a native library for.
-  LocalModelService({required this.model, bool? isSupportedDevice})
-      : _isSupportedDevice =
-            isSupportedDevice ?? LiteRtLocalChatModel.isSupportedDevice;
+  /// which architectures it ships a native library for. [isLowRamDevice] is the
+  /// same escape hatch for the memory question, which no test can present
+  /// without a phone.
+  LocalModelService({
+    required this.model,
+    bool? isSupportedDevice,
+    bool? isLowRamDevice,
+  })  : _isSupportedDevice =
+            isSupportedDevice ?? LiteRtLocalChatModel.isSupportedDevice,
+        _isLowRamDevice = isLowRamDevice ?? DeviceMemory.isLowRam;
 
   /// The owned model. The chat path takes this so it depends on
   /// [LocalChatModel] alone, not on this notifier.
@@ -28,13 +35,28 @@ class LocalModelService extends ChangeNotifier {
   /// the setup action off the row entirely.
   bool get isSupportedDevice => _isSupportedDevice;
 
+  /// Whether the OS classes this device as short on memory. A 614 MB bundle read
+  /// whole into a phone with little to spare fails while the weights load, so
+  /// the setup action asks before it offers anything.
+  ///
+  /// This is the warmed cache, not a read: a widget `build` cannot await a
+  /// platform message. [startDownload] asks the platform itself, so a cold cache
+  /// costs the transfer nothing — it just means the row's own copy stays quiet
+  /// until the answer has been read once.
+  bool get isLowRamDevice => _isLowRamDevice;
+
   /// Why the setup action is unavailable here, in the same fixed copy the model
   /// itself would show. Names the architecture requirement and nothing else: no
   /// host, no connection, no path.
   String get unsupportedDeviceNote =>
       LiteRtLocalChatModel.unsupportedDeviceNote;
 
+  /// [unsupportedDeviceNote]'s counterpart for a phone the OS classes as low on
+  /// memory. Shared with the model so the two cannot drift.
+  String get lowRamDeviceNote => LiteRtLocalChatModel.lowRamDeviceNote;
+
   final bool _isSupportedDevice;
+  final bool _isLowRamDevice;
 
   /// Set when a setup action was refused here rather than by the model, which
   /// was never asked. It is why [status] can be [LocalChatModelStatus.error]
@@ -77,16 +99,21 @@ class LocalModelService extends ChangeNotifier {
   /// start a transfer the user did not ask for. A second tap while a download
   /// is running joins the first.
   ///
-  /// On a device whose architecture cannot run the model it refuses without
-  /// asking the runtime: no request is made, no byte moves, and the reason is
-  /// in [statusMessage] instead of a 614 MB file that can never load.
-  Future<void> startDownload() {
-    if (!isSupportedDevice) {
-      _refusal = unsupportedDeviceNote;
+  /// On a device that cannot run the model it refuses without asking the
+  /// runtime: no request is made, no byte moves, and the reason is in
+  /// [statusMessage] instead of a 614 MB file that can never load. That covers
+  /// both gates — see [deviceRefusal], which is the one place that decides.
+  Future<void> startDownload() async {
+    final refused = await deviceRefusal();
+    if (refused != null) {
+      _refusal = refused;
       _progress = null;
       notifyListeners();
-      return Future<void>.value();
+      return;
     }
+    // A refusal from an earlier attempt must not survive into one that is
+    // proceeding. Cleared here rather than before the check so the row keeps
+    // showing its old reason while the device is still being asked.
     _refusal = null;
     final active = _activeDownload;
     if (active != null) return active;
@@ -95,6 +122,22 @@ class LocalModelService extends ChangeNotifier {
     return operation.whenComplete(() {
       if (identical(_activeDownload, operation)) _activeDownload = null;
     });
+  }
+
+  /// The fixed sentence that refuses a transfer on this device, or null when
+  /// none applies.
+  ///
+  /// Both device gates pass through here so there is one refusal and one copy
+  /// per reason, and no path that starts a transfer the others would refuse.
+  ///
+  /// The memory check is awaited rather than read from [isLowRamDevice] because
+  /// this is the one call where the difference between "answered no" and "never
+  /// asked" decides whether 614 MB moves. A cache hit short-circuits, so the
+  /// platform message is only sent when the answer is genuinely missing.
+  Future<String?> deviceRefusal() async {
+    if (!isSupportedDevice) return unsupportedDeviceNote;
+    if (isLowRamDevice) return lowRamDeviceNote;
+    return await DeviceMemory.check() ? lowRamDeviceNote : null;
   }
 
   Future<void> _download() async {

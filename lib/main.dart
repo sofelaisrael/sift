@@ -10,6 +10,7 @@ import 'providers/screenshot_provider.dart';
 import 'services/lam_service.dart';
 import 'services/action_service.dart';
 import 'services/watcher_service.dart';
+import 'services/device_memory.dart';
 import 'services/ocr_service.dart';
 import 'services/ingest_service.dart';
 import 'services/image_labeler.dart';
@@ -87,6 +88,12 @@ Future<void> main() async {
   } catch (_) {
     debugPrint('On-device model runtime registration failed');
   }
+  // One platform message, fired and not awaited: it warms the low-memory device
+  // check so the Settings row can draw its refusal in the frame that builds it.
+  // Nothing waits on it and nothing can fail a launch over it — the setup action
+  // reads the same answer before it transfers, and joins this read if it is
+  // still in flight.
+  DeviceMemory.warm();
   final localModelService = LocalModelService(model: localModel);
 
   runApp(
