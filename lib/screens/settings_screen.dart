@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/theme_controller.dart';
 import '../providers/screenshot_provider.dart';
+import '../services/api_key_store.dart';
 import '../services/ingest_service.dart';
 import '../services/local_chat_model.dart';
 import '../services/local_model_service.dart';
@@ -37,11 +38,11 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String _selectedProvider = 'Google Gemini';
   bool _hapticFeedback = true;
-  bool _localOnly = true;
   bool _autoDetect = true;
   int _expandedStep = 0;
-  int _localOnlyRevision = 0;
   bool _localModelChecked = false;
+  bool _saveFailureShown = false;
+  bool _youtubeKeyLoaded = false;
 
   final Map<String, TextEditingController> _keyControllers = {};
   final TextEditingController _youtubeKeyController = TextEditingController();
@@ -96,7 +97,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final localOnlyRevision = _localOnlyRevision;
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
@@ -105,46 +105,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _selectedProvider = 'Google Gemini';
       }
       _hapticFeedback = prefs.getBool('hapticFeedback') ?? true;
-      if (localOnlyRevision == _localOnlyRevision) {
-        _localOnly = prefs.getBool('localOnly') ?? true;
-      }
       _autoDetect = prefs.getBool('autoDetect') ?? true;
     });
     MotionTokens.hapticsEnabled = _hapticFeedback;
 
     for (final p in _providers) {
       if (p['needsKey'] == true) {
-        final key = prefs.getString('key_${p['name']}') ?? '';
+        var key = '';
+        try {
+          key = await ApiKeyStore.read('key_${p['name']}') ?? '';
+        } catch (e) {
+          debugPrint('Could not read the saved ${p['name']} key: $e');
+        }
+        if (!mounted) return;
         _keyControllers[p['name']] = TextEditingController(text: key);
       }
     }
-    _youtubeKeyController.text = prefs.getString('key_youtube') ?? '';
+
+    var youtubeKey = '';
+    try {
+      youtubeKey = await ApiKeyStore.read('key_youtube') ?? '';
+    } catch (e) {
+      debugPrint('Could not read the saved YouTube key: $e');
+    }
+    if (!mounted) return;
+    _youtubeKeyController.text = youtubeKey;
+    _youtubeKeyLoaded = true;
   }
 
   Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('provider', _selectedProvider);
-    await prefs.setBool('hapticFeedback', _hapticFeedback);
-    await prefs.setBool('autoDetect', _autoDetect);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('provider', _selectedProvider);
+      await prefs.setBool('hapticFeedback', _hapticFeedback);
+      await prefs.setBool('autoDetect', _autoDetect);
 
-    for (final p in _providers) {
-      if (p['needsKey'] == true && _keyControllers.containsKey(p['name'])) {
-        await prefs.setString(
-          'key_${p['name']}',
-          _keyControllers[p['name']]!.text,
-        );
+      for (final p in _providers) {
+        if (p['needsKey'] == true && _keyControllers.containsKey(p['name'])) {
+          await ApiKeyStore.write(
+            'key_${p['name']}',
+            _keyControllers[p['name']]!.text,
+          );
+        }
       }
+      // A save triggered while the secure read is still in flight must not
+      // write the empty initial field over a key that is about to load.
+      if (_youtubeKeyLoaded) {
+        await ApiKeyStore.write('key_youtube', _youtubeKeyController.text);
+      }
+      _saveFailureShown = false;
+    } catch (e) {
+      debugPrint('Could not save settings: $e');
+      if (!mounted || _saveFailureShown) return;
+      _saveFailureShown = true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not save API keys. They were not written.'),
+        ),
+      );
     }
-    await prefs.setString('key_youtube', _youtubeKeyController.text);
   }
 
   Future<void> _onLocalOnlyChanged(bool value) async {
     final provider = context.read<ScreenshotProvider>();
     try {
       await provider.setLocalOnly(value);
-      _localOnlyRevision++;
       if (!mounted) return;
-      setState(() => _localOnly = value);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1069,9 +1095,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed != true) return;
 
     if (MotionTokens.canHaptic) HapticFeedback.mediumImpact();
-    _localOnlyRevision++;
 
-    // The model goes first, and never after the wipe. The runtime keeps its
+    // The model goes first, and never after the wipe. The runtime keeps it
     // model index in the same SharedPreferences store the wipe clears, so a
     // removal that runs afterwards finds nothing registered, leaves the file
     // on the device, and reports a deletion that never happened.
@@ -1115,7 +1140,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       return;
     }
-    _localOnlyRevision++;
     if (!mounted) return;
 
     // The boxes and prefs are gone, so the screen must not keep showing what
@@ -1125,7 +1149,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // because that outcome does not change what the wipe already did.
     setState(() {
       _selectedProvider = 'Google Gemini';
-      _localOnly = true;
       _autoDetect = true;
       _hapticFeedback = true;
     });

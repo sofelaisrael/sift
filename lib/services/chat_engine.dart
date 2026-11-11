@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config.dart';
 import '../models/screenshot.dart';
+import 'api_key_store.dart';
 import 'lam_service.dart';
 import 'local_chat_model.dart';
 import 'web_lookup.dart';
@@ -172,7 +174,12 @@ class ChatEngine {
 
     // Only a key the user saved counts. There is no bundled or CI-injected
     // fallback, so no saved key means no hosted request.
-    final savedKey = (prefs.getString('key_$providerName') ?? '').trim();
+    var savedKey = '';
+    try {
+      savedKey = (await ApiKeyStore.read('key_$providerName') ?? '').trim();
+    } catch (e) {
+      debugPrint('Could not read the saved provider key: $e');
+    }
     final apiKey = savedKey.isEmpty ? null : savedKey;
     // LLM answer and the link hunt run in parallel. Future.wait joins both
     // so neither future can be orphaned if the other completes with an error
@@ -247,8 +254,8 @@ class ChatEngine {
         continue;
       }
       try {
-        final prefs = await SharedPreferences.getInstance();
-        final savedYouTubeKey = (prefs.getString('key_youtube') ?? '').trim();
+        final savedYouTubeKey =
+            (await ApiKeyStore.read('key_youtube') ?? '').trim();
         final youTubeKey = savedYouTubeKey.isEmpty ? null : savedYouTubeKey;
         final found = await lookup(
           extractedText: text,

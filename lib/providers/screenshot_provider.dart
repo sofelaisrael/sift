@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../models/screenshot.dart';
 import '../services/action_model.dart';
 import '../services/action_service.dart';
+import '../services/api_key_store.dart';
 import '../services/image_labeler.dart';
 import '../services/ocr_service.dart';
 import '../services/screenshot_analyzer.dart';
@@ -165,6 +166,7 @@ class ScreenshotProvider extends ChangeNotifier {
 
   List<Screenshot> _screenshots = [];
   Map<String, Screenshot> _byPath = {};
+  Map<String, Screenshot> _byId = {};
   Set<String> _hiddenPaths = {};
   Map<String, Set<String>> _tagIndex = {};
   bool _isLoading = false;
@@ -327,6 +329,7 @@ class ScreenshotProvider extends ChangeNotifier {
       _screenshots = loaded;
       _screenshots.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       _byPath = {for (final s in _screenshots) s.filePath: s};
+      _byId = {for (final s in _screenshots) s.id: s};
       _rebuildIndexes();
       _loadHiddenPaths();
       _isLoading = false;
@@ -496,6 +499,7 @@ class ScreenshotProvider extends ChangeNotifier {
     );
     if (_deletionInProgress) throw const _ProviderOperationRejected();
     _byPath[screenshot.filePath] = screenshot;
+    _byId[screenshot.id] = screenshot;
     _insertSorted(screenshot);
     _indexScreenshot(screenshot);
     if (notify) notifyListeners();
@@ -569,9 +573,15 @@ class ScreenshotProvider extends ChangeNotifier {
     final searchable = _searchableText(text);
     if (searchable == null) return;
     final idx = index ?? _invertedIndex;
+    final isSearchIndex = identical(idx, _invertedIndex);
     for (final word in _tokenize(searchable).toSet()) {
-      idx.putIfAbsent(word, () => <String, int>{});
-      idx[word]![id] = (idx[word]![id] ?? 0) + weight;
+      final isNewKey = !idx.containsKey(word);
+      final postings = idx.putIfAbsent(word, () => <String, int>{});
+      postings[id] = (postings[id] ?? 0) + weight;
+      // A genuinely new key changes the key set, so the sorted view is stale.
+      // Re-adding an existing term only changes a posting, and the key set
+      // stays as it was.
+      if (isNewKey && isSearchIndex) _sortedKeys = null;
     }
   }
 
@@ -585,6 +595,8 @@ class ScreenshotProvider extends ChangeNotifier {
     for (final key in toDelete) {
       _invertedIndex.remove(key);
     }
+    // Keys left the index, so the sorted view no longer covers it.
+    if (toDelete.isNotEmpty) _sortedKeys = null;
   }
 
   /// Every field of [s] that reaches the inverted index, in the order and with
@@ -649,6 +661,7 @@ class ScreenshotProvider extends ChangeNotifier {
 
   void _rebuildIndexes() {
     _invertedIndex = {};
+    _sortedKeys = null;
     _tagIndex = {};
     for (final s in _screenshots) {
       _indexScreenshot(s);
@@ -728,6 +741,7 @@ class ScreenshotProvider extends ChangeNotifier {
     );
     if (_deletionInProgress) return null;
     _byPath[path] = screenshot;
+    _byId[screenshot.id] = screenshot;
     _insertSorted(screenshot);
     _indexScreenshot(screenshot);
     _pendingNotifies++;
@@ -1210,6 +1224,10 @@ class ScreenshotProvider extends ChangeNotifier {
       await _clearBoxIfOpen('ingest');
       await _clearBoxIfOpen('hidden_paths');
 
+      // Keys live in the platform keystore now. Clear them before the
+      // preference wipe so a failure here still reports an incomplete wipe.
+      await ApiKeyStore.clear();
+
       final prefs = await SharedPreferences.getInstance();
       // A false here means provider/API keys or consent flags may still be on
       // disk, so the wipe cannot be reported as complete.
@@ -1240,8 +1258,10 @@ class ScreenshotProvider extends ChangeNotifier {
 
       _screenshots = [];
       _byPath = {};
+      _byId = {};
       _hiddenPaths = {};
       _invertedIndex = {};
+      _sortedKeys = null;
       _tagIndex = {};
       _error = null;
       _processingStatus = '';
@@ -1442,6 +1462,46 @@ class ScreenshotProvider extends ChangeNotifier {
     return kept;
   }
 
+  /// Every posting-list key that starts with [prefix].
+  ///
+  /// Keys are held sorted, so the terms sharing a prefix form one contiguous
+  /// run: binary search finds the start of the run and the walk stops at its
+  /// first non-match. A term therefore costs O(log W + matches) rather than
+  /// O(W) — W being every distinct word in the library.
+  ///
+  /// Before this, every query term walked every key in the index and called
+  /// `startsWith` on it. On a 2000-screenshot library that is tens of
+  /// milliseconds per keystroke in the as-you-type box, paid again for every
+  /// term of every query.
+  Iterable<MapEntry<String, Map<String, int>>> _postingsWithPrefix(
+      String prefix) sync* {
+    var lo = 0;
+    var hi = _sortedIndexKeys.length;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (_sortedIndexKeys[mid].compareTo(prefix) < 0) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    for (var i = lo; i < _sortedIndexKeys.length; i++) {
+      final key = _sortedIndexKeys[i];
+      if (!key.startsWith(prefix)) break;
+      yield MapEntry(key, _invertedIndex[key]!);
+    }
+  }
+
+  /// Sorted view of the index keys, rebuilt only when the key set changes.
+  ///
+  /// The postings themselves are never re-sorted or copied: this holds keys
+  /// only, so incremental adds and deletes cost the one rebuild below rather
+  /// than a sort of the whole index.
+  List<String> get _sortedIndexKeys =>
+      _sortedKeys ??= (_invertedIndex.keys.toList(growable: false)..sort());
+
+  List<String>? _sortedKeys;
+
   /// Score every record the terms reach and order them the way [search] ranks
   /// them: highest score first, hidden screenshots dropped, ties left to the
   /// sort. Both [search] and [explainScores] read this, so an explanation
@@ -1456,8 +1516,7 @@ class ScreenshotProvider extends ChangeNotifier {
     // Collect candidate screenshot IDs and sum their weighted scores.
     final scores = <String, int>{};
     for (final term in terms) {
-      for (final posting in _invertedIndex.entries) {
-        if (!posting.key.startsWith(term)) continue;
+      for (final posting in _postingsWithPrefix(term)) {
         for (final entry in posting.value.entries) {
           // Only count hidden-path-free screenshots (checked later).
           scores[entry.key] = (scores[entry.key] ?? 0) + entry.value;
@@ -1470,10 +1529,7 @@ class ScreenshotProvider extends ChangeNotifier {
     // Build scored list, filtering hidden screenshots.
     final scored = <({Screenshot screenshot, int score})>[];
     for (final entry in scores.entries) {
-      final s = _byPath.values.cast<Screenshot?>().firstWhere(
-            (ss) => ss!.id == entry.key,
-            orElse: () => null,
-          );
+      final s = _byId[entry.key];
       if (s == null || _hiddenPaths.contains(s.filePath)) continue;
       scored.add((screenshot: s, score: entry.value));
     }
@@ -1575,6 +1631,7 @@ class ScreenshotProvider extends ChangeNotifier {
     final matches = _screenshots.where((s) => s.id == id).toList();
     if (matches.isNotEmpty) {
       _byPath.remove(matches.first.filePath);
+      _byId.remove(id);
       _removeId(id);
       for (final ids in _tagIndex.values) {
         ids.remove(id);

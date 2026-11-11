@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
@@ -86,7 +85,6 @@ class SiftMarkPainter extends CustomPainter {
   void _drawLayer(Canvas canvas, double cx, _LayerConfig layer, double s) {
     final halfW = layer.width / 2;
     final top = layer.y;
-    final mid = top + layer.height / 2;
     final bottom = top + layer.height;
 
     // Each layer is a rounded rectangle with curved top and bottom edges,
@@ -106,7 +104,8 @@ class SiftMarkPainter extends CustomPainter {
     // Slight opacity gradient: top layer most opaque, bottom least.
     final opacity = 1.0 - (layer.y / (s * 1.2)) * 0.3;
     final paint = Paint()
-      ..color = color.withOpacity(opacity.clamp(0.5, 1.0))
+      ..color = color.withValues(
+          alpha: (opacity.clamp(0.5, 1.0) as num).toDouble())
       ..style = PaintingStyle.fill;
 
     canvas.drawPath(path, paint);

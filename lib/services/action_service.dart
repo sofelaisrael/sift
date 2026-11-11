@@ -39,7 +39,7 @@ class ActionService {
         case 'create_task':
           return await _createTask(action.data, screenshotId);
         default:
-          return ActionResult(success: false, message: 'Unknown action');
+          return const ActionResult(success: false, message: 'Unknown action');
       }
     } catch (e) {
       // The message is surfaced in the UI, so it must never carry the raw
@@ -96,6 +96,18 @@ class ActionService {
 
   Future<ActionResult> _createReminder(Map<String, dynamic> data, String screenshotId) async {
     await _ensureNotificationsInitialized();
+    final android = _notifications.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    // On Android 13+ the permission is requested at the point the user asks
+    // for a reminder. A denied permission must not be reported as a reminder
+    // that will fire; null means the platform has no runtime prompt.
+    final granted = await android?.requestNotificationsPermission();
+    if (granted == false) {
+      return const ActionResult(
+        success: false,
+        message: 'Reminder not set: notifications are turned off for Sift.',
+      );
+    }
     final title = data['title'] ?? 'Reminder';
     final date = _parseDateTime(data['date'], null);
 

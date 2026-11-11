@@ -49,6 +49,10 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     tempDir = await Directory.systemTemp.createTemp('delete_everything_');
     Hive.init(tempDir.path);
+    // Open the boxes here, outside the widget tests' fake-async zone. Hive
+    // does real file I/O, which testWidgets' fake clock never completes.
+    await Hive.openBox('screenshots');
+    await Hive.openBox('chat');
   });
 
   tearDown(() async {
@@ -343,33 +347,38 @@ void main() {
 
   testWidgets('mounted ChatScreen clears its transcript after deletion',
       (tester) async {
-    await Hive.openBox('screenshots');
-    await Hive.openBox('chat');
     final provider = ScreenshotProvider();
     await provider.loadScreenshots();
-    await Hive.box('chat').put('history', [
-      ChatMessage(
-        id: 'message-1',
-        role: 'user',
-        content: 'remember this',
-        timestamp: DateTime(2026, 1, 1),
-      ).toJson(),
-    ]);
+    await tester.runAsync(
+      () => Hive.box('chat').put('history', [
+        ChatMessage(
+          id: 'message-1',
+          role: 'user',
+          content: 'remember this',
+          timestamp: DateTime(2026, 1, 1),
+        ).toJson(),
+      ]),
+    );
 
     await tester.pumpWidget(
       ChangeNotifierProvider<ScreenshotProvider>.value(
         value: provider,
         child: MaterialApp(
           theme: AppTheme.lightTheme,
-          home: const ChatScreen(),
+          home: const Scaffold(body: ChatScreen()),
         ),
       ),
     );
     await tester.pump();
     expect(find.text('remember this'), findsOneWidget);
 
-    await provider.deleteEverything(
-      importDir: Directory('${tempDir.path}/sift_imports'),
+    // Hive writes and the import-directory checks are real file I/O. Inside
+    // testWidgets' fake-async zone they never complete, and a timeout cannot
+    // interrupt the pending work. runAsync lets them finish on the real clock.
+    await tester.runAsync(
+      () => provider.deleteEverything(
+        importDir: Directory('${tempDir.path}/sift_imports'),
+      ),
     );
     await tester.pump(const Duration(milliseconds: 400));
 
@@ -388,7 +397,19 @@ void main() {
     expect(callIndex, greaterThan(-1));
     // The call is guarded: a catch clause follows it directly, and the failure
     // copy is shown before any success snackbar or UI reset.
-    expect(source.substring(callIndex, callIndex + 40), contains('catch'));
+    //
+    // The guard is read as "a catch appears between this call and the next
+    // member", not as a fixed character window. A window is measured in
+    // characters, so its length silently encodes the indentation and the line
+    // ending of the day it was written: CRLF plus the four-space indent of
+    // `} catch` put `catch` at offset 41, and a 40-character window excluded
+    // it by one. That is a test failing on a source file that is correct.
+    final guardEnd = _nextMemberStart(source, callIndex);
+    final guarded = source.substring(
+      callIndex,
+      guardEnd == -1 ? source.length : guardEnd,
+    );
+    expect(guarded, contains('catch'));
     expect(source, contains(failure));
     // The wipe can fail after the import folder or some boxes are already gone,
     // so the copy must not promise an untouched library.

@@ -256,16 +256,39 @@ void main() {
         await File('lib/screens/settings_screen.dart').readAsString();
     final privacy =
         await File('lib/widgets/privacy_gate.dart').readAsString();
+    final provider =
+        await File('lib/providers/screenshot_provider.dart').readAsString();
 
-    expect(settings, contains('bool _localOnly = true;'));
-    expect(settings, contains("prefs.getBool('localOnly') ?? true"));
-    expect(settings, contains('await provider.setLocalOnly(value);'));
-    expect(
-      settings.indexOf('await provider.setLocalOnly(value);'),
-      lessThan(settings.indexOf('setState(() => _localOnly = value);')),
-    );
-    expect(settings, isNot(contains("setBool('localOnly', _localOnly)")));
+    // Local-only fails closed, and the default lives in the provider rather
+    // than in a second copy on the Settings screen. The screen used to keep its
+    // own `bool _localOnly = true;` and never read it — the switch was wired to
+    // `provider.localOnly` — so the invariant was asserted against a mirror that
+    // could drift from the value actually shown. It is asserted here instead,
+    // at the one place the switch really reads.
+    expect(provider, contains('bool _localOnly = true;'));
     expect(privacy, contains("prefs.getBool('localOnly') ?? true"));
+    // And the screen still renders the provider's value rather than its own.
+    expect(settings, contains('context.watch<ScreenshotProvider>().localOnly'));
+    expect(settings, contains('await provider.setLocalOnly(value);'));
+    expect(settings, isNot(contains("setBool('localOnly', _localOnly)")));
+
+    // "Await persistence" is the provider's job now, and it is stronger than
+    // the screen-level ordering this used to assert. The write is awaited
+    // *before* the in-memory value is published, so a failed write cannot
+    // leave the switch showing a state that never reached disk:
+    // `_persistLocalOnlyPreference(value)` is awaited ahead of
+    // `_localOnly = value`. And if a delete-everything race intervened while
+    // that write was in flight, it persists `true` again rather than trusting
+    // the value that lost.
+    final providerBody = provider.substring(
+      provider.indexOf('Future<void> setLocalOnly'),
+      provider.indexOf('void setShowFavoritesOnly'),
+    );
+    expect(
+      providerBody.indexOf('_persistLocalOnlyPreference(value)'),
+      lessThan(providerBody.indexOf('_localOnly = value;')),
+    );
+    expect(providerBody, contains('await _persistLocalOnlyPreference(true);'));
   });
 
   test('product copy describes local analysis and conditional actions', () async {

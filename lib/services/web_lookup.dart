@@ -82,7 +82,7 @@ class WebLookupService {
     try {
       final fromText = extractUrlsFromText(extractedText);
       if (fromText.isNotEmpty) {
-        return _enrichYouTubeLinks(fromText);
+        return await _enrichYouTubeLinks(fromText);
       }
 
       final query = _buildQuery(
@@ -105,12 +105,12 @@ class WebLookupService {
         final videoResults =
             await _searchDuckDuckGo('site:youtube.com $query', youtubeOnly: true);
         if (videoResults.isNotEmpty) {
-          return _enrichYouTubeLinks(videoResults);
+          return await _enrichYouTubeLinks(videoResults);
         }
       }
 
       final generic = await _searchDuckDuckGo(query);
-      return _enrichYouTubeLinks(generic);
+      return await _enrichYouTubeLinks(generic);
     } catch (_) {
       return const [];
     }
